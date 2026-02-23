@@ -1,11 +1,117 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import Link from "next/link";
-import { Trash2, Plus, Minus, ShoppingCart } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Trash2, Plus, Minus, ShoppingCart, CheckCircle, Calendar } from "lucide-react";
+import { useUser } from "@clerk/nextjs";
 import { useCart } from "@/lib/cart-context";
+import { supabase } from "@/lib/supabase";
+import type { DeliveryDay } from "@/lib/data";
 
 export default function CartPage() {
-  const { items, updateQuantity, removeItem, totalPrice, getProduct } = useCart();
+  const { items, updateQuantity, removeItem, totalPrice, getProduct, clearCart } = useCart();
+  const { isSignedIn, user } = useUser();
+  const router = useRouter();
+  const [deliveryDays, setDeliveryDays] = useState<DeliveryDay[]>([]);
+  const [selectedDay, setSelectedDay] = useState("");
+  const [placing, setPlacing] = useState(false);
+  const [orderPlaced, setOrderPlaced] = useState(false);
+
+  useEffect(() => {
+    supabase
+      .from("delivery_days")
+      .select("*")
+      .eq("active", true)
+      .order("id")
+      .then(({ data }) => {
+        if (data) {
+          setDeliveryDays(
+            data.map((d) => ({ id: d.id, dayOfWeek: d.day_of_week, cutoffTime: d.cutoff_time, active: d.active }))
+          );
+        }
+      });
+  }, []);
+
+  const handlePlaceOrder = async () => {
+    if (!isSignedIn || !user) {
+      router.push("/sign-in");
+      return;
+    }
+    if (!selectedDay) return;
+
+    setPlacing(true);
+
+    const orderItems = items
+      .map((item) => {
+        const product = getProduct(item.productId);
+        if (!product) return null;
+        return {
+          productId: item.productId,
+          productName: product.name,
+          quantity: item.quantity,
+          price: product.price,
+        };
+      })
+      .filter(Boolean) as { productId: string; productName: string; quantity: number; price: number }[];
+
+    const { data: order, error } = await supabase
+      .from("orders")
+      .insert({
+        user_id: user.id,
+        total: totalPrice,
+        status: "pending",
+        delivery_day: selectedDay,
+      })
+      .select()
+      .single();
+
+    if (error || !order) {
+      setPlacing(false);
+      alert("Failed to place order. Please try again.");
+      return;
+    }
+
+    await supabase.from("order_items").insert(
+      orderItems.map((item) => ({
+        order_id: order.id,
+        product_id: item.productId,
+        product_name: item.productName,
+        quantity: item.quantity,
+        price: item.price,
+      }))
+    );
+
+    clearCart();
+    setPlacing(false);
+    setOrderPlaced(true);
+  };
+
+  if (orderPlaced) {
+    return (
+      <div className="mx-auto max-w-4xl px-4 py-20 text-center sm:px-6 lg:px-8">
+        <CheckCircle size={48} className="mx-auto text-primary-light" />
+        <h1 className="mt-4 text-2xl font-bold text-primary">Order Placed!</h1>
+        <p className="mt-2 text-muted">
+          Your order has been placed for <span className="font-semibold text-primary">{selectedDay}</span> delivery.
+        </p>
+        <div className="mt-6 flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
+          <Link
+            href="/orders"
+            className="inline-block rounded-lg bg-primary px-6 py-3 font-semibold text-white transition hover:bg-primary-light"
+          >
+            View My Orders
+          </Link>
+          <Link
+            href="/products"
+            className="inline-block rounded-lg border-2 border-primary/20 px-6 py-3 font-semibold text-primary transition hover:bg-secondary/10"
+          >
+            Continue Shopping
+          </Link>
+        </div>
+      </div>
+    );
+  }
 
   if (items.length === 0) {
     return (
@@ -74,22 +180,64 @@ export default function CartPage() {
         })}
       </div>
 
-      {/* Summary */}
+      {/* Delivery Day Picker */}
       <div className="mt-8 rounded-xl bg-surface p-6 shadow-sm">
+        <div className="flex items-center gap-2">
+          <Calendar size={20} className="text-primary" />
+          <h2 className="text-lg font-semibold text-primary">Choose Delivery Day</h2>
+        </div>
+        {deliveryDays.length === 0 ? (
+          <p className="mt-3 text-sm text-muted">No delivery days available at the moment.</p>
+        ) : (
+          <div className="mt-4 flex flex-wrap gap-3">
+            {deliveryDays.map((day) => (
+              <button
+                key={day.id}
+                onClick={() => setSelectedDay(day.dayOfWeek)}
+                className={`rounded-lg border-2 px-5 py-3 text-sm font-semibold transition ${
+                  selectedDay === day.dayOfWeek
+                    ? "border-primary bg-primary text-white"
+                    : "border-primary/20 bg-background text-primary hover:border-primary-light"
+                }`}
+              >
+                <span className="block">{day.dayOfWeek}</span>
+                <span className="block text-xs font-normal opacity-70">
+                  Order by {day.cutoffTime}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Summary */}
+      <div className="mt-6 rounded-xl bg-surface p-6 shadow-sm">
         <div className="flex items-center justify-between border-b border-primary/5 pb-4">
           <span className="text-muted">Subtotal</span>
           <span className="font-semibold text-primary">&euro;{totalPrice.toFixed(2)}</span>
         </div>
+        {selectedDay && (
+          <div className="flex items-center justify-between border-b border-primary/5 py-4">
+            <span className="text-muted">Delivery</span>
+            <span className="font-semibold text-primary">{selectedDay}</span>
+          </div>
+        )}
         <div className="flex items-center justify-between pt-4">
           <span className="text-lg font-bold text-primary">Total</span>
           <span className="text-lg font-bold text-primary">&euro;{totalPrice.toFixed(2)}</span>
         </div>
-        <button className="mt-6 w-full rounded-lg bg-accent py-3 text-center font-semibold text-primary transition hover:bg-accent/90">
-          Place Order
+        <button
+          disabled={!selectedDay || placing}
+          onClick={handlePlaceOrder}
+          className="mt-6 w-full rounded-lg bg-accent py-3 text-center font-semibold text-primary transition hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {placing ? "Placing Order..." : !isSignedIn ? "Sign In to Place Order" : !selectedDay ? "Select a Delivery Day" : "Place Order"}
         </button>
-        <p className="mt-2 text-center text-xs text-muted">
-          You&apos;ll need to be signed in to complete your order
-        </p>
+        {!isSignedIn && (
+          <p className="mt-2 text-center text-xs text-muted">
+            You&apos;ll need to <Link href="/sign-in" className="text-primary-light hover:underline">sign in</Link> to complete your order
+          </p>
+        )}
       </div>
     </div>
   );
