@@ -1,65 +1,166 @@
-import Image from "next/image";
+import Link from "next/link";
+import { getProducts, getSuppliers } from "@/lib/data";
+import { ArrowRight, Leaf, Truck, ShieldCheck } from "lucide-react";
 
-export default function Home() {
+export default async function Home() {
+  const products = await getProducts();
+  const suppliers = await getSuppliers();
+  const featured = products.filter((p) => p.inStock).slice(0, 4);
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
+    <>
+      {/* Hero */}
+      <section className="relative bg-primary px-4 py-24 text-center text-white sm:py-32">
+        <div className="mx-auto max-w-3xl">
+          <h1 className="text-4xl font-extrabold tracking-tight sm:text-5xl lg:text-6xl">
+            Fresh Local Produce,<br />
+            <span className="text-accent">Delivered to You</span>
           </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
+          <p className="mx-auto mt-4 max-w-xl text-lg text-white/80">
+            Shop directly from trusted local farmers and artisan producers. Quality food, straight from the source.
           </p>
+          <div className="mt-8 flex flex-col items-center justify-center gap-4 sm:flex-row">
+            <Link
+              href="/products"
+              className="inline-flex items-center gap-2 rounded-lg bg-accent px-6 py-3 font-semibold text-primary transition hover:bg-accent/90"
+            >
+              Browse Products <ArrowRight size={18} />
+            </Link>
+            <Link
+              href="/suppliers"
+              className="inline-flex items-center gap-2 rounded-lg border-2 border-white/30 px-6 py-3 font-semibold text-white transition hover:border-white hover:bg-white/10"
+            >
+              Meet Our Suppliers
+            </Link>
+          </div>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+      </section>
+
+      {/* Value props */}
+      <section className="border-b border-primary/5 bg-surface px-4 py-12">
+        <div className="mx-auto grid max-w-5xl gap-8 sm:grid-cols-3">
+          <div className="flex flex-col items-center text-center">
+            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-secondary/30 text-primary">
+              <Leaf size={24} />
+            </div>
+            <h3 className="mt-3 font-semibold text-primary">Locally Sourced</h3>
+            <p className="mt-1 text-sm text-muted">All produce comes from verified local farms and producers.</p>
+          </div>
+          <div className="flex flex-col items-center text-center">
+            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-secondary/30 text-primary">
+              <Truck size={24} />
+            </div>
+            <h3 className="mt-3 font-semibold text-primary">Reliable Delivery</h3>
+            <p className="mt-1 text-sm text-muted">Regular delivery days so you always know when to expect your order.</p>
+          </div>
+          <div className="flex flex-col items-center text-center">
+            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-secondary/30 text-primary">
+              <ShieldCheck size={24} />
+            </div>
+            <h3 className="mt-3 font-semibold text-primary">Quality Guaranteed</h3>
+            <p className="mt-1 text-sm text-muted">Every supplier is vetted for quality, freshness and sustainability.</p>
+          </div>
         </div>
-      </main>
-    </div>
+      </section>
+
+      {/* Featured Products */}
+      <section className="px-4 py-16">
+        <div className="mx-auto max-w-7xl">
+          <div className="flex items-end justify-between">
+            <div>
+              <h2 className="text-2xl font-bold text-primary sm:text-3xl">Featured Products</h2>
+              <p className="mt-1 text-muted">Hand-picked favourites from our suppliers</p>
+            </div>
+            <Link href="/products" className="hidden text-sm font-semibold text-primary-light hover:underline sm:inline-flex items-center gap-1">
+              View all <ArrowRight size={14} />
+            </Link>
+          </div>
+
+          <div className="mt-8 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+            {featured.map((product) => (
+              <div key={product.id} className="group overflow-hidden rounded-xl bg-surface shadow-sm transition hover:shadow-md">
+                <div className="aspect-[4/3] overflow-hidden bg-secondary/10">
+                  <img
+                    src={product.image}
+                    alt={product.name}
+                    className="h-full w-full object-cover transition-transform group-hover:scale-105"
+                  />
+                </div>
+                <div className="p-4">
+                  <p className="text-xs font-medium text-primary-light">{product.supplierName}</p>
+                  <h3 className="mt-1 font-semibold text-primary">{product.name}</h3>
+                  <p className="mt-0.5 text-sm text-muted">{product.description}</p>
+                  <div className="mt-3 flex items-center justify-between">
+                    <span className="text-lg font-bold text-primary">&euro;{product.price.toFixed(2)}</span>
+                    <span className="text-xs text-muted">{product.unit}</span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-6 text-center sm:hidden">
+            <Link href="/products" className="text-sm font-semibold text-primary-light hover:underline">
+              View all products &rarr;
+            </Link>
+          </div>
+        </div>
+      </section>
+
+      {/* Suppliers preview */}
+      <section className="bg-surface px-4 py-16">
+        <div className="mx-auto max-w-7xl">
+          <div className="flex items-end justify-between">
+            <div>
+              <h2 className="text-2xl font-bold text-primary sm:text-3xl">Our Suppliers</h2>
+              <p className="mt-1 text-muted">Meet the people behind your food</p>
+            </div>
+            <Link href="/suppliers" className="hidden text-sm font-semibold text-primary-light hover:underline sm:inline-flex items-center gap-1">
+              View all <ArrowRight size={14} />
+            </Link>
+          </div>
+
+          <div className="mt-8 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+            {suppliers.slice(0, 3).map((supplier) => (
+              <Link
+                key={supplier.id}
+                href={`/suppliers/${supplier.id}`}
+                className="group overflow-hidden rounded-xl bg-background shadow-sm transition hover:shadow-md"
+              >
+                <div className="aspect-[3/2] overflow-hidden">
+                  <img
+                    src={supplier.image}
+                    alt={supplier.name}
+                    className="h-full w-full object-cover transition-transform group-hover:scale-105"
+                  />
+                </div>
+                <div className="p-4">
+                  <span className="inline-block rounded-full bg-secondary/20 px-2.5 py-0.5 text-xs font-medium text-primary">
+                    {supplier.category}
+                  </span>
+                  <h3 className="mt-2 font-semibold text-primary">{supplier.name}</h3>
+                  <p className="mt-1 text-sm text-muted line-clamp-2">{supplier.description}</p>
+                  <p className="mt-2 text-xs text-primary-light font-medium">{supplier.location}</p>
+                </div>
+              </Link>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* CTA */}
+      <section className="bg-primary px-4 py-16 text-center text-white">
+        <div className="mx-auto max-w-2xl">
+          <h2 className="text-2xl font-bold sm:text-3xl">Ready to order?</h2>
+          <p className="mt-2 text-white/70">Sign in to place your order and get fresh local produce delivered on our next delivery day.</p>
+          <Link
+            href="/products"
+            className="mt-6 inline-flex items-center gap-2 rounded-lg bg-accent px-6 py-3 font-semibold text-primary transition hover:bg-accent/90"
+          >
+            Start Shopping <ArrowRight size={18} />
+          </Link>
+        </div>
+      </section>
+    </>
   );
 }
