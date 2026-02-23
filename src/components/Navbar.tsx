@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import { usePathname } from "next/navigation";
 import { Menu, X, ShoppingCart, Search } from "lucide-react";
 import { useCart } from "@/lib/cart-context";
 import { SignedIn, SignedOut, UserButton } from "@clerk/nextjs";
@@ -15,6 +16,9 @@ const NAV_LINKS = [
 export default function Navbar() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const { totalItems } = useCart();
+  const pathname = usePathname();
+
+  if (pathname.startsWith("/admin")) return null;
 
   return (
     <header className="sticky top-0 z-50 bg-primary text-white shadow-md">
