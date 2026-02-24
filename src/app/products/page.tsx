@@ -72,11 +72,15 @@ export default function ProductsPage() {
               className="group overflow-hidden rounded-xl bg-surface shadow-sm transition hover:shadow-md"
             >
               <div className="aspect-[4/3] overflow-hidden bg-secondary/10">
-                <img
-                  src={product.image}
-                  alt={product.name}
-                  className="h-full w-full object-cover transition-transform group-hover:scale-105"
-                />
+                {product.image ? (
+                  <img
+                    src={product.image}
+                    alt={product.name}
+                    className="h-full w-full object-cover transition-transform group-hover:scale-105"
+                  />
+                ) : (
+                  <div className="flex h-full w-full items-center justify-center text-muted text-sm">No image</div>
+                )}
               </div>
               <div className="p-4">
                 <div className="flex items-center justify-between">
