@@ -49,7 +49,7 @@ export default async function AdminDashboard() {
             {orders.slice(0, 5).map((order) => (
               <div key={order.id} className="flex items-center justify-between rounded-lg bg-background p-3">
                 <div>
-                  <p className="text-sm font-medium text-primary">{order.id.slice(0, 8)}...</p>
+                  <p className="text-sm font-medium text-primary">Order #{order.orderNumber}</p>
                   <p className="text-xs text-muted">{order.createdAt}</p>
                 </div>
                 <div className="text-right">

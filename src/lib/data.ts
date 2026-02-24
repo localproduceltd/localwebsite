@@ -56,6 +56,7 @@ export interface OrderItem {
 
 export interface Order {
   id: string;
+  orderNumber: number;
   userId: string;
   items: OrderItem[];
   total: number;
@@ -242,6 +243,7 @@ export async function getOrders(userId?: string): Promise<Order[]> {
   if (error) throw error;
   return data.map((o) => ({
     id: o.id,
+    orderNumber: o.order_number,
     userId: o.user_id,
     items: (o.order_items as Array<{ product_id: string; product_name: string; quantity: number; price: number; supplier_id?: string; supplier_status?: string }>).map((item) => ({
       productId: item.product_id,
@@ -432,6 +434,7 @@ export async function createOrder(userId: string, total: number, deliveryDay: st
 
   return {
     id: order.id,
+    orderNumber: order.order_number,
     userId: order.user_id,
     items,
     total: Number(order.total),
@@ -541,4 +544,61 @@ export async function updateSupplierOrderItemStatus(
     .eq("order_id", orderId)
     .eq("supplier_id", supplierId);
   if (error) throw error;
+}
+
+// ─── Feedback ─────────────────────────────────────────────────────────────────
+
+export async function submitFeedback(name: string, message: string): Promise<void> {
+  const { error } = await supabase
+    .from("feedback")
+    .insert({ name: name || null, message });
+  if (error) throw error;
+}
+
+export async function getFeedback(): Promise<{ id: string; name: string | null; message: string; created_at: string }[]> {
+  const { data, error } = await supabase
+    .from("feedback")
+    .select("*")
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  return data ?? [];
+}
+
+// ─── Ratings ──────────────────────────────────────────────────────────────────
+
+export async function submitRating(userId: string, productId: string, orderId: string, stars: number): Promise<void> {
+  const { error } = await supabase
+    .from("ratings")
+    .upsert({ user_id: userId, product_id: productId, order_id: orderId, stars }, { onConflict: "user_id,product_id,order_id" });
+  if (error) throw error;
+}
+
+export async function getRatingsByOrder(userId: string, orderId: string): Promise<Record<string, number>> {
+  const { data, error } = await supabase
+    .from("ratings")
+    .select("product_id, stars")
+    .eq("user_id", userId)
+    .eq("order_id", orderId);
+  if (error) throw error;
+  const map: Record<string, number> = {};
+  for (const r of data ?? []) map[r.product_id] = r.stars;
+  return map;
+}
+
+export async function getAverageRatings(): Promise<Record<string, { avg: number; count: number }>> {
+  const { data, error } = await supabase
+    .from("ratings")
+    .select("product_id, stars");
+  if (error) throw error;
+  const map: Record<string, { total: number; count: number }> = {};
+  for (const r of data ?? []) {
+    if (!map[r.product_id]) map[r.product_id] = { total: 0, count: 0 };
+    map[r.product_id].total += r.stars;
+    map[r.product_id].count += 1;
+  }
+  const result: Record<string, { avg: number; count: number }> = {};
+  for (const [id, { total, count }] of Object.entries(map)) {
+    result[id] = { avg: total / count, count };
+  }
+  return result;
 }

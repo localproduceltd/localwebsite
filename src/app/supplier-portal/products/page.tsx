@@ -15,8 +15,9 @@ import {
   createProduct,
   updateProduct,
   deleteProduct,
+  getAverageRatings,
 } from "@/lib/data";
-import { Plus, Pencil, Trash2, X, Loader2 } from "lucide-react";
+import { Plus, Pencil, Trash2, X, Loader2, Star } from "lucide-react";
 
 export default function SupplierProductsPage() {
   const { user, isLoaded } = useUser();
@@ -26,6 +27,7 @@ export default function SupplierProductsPage() {
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<Product | null>(null);
   const [showForm, setShowForm] = useState(false);
+  const [avgRatings, setAvgRatings] = useState<Record<string, { avg: number; count: number }>>({});
 
   const fetchProducts = async (supplierId: string) => {
     const prods = await getProductsBySupplier(supplierId);
@@ -42,6 +44,8 @@ export default function SupplierProductsPage() {
         setSupplier(s);
         if (s) await fetchProducts(s.id);
       }
+      const ratings = await getAverageRatings();
+      setAvgRatings(ratings);
       setLoading(false);
     })();
   }, [isLoaded, user]);
@@ -115,7 +119,67 @@ export default function SupplierProductsPage() {
         />
       )}
 
-      <div className="mt-8 overflow-hidden rounded-xl bg-surface shadow-sm">
+      {/* Mobile card view */}
+      <div className="mt-8 space-y-4 md:hidden">
+        {products.length === 0 && (
+          <p className="py-8 text-center text-muted">No products yet. Add your first product!</p>
+        )}
+        {products.map((product) => (
+          <div key={product.id} className="rounded-xl bg-surface p-4 shadow-sm">
+            <div className="flex items-start gap-3">
+              <div className="h-14 w-14 flex-shrink-0 overflow-hidden rounded-lg bg-secondary/10">
+                {product.image && <img src={product.image} alt="" className="h-full w-full object-cover" />}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="font-medium text-primary">{product.name}</p>
+                <p className="text-xs text-muted">{product.unit}</p>
+                <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                  <span className="rounded-full bg-secondary/20 px-2 py-0.5 text-[10px] font-medium text-primary">{product.category}</span>
+                  <span className="rounded-full bg-accent/20 px-2 py-0.5 text-[10px] font-medium text-primary">{product.locality ?? "—"}</span>
+                  <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                    product.status === "approved" ? "bg-green-100 text-green-700" :
+                    product.status === "pending" ? "bg-amber-100 text-amber-700" :
+                    "bg-red-100 text-red-600"
+                  }`}>{product.status}</span>
+                </div>
+              </div>
+            </div>
+            {avgRatings[product.id] && (
+              <div className="mt-2 flex items-center gap-1">
+                <div className="flex items-center gap-0.5">
+                  {[1, 2, 3, 4, 5].map((s) => (
+                    <Star key={s} size={11} className={avgRatings[product.id].avg >= s ? "fill-accent text-accent" : "text-primary/15"} />
+                  ))}
+                </div>
+                <span className="text-[10px] text-muted">{avgRatings[product.id].avg.toFixed(1)} ({avgRatings[product.id].count})</span>
+              </div>
+            )}
+            <div className="mt-3 flex items-center justify-between border-t border-primary/5 pt-3">
+              <div className="flex items-center gap-2">
+                <span className="font-semibold text-primary">£{product.price.toFixed(2)}</span>
+                <span className={`inline-block h-2.5 w-2.5 rounded-full ${product.inStock ? "bg-green-500" : "bg-red-400"}`} />
+              </div>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => { setEditing(product); setShowForm(true); }}
+                  className="rounded p-2 text-muted transition hover:bg-secondary/20 hover:text-primary"
+                >
+                  <Pencil size={16} />
+                </button>
+                <button
+                  onClick={() => handleDelete(product.id)}
+                  className="rounded p-2 text-muted transition hover:bg-red-50 hover:text-red-600"
+                >
+                  <Trash2 size={16} />
+                </button>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Desktop table view */}
+      <div className="mt-8 hidden overflow-hidden rounded-xl bg-surface shadow-sm md:block">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-primary/5 bg-primary/5 text-left">
@@ -124,6 +188,7 @@ export default function SupplierProductsPage() {
               <th className="px-4 py-3 font-semibold text-primary">Locality</th>
               <th className="px-4 py-3 font-semibold text-primary text-right">Price</th>
               <th className="px-4 py-3 font-semibold text-primary text-center">Stock</th>
+              <th className="px-4 py-3 font-semibold text-primary text-center">Rating</th>
               <th className="px-4 py-3 font-semibold text-primary text-center">Status</th>
               <th className="px-4 py-3 font-semibold text-primary text-right">Actions</th>
             </tr>
@@ -131,7 +196,7 @@ export default function SupplierProductsPage() {
           <tbody>
             {products.length === 0 && (
               <tr>
-                <td colSpan={7} className="px-4 py-8 text-center text-muted">No products yet. Add your first product!</td>
+                <td colSpan={8} className="px-4 py-8 text-center text-muted">No products yet. Add your first product!</td>
               </tr>
             )}
             {products.map((product) => (
@@ -160,6 +225,20 @@ export default function SupplierProductsPage() {
                 <td className="px-4 py-3 text-right font-medium text-primary">£{product.price.toFixed(2)}</td>
                 <td className="px-4 py-3 text-center">
                   <span className={`inline-block h-2.5 w-2.5 rounded-full ${product.inStock ? "bg-green-500" : "bg-red-400"}`} />
+                </td>
+                <td className="px-4 py-3 text-center">
+                  {avgRatings[product.id] ? (
+                    <div className="flex items-center justify-center gap-1">
+                      <div className="flex items-center gap-0.5">
+                        {[1, 2, 3, 4, 5].map((s) => (
+                          <Star key={s} size={12} className={avgRatings[product.id].avg >= s ? "fill-accent text-accent" : "text-primary/15"} />
+                        ))}
+                      </div>
+                      <span className="text-[10px] text-muted">{avgRatings[product.id].avg.toFixed(1)}</span>
+                    </div>
+                  ) : (
+                    <span className="text-xs text-muted">—</span>
+                  )}
                 </td>
                 <td className="px-4 py-3 text-center">
                   <span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-bold ${

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Package, Users, Calendar, ShoppingCart, ArrowLeft } from "lucide-react";
+import { LayoutDashboard, Package, Users, Calendar, ShoppingCart, MessageCircleHeart, ArrowLeft } from "lucide-react";
 
 const adminLinks = [
   { href: "/admin", label: "Dashboard", icon: LayoutDashboard },
@@ -10,6 +10,7 @@ const adminLinks = [
   { href: "/admin/suppliers", label: "Suppliers", icon: Users },
   { href: "/admin/orders", label: "Orders", icon: ShoppingCart },
   { href: "/admin/delivery-days", label: "Delivery Days", icon: Calendar },
+  { href: "/admin/feedback", label: "Feedback", icon: MessageCircleHeart },
 ];
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {

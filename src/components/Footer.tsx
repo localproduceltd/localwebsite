@@ -6,7 +6,7 @@ import { usePathname } from "next/navigation";
 export default function Footer() {
   const pathname = usePathname();
 
-  if (pathname.startsWith("/admin")) return null;
+  if (pathname.startsWith("/admin") || pathname.startsWith("/supplier-portal") || pathname.startsWith("/sign-in") || pathname.startsWith("/sign-up")) return null;
 
   return (
     <footer className="bg-primary">
@@ -16,7 +16,7 @@ export default function Footer() {
           <div>
             <Link href="/" className="flex items-center gap-2 text-xl font-bold text-white">
               <img src="/logo-carrot.png" alt="Logo" className="h-8 w-8 object-contain" />
-              Local Produce
+              <span className="tracking-widest">Local</span>
             </Link>
             <p className="mt-3 text-sm leading-relaxed text-white/60">
               Connecting Derbyshire with the finest local farmers and artisan producers.
@@ -47,7 +47,7 @@ export default function Footer() {
           <div>
             <h4 className="text-sm font-bold uppercase tracking-wider text-primary-light">Contact</h4>
             <ul className="mt-3 space-y-2 text-sm text-white/60">
-              <li>info@localproduce.co.uk</li>
+              <li>josie@localproduce.ltd</li>
               <li>Ashbourne, Derbyshire</li>
             </ul>
           </div>

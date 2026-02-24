@@ -3,15 +3,17 @@
 import Link from "next/link";
 import { useState } from "react";
 import { usePathname } from "next/navigation";
-import { Menu, X, ShoppingCart, Search } from "lucide-react";
+import { Menu, X, ShoppingCart, Home, Store, Package, MapPinned, ClipboardList } from "lucide-react";
 import { useCart } from "@/lib/cart-context";
-import { SignedIn, SignedOut, UserButton } from "@clerk/nextjs";
+import { SignedIn, SignedOut } from "@clerk/nextjs";
+import UserAvatar from "@/components/UserAvatar";
+import CarrieFeedback from "@/components/CarrieFeedback";
 
 const NAV_LINKS = [
-  { href: "/", label: "Home" },
-  { href: "/suppliers", label: "Suppliers" },
-  { href: "/products", label: "Products" },
-  { href: "/map", label: "Map" },
+  { href: "/", label: "Home", icon: Home },
+  { href: "/suppliers", label: "Suppliers", icon: Store },
+  { href: "/products", label: "Products", icon: Package },
+  { href: "/map", label: "Map", icon: MapPinned },
 ];
 
 export default function Navbar() {
@@ -19,40 +21,40 @@ export default function Navbar() {
   const { totalItems } = useCart();
   const pathname = usePathname();
 
-  if (pathname.startsWith("/admin") || pathname === "/supplier" || pathname.startsWith("/supplier/")) return null;
+  if (pathname.startsWith("/admin") || pathname.startsWith("/supplier-portal") || pathname.startsWith("/sign-in") || pathname.startsWith("/sign-up")) return null;
 
   return (
     <header className="sticky top-0 z-50 bg-primary text-white shadow-md">
       <div className="mx-auto flex h-18 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
         {/* Logo */}
-        <Link href="/" className="flex items-center gap-2.5 text-3xl font-bold tracking-tight">
-          <img src="/logo-carrot.png" alt="Logo" className="h-14 w-14 object-contain" />
-          Local Produce
+        <Link href="/" className="flex items-center gap-0.5 text-3xl font-bold tracking-tight">
+          <CarrieFeedback />
+          <span className="text-4xl font-bold tracking-wide rounded-lg bg-[#5a6b3f] px-3 py-1">Local</span>
         </Link>
 
         {/* Desktop nav */}
         <nav className="hidden items-center gap-8 md:flex">
-          {NAV_LINKS.map((link) => (
-            <Link
-              key={link.href}
-              href={link.href}
-              className="text-base font-medium transition-colors hover:text-white/70"
-            >
-              {link.label}
-            </Link>
-          ))}
+          {NAV_LINKS.map((link) => {
+            const Icon = link.icon;
+            return (
+              <Link
+                key={link.href}
+                href={link.href}
+                className="flex items-center gap-1.5 text-base font-medium transition-colors hover:text-white/70"
+              >
+                <Icon size={16} /> {link.label}
+              </Link>
+            );
+          })}
           <SignedIn>
-            <Link href="/orders" className="text-base font-medium transition-colors hover:text-white/70">
-              My Orders
+            <Link href="/orders" className="flex items-center gap-1.5 text-base font-medium transition-colors hover:text-white/70">
+              <ClipboardList size={16} /> My Orders
             </Link>
           </SignedIn>
         </nav>
 
         {/* Right side */}
         <div className="flex items-center gap-4">
-          <Link href="/products" className="hidden rounded-full bg-white/15 p-2.5 transition hover:bg-white/25 md:inline-flex">
-            <Search size={20} />
-          </Link>
           <Link href="/cart" className="relative rounded-full bg-white/15 p-2.5 transition hover:bg-white/25">
             <ShoppingCart size={20} />
             {totalItems > 0 && (
@@ -63,19 +65,12 @@ export default function Navbar() {
           </Link>
 
           <SignedIn>
-            <UserButton
-              afterSignOutUrl="/"
-              appearance={{
-                elements: {
-                  avatarBox: "h-9 w-9",
-                },
-              }}
-            />
+            <UserAvatar />
           </SignedIn>
           <SignedOut>
             <Link
               href="/sign-in"
-              className="hidden rounded-lg bg-accent px-5 py-2 text-sm font-semibold text-primary transition hover:bg-accent/90 md:inline-flex"
+              className="hidden rounded-lg bg-primary-light px-5 py-2 text-sm font-semibold text-white transition hover:bg-primary-light/90 md:inline-flex"
             >
               Sign In
             </Link>
@@ -95,23 +90,26 @@ export default function Navbar() {
       {/* Mobile menu */}
       {mobileOpen && (
         <nav className="border-t border-white/20 bg-primary px-4 pb-4 pt-2 md:hidden">
-          {NAV_LINKS.map((link) => (
-            <Link
-              key={link.href}
-              href={link.href}
-              className="block rounded-md px-3 py-2 text-sm font-medium transition-colors hover:bg-white/15 hover:text-white"
-              onClick={() => setMobileOpen(false)}
-            >
-              {link.label}
-            </Link>
-          ))}
+          {NAV_LINKS.map((link) => {
+            const Icon = link.icon;
+            return (
+              <Link
+                key={link.href}
+                href={link.href}
+                className="flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors hover:bg-white/15 hover:text-white"
+                onClick={() => setMobileOpen(false)}
+              >
+                <Icon size={16} /> {link.label}
+              </Link>
+            );
+          })}
           <SignedIn>
             <Link
               href="/orders"
-              className="block rounded-md px-3 py-2 text-sm font-medium transition-colors hover:bg-white/15 hover:text-white"
+              className="flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors hover:bg-white/15 hover:text-white"
               onClick={() => setMobileOpen(false)}
             >
-              My Orders
+              <ClipboardList size={16} /> My Orders
             </Link>
           </SignedIn>
           <SignedOut>

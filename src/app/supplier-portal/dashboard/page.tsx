@@ -10,8 +10,9 @@ import {
   getSupplier,
   getSupplierOrders,
   getProductsBySupplier,
+  getAverageRatings,
 } from "@/lib/data";
-import { Loader2, TrendingUp, Package, Truck, PoundSterling, ShoppingCart, BarChart3 } from "lucide-react";
+import { Loader2, TrendingUp, Package, Truck, PoundSterling, ShoppingCart, BarChart3, Star } from "lucide-react";
 
 function formatDeliveryDate(dateStr: string) {
   if (!dateStr) return "No date";
@@ -27,6 +28,8 @@ export default function SupplierDashboardPage() {
   const [orderItems, setOrderItems] = useState<SupplierOrderItem[]>([]);
   const [productCount, setProductCount] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [ratingData, setRatingData] = useState<{ name: string; avg: number; count: number }[]>([]);
+  const [overallRating, setOverallRating] = useState<{ avg: number; count: number }>({ avg: 0, count: 0 });
 
   useEffect(() => {
     if (!isLoaded || !user) return;
@@ -41,6 +44,17 @@ export default function SupplierDashboardPage() {
         if (s) {
           const prods = await getProductsBySupplier(s.id);
           setProductCount(prods.length);
+          const allRatings = await getAverageRatings();
+          const prodRatings = prods
+            .filter((p) => allRatings[p.id])
+            .map((p) => ({ name: p.name, avg: allRatings[p.id].avg, count: allRatings[p.id].count }))
+            .sort((a, b) => b.avg - a.avg);
+          setRatingData(prodRatings);
+          if (prodRatings.length > 0) {
+            const totalStars = prodRatings.reduce((acc, r) => acc + r.avg * r.count, 0);
+            const totalCount = prodRatings.reduce((acc, r) => acc + r.count, 0);
+            setOverallRating({ avg: totalStars / totalCount, count: totalCount });
+          }
         }
       }
       setLoading(false);
@@ -189,8 +203,8 @@ export default function SupplierDashboardPage() {
         </div>
       </div>
 
-      {/* Upcoming summary */}
-      <div className="mt-6 grid gap-4 sm:grid-cols-2">
+      {/* Upcoming summary + ratings */}
+      <div className="mt-6 grid gap-4 sm:grid-cols-3">
         <div className="rounded-xl bg-secondary/10 p-5 shadow-sm">
           <h3 className="text-sm font-bold text-primary">Upcoming Revenue</h3>
           <p className="mt-1 text-2xl font-bold text-secondary">£{metrics.upcomingRevenue.toFixed(2)}</p>
@@ -200,6 +214,24 @@ export default function SupplierDashboardPage() {
           <h3 className="text-sm font-bold text-primary">Products Listed</h3>
           <p className="mt-1 text-2xl font-bold text-primary">{productCount}</p>
           <p className="mt-0.5 text-xs text-muted">{metrics.totalItems} total items sold</p>
+        </div>
+        <div className="rounded-xl bg-accent/10 p-5 shadow-sm">
+          <h3 className="text-sm font-bold text-primary">Customer Rating</h3>
+          {overallRating.count > 0 ? (
+            <>
+              <div className="mt-1 flex items-center gap-2">
+                <p className="text-2xl font-bold text-primary">{overallRating.avg.toFixed(1)}</p>
+                <div className="flex items-center gap-0.5">
+                  {[1, 2, 3, 4, 5].map((s) => (
+                    <Star key={s} size={16} className={overallRating.avg >= s ? "fill-accent text-accent" : "text-primary/15"} />
+                  ))}
+                </div>
+              </div>
+              <p className="mt-0.5 text-xs text-muted">{overallRating.count} total rating{overallRating.count !== 1 ? "s" : ""}</p>
+            </>
+          ) : (
+            <p className="mt-1 text-sm text-muted">No ratings yet</p>
+          )}
         </div>
       </div>
 
@@ -228,6 +260,30 @@ export default function SupplierDashboardPage() {
                 <span className="text-xs text-muted w-20 text-right shrink-0">
                   {d.orders} order{d.orders !== 1 ? "s" : ""}
                 </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Top rated products */}
+      {ratingData.length > 0 && (
+        <div className="mt-8 overflow-hidden rounded-xl bg-surface p-6 shadow-sm">
+          <div className="flex items-center gap-2 mb-4">
+            <Star size={18} className="text-accent" />
+            <h2 className="text-sm font-bold text-primary">Product Ratings</h2>
+          </div>
+          <div className="space-y-3">
+            {ratingData.map((r) => (
+              <div key={r.name} className="flex items-center gap-3">
+                <span className="w-40 text-sm font-medium text-primary truncate shrink-0">{r.name}</span>
+                <div className="flex items-center gap-0.5">
+                  {[1, 2, 3, 4, 5].map((s) => (
+                    <Star key={s} size={14} className={r.avg >= s ? "fill-accent text-accent" : "text-primary/15"} />
+                  ))}
+                </div>
+                <span className="text-sm font-bold text-primary">{r.avg.toFixed(1)}</span>
+                <span className="text-xs text-muted">({r.count} rating{r.count !== 1 ? "s" : ""})</span>
               </div>
             ))}
           </div>

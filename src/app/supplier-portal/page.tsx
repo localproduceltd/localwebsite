@@ -79,9 +79,10 @@ export default function SupplierDashboard() {
       {/* Supplier photo + header */}
       <div className="overflow-hidden rounded-xl bg-surface shadow-sm">
         {(editing ? form.image : supplier.image) && (
-          <div className="aspect-[3/1] overflow-hidden">
+          <div className="max-h-56 overflow-hidden">
             <img src={editing ? form.image : supplier.image} alt={supplier.name} className="h-full w-full object-cover" />
           </div>
+        
         )}
         <div className="flex items-center justify-between px-6 py-4">
           <div>

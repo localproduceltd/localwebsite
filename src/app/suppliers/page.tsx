@@ -7,7 +7,7 @@ export default async function SuppliersPage() {
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
-      <h1 className="text-3xl font-bold text-primary">Our Suppliers</h1>
+      <h1 className="text-3xl font-bold text-primary">Local Suppliers</h1>
       <p className="mt-1 text-muted">Meet the local farmers and producers behind your food</p>
 
       <div className="mt-8 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">

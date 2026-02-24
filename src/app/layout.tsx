@@ -24,7 +24,13 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={`${dmSans.variable} antialiased bg-background text-foreground`}>
-        <ClerkProvider>
+        <ClerkProvider
+          appearance={{
+            variables: {
+              colorPrimary: "#9C5273",
+            },
+          }}
+        >
           <CartProvider>
             <Navbar />
             <main className="min-h-screen">{children}</main>

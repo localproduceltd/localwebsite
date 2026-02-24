@@ -102,50 +102,65 @@ export default function CartPage() {
       <h1 className="text-3xl font-bold text-primary">Shopping Cart</h1>
       <p className="mt-1 text-muted">{items.length} item{items.length !== 1 ? "s" : ""} in your cart</p>
 
-      <div className="mt-8 space-y-4">
-        {items.map((item) => {
-          const product = getProduct(item.productId);
-          if (!product) return null;
-          return (
-            <div
-              key={item.productId}
-              className="flex items-center gap-4 rounded-xl bg-surface p-4 shadow-sm"
-            >
-              <div className="h-20 w-20 flex-shrink-0 overflow-hidden rounded-lg bg-secondary/10">
-                <img src={product.image} alt={product.name} className="h-full w-full object-cover" />
+      <div className="mt-8 space-y-6">
+        {(() => {
+          const grouped = new Map<string, typeof items>();
+          for (const item of items) {
+            const product = getProduct(item.productId);
+            const supplier = product?.supplierName ?? "Other";
+            if (!grouped.has(supplier)) grouped.set(supplier, []);
+            grouped.get(supplier)!.push(item);
+          }
+          return Array.from(grouped.entries()).map(([supplier, supplierItems]) => (
+            <div key={supplier}>
+              <h3 className="mb-3 text-sm font-bold text-secondary uppercase tracking-wide">{supplier}</h3>
+              <div className="space-y-3">
+                {supplierItems.map((item) => {
+                  const product = getProduct(item.productId);
+                  if (!product) return null;
+                  return (
+                    <div
+                      key={item.productId}
+                      className="flex items-center gap-4 rounded-xl bg-surface p-4 shadow-sm"
+                    >
+                      <div className="h-20 w-20 flex-shrink-0 overflow-hidden rounded-lg bg-secondary/10">
+                        <img src={product.image} alt={product.name} className="h-full w-full object-cover" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <h3 className="font-semibold text-primary">{product.name}</h3>
+                        <p className="text-sm text-muted">£{product.price.toFixed(2)} / {product.unit}</p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => updateQuantity(item.productId, -1)}
+                          className="flex h-8 w-8 items-center justify-center rounded-full bg-secondary/20 text-primary transition hover:bg-secondary/40"
+                        >
+                          <Minus size={14} />
+                        </button>
+                        <span className="w-8 text-center font-semibold text-primary">{item.quantity}</span>
+                        <button
+                          onClick={() => updateQuantity(item.productId, 1)}
+                          className="flex h-8 w-8 items-center justify-center rounded-full bg-secondary/20 text-primary transition hover:bg-secondary/40"
+                        >
+                          <Plus size={14} />
+                        </button>
+                      </div>
+                      <p className="w-20 text-right font-bold text-primary">
+                        £{(product.price * item.quantity).toFixed(2)}
+                      </p>
+                      <button
+                        onClick={() => removeItem(item.productId)}
+                        className="flex h-8 w-8 items-center justify-center rounded-full text-red-400 transition hover:bg-red-50 hover:text-red-600"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                  );
+                })}
               </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-xs text-primary-light">{product.supplierName}</p>
-                <h3 className="font-semibold text-primary">{product.name}</h3>
-                <p className="text-sm text-muted">£{product.price.toFixed(2)} / {product.unit}</p>
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => updateQuantity(item.productId, -1)}
-                  className="flex h-8 w-8 items-center justify-center rounded-full bg-secondary/20 text-primary transition hover:bg-secondary/40"
-                >
-                  <Minus size={14} />
-                </button>
-                <span className="w-8 text-center font-semibold text-primary">{item.quantity}</span>
-                <button
-                  onClick={() => updateQuantity(item.productId, 1)}
-                  className="flex h-8 w-8 items-center justify-center rounded-full bg-secondary/20 text-primary transition hover:bg-secondary/40"
-                >
-                  <Plus size={14} />
-                </button>
-              </div>
-              <p className="w-20 text-right font-bold text-primary">
-                £{(product.price * item.quantity).toFixed(2)}
-              </p>
-              <button
-                onClick={() => removeItem(item.productId)}
-                className="flex h-8 w-8 items-center justify-center rounded-full text-red-400 transition hover:bg-red-50 hover:text-red-600"
-              >
-                <Trash2 size={16} />
-              </button>
             </div>
-          );
-        })}
+          ));
+        })()}
       </div>
 
       {/* Delivery Day Picker */}

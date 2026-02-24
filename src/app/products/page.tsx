@@ -1,9 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { Search, Check } from "lucide-react";
+import { useMemo, useState, useEffect } from "react";
+import { Search, Check, Plus, Minus, Star } from "lucide-react";
 import { useCart } from "@/lib/cart-context";
-import { LOCALITY_OPTIONS } from "@/lib/data";
+import { LOCALITY_OPTIONS, getAverageRatings } from "@/lib/data";
 import type { Locality } from "@/lib/data";
 import { LOCALITY_COLORS } from "@/lib/locality";
 
@@ -11,8 +11,13 @@ export default function ProductsPage() {
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("All");
   const [locality, setLocality] = useState<"All" | Locality>("All");
-  const { addItem, items, products } = useCart();
+  const { addItem, updateQuantity, items, products } = useCart();
   const [justAdded, setJustAdded] = useState<string | null>(null);
+  const [avgRatings, setAvgRatings] = useState<Record<string, { avg: number; count: number }>>({});
+
+  useEffect(() => {
+    getAverageRatings().then(setAvgRatings).catch(console.error);
+  }, []);
 
   const categories = useMemo(
     () => ["All", ...Array.from(new Set(products.map((p) => p.category)))],
@@ -42,32 +47,30 @@ export default function ProductsPage() {
 
       {/* Search & Filters */}
       <div className="mt-6 flex flex-col gap-4">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
-          <div className="relative flex-1">
-            <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
-            <input
-              type="text"
-              placeholder="Search products or suppliers..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="w-full rounded-lg border border-primary/20 bg-surface py-2.5 pl-10 pr-4 text-sm outline-none transition focus:border-primary-light focus:ring-2 focus:ring-primary-light/20"
-            />
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {categories.map((cat) => (
-              <button
-                key={cat}
-                onClick={() => setCategory(cat)}
-                className={`rounded-full px-4 py-1.5 text-sm font-medium transition ${
-                  category === cat
-                    ? "bg-primary text-background"
-                    : "bg-secondary/20 text-primary hover:bg-secondary/30"
-                }`}
-              >
-                {cat}
-              </button>
-            ))}
-          </div>
+        <div className="relative">
+          <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
+          <input
+            type="text"
+            placeholder="Search products or suppliers..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full rounded-lg border border-primary/20 bg-surface py-3.5 pl-10 pr-4 text-base outline-none transition focus:border-primary-light focus:ring-2 focus:ring-primary-light/20"
+          />
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {categories.map((cat) => (
+            <button
+              key={cat}
+              onClick={() => setCategory(cat)}
+              className={`rounded-full px-4 py-1.5 text-sm font-medium transition ${
+                category === cat
+                  ? "bg-primary text-background"
+                  : "bg-secondary/20 text-primary hover:bg-secondary/30"
+              }`}
+            >
+              {cat}
+            </button>
+          ))}
         </div>
 
         {/* Locality Filter */}
@@ -147,25 +150,61 @@ export default function ProductsPage() {
                     <span className="text-lg font-bold text-primary">£{product.price.toFixed(2)}</span>
                     <span className="text-xs text-muted">{product.unit}</span>
                   </div>
-                  <button
-                    disabled={!product.inStock}
-                    onClick={() => {
-                      addItem(product.id);
-                      setJustAdded(product.id);
-                      setTimeout(() => setJustAdded(null), 1200);
-                    }}
-                    className={`mt-3 w-full rounded-lg py-2 text-sm font-semibold text-background transition disabled:cursor-not-allowed disabled:opacity-50 ${
-                      justAdded === product.id
-                        ? "bg-primary-light"
-                        : "bg-primary hover:bg-primary-light"
-                    }`}
-                  >
-                    {!product.inStock ? "Unavailable" : justAdded === product.id ? (
-                      <span className="inline-flex items-center gap-1"><Check size={14} /> Added!</span>
-                    ) : (
-                      `Add to Cart${items.find(i => i.productId === product.id) ? ` (${items.find(i => i.productId === product.id)!.quantity})` : ""}`
-                    )}
-                  </button>
+                  {avgRatings[product.id] && (
+                    <div className="mt-1 flex items-center gap-1">
+                      <div className="flex items-center gap-0.5">
+                        {[1, 2, 3, 4, 5].map((s) => (
+                          <Star key={s} size={12} className={avgRatings[product.id].avg >= s ? "fill-accent text-accent" : avgRatings[product.id].avg >= s - 0.5 ? "fill-accent/50 text-accent" : "text-primary/15"} />
+                        ))}
+                      </div>
+                      <span className="text-xs text-muted">({avgRatings[product.id].count})</span>
+                    </div>
+                  )}
+                  {(() => {
+                    const cartItem = items.find(i => i.productId === product.id);
+                    if (!product.inStock) {
+                      return (
+                        <button disabled className="mt-3 w-full rounded-lg py-2 text-sm font-semibold text-background bg-primary opacity-50 cursor-not-allowed">
+                          Unavailable
+                        </button>
+                      );
+                    }
+                    if (cartItem && justAdded !== product.id) {
+                      return (
+                        <div className="mt-3 flex items-center justify-between rounded-lg bg-primary/10 px-3 py-1.5">
+                          <button
+                            onClick={() => updateQuantity(product.id, -1)}
+                            className="flex h-8 w-8 items-center justify-center rounded-full bg-secondary/20 text-primary transition hover:bg-secondary/40"
+                          >
+                            <Minus size={14} />
+                          </button>
+                          <span className="font-semibold text-primary">{cartItem.quantity} in cart</span>
+                          <button
+                            onClick={() => updateQuantity(product.id, 1)}
+                            className="flex h-8 w-8 items-center justify-center rounded-full bg-secondary/20 text-primary transition hover:bg-secondary/40"
+                          >
+                            <Plus size={14} />
+                          </button>
+                        </div>
+                      );
+                    }
+                    return (
+                      <button
+                        onClick={() => {
+                          addItem(product.id);
+                          setJustAdded(product.id);
+                          setTimeout(() => setJustAdded(null), 1200);
+                        }}
+                        className={`mt-3 w-full rounded-lg py-2 text-sm font-semibold text-background transition ${
+                          justAdded === product.id ? "bg-primary-light" : "bg-primary hover:bg-primary-light"
+                        }`}
+                      >
+                        {justAdded === product.id ? (
+                          <span className="inline-flex items-center gap-1"><Check size={14} /> Added!</span>
+                        ) : "Add to Cart"}
+                      </button>
+                    );
+                  })()}
                 </div>
               </div>
             );
