@@ -1,8 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { type DeliveryDay } from "@/lib/data";
-import { supabase } from "@/lib/supabase";
+import { type DeliveryDay, getDeliveryDays, updateDeliveryDay } from "@/lib/data";
 import { Calendar, Clock } from "lucide-react";
 
 export default function AdminDeliveryDaysPage() {
@@ -10,9 +9,7 @@ export default function AdminDeliveryDaysPage() {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    supabase.from("delivery_days").select("*").order("id").then(({ data }) => {
-      if (data) setDays(data.map((d) => ({ id: d.id, dayOfWeek: d.day_of_week, cutoffTime: d.cutoff_time, active: d.active })));
-    });
+    getDeliveryDays().then(setDays).catch(console.error);
   }, []);
 
   const toggleActive = (id: string) => {
@@ -96,7 +93,7 @@ export default function AdminDeliveryDaysPage() {
         onClick={async () => {
           setSaving(true);
           for (const day of days) {
-            await supabase.from("delivery_days").update({ active: day.active, cutoff_time: day.cutoffTime }).eq("id", day.id);
+            await updateDeliveryDay(day);
           }
           setSaving(false);
         }}

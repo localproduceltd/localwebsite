@@ -182,3 +182,124 @@ export async function getDeliveryDays(): Promise<DeliveryDay[]> {
     active: d.active,
   }));
 }
+
+export async function getActiveDeliveryDays(): Promise<DeliveryDay[]> {
+  const { data, error } = await supabase
+    .from("delivery_days")
+    .select("*")
+    .eq("active", true)
+    .order("id");
+  if (error) throw error;
+  return data.map((d) => ({
+    id: d.id,
+    dayOfWeek: d.day_of_week,
+    cutoffTime: d.cutoff_time,
+    active: d.active,
+  }));
+}
+
+// ─── Write functions ─────────────────────────────────────────────────────────
+
+export async function createProduct(product: Omit<Product, "id" | "supplierName">): Promise<void> {
+  const { error } = await supabase.from("products").insert({
+    name: product.name,
+    description: product.description,
+    price: product.price,
+    unit: product.unit,
+    image: product.image,
+    category: product.category,
+    in_stock: product.inStock,
+    supplier_id: product.supplierId,
+  });
+  if (error) throw error;
+}
+
+export async function updateProduct(product: Product): Promise<void> {
+  const { error } = await supabase.from("products").update({
+    name: product.name,
+    description: product.description,
+    price: product.price,
+    unit: product.unit,
+    image: product.image,
+    category: product.category,
+    in_stock: product.inStock,
+    supplier_id: product.supplierId,
+  }).eq("id", product.id);
+  if (error) throw error;
+}
+
+export async function deleteProduct(id: string): Promise<void> {
+  const { error } = await supabase.from("products").delete().eq("id", id);
+  if (error) throw error;
+}
+
+export async function createSupplier(supplier: Omit<Supplier, "id">): Promise<Supplier> {
+  const { data, error } = await supabase.from("suppliers").insert({
+    name: supplier.name,
+    description: supplier.description,
+    image: supplier.image,
+    location: supplier.location,
+    category: supplier.category,
+  }).select().single();
+  if (error) throw error;
+  return { id: data.id, name: data.name, description: data.description, image: data.image, location: data.location, category: data.category };
+}
+
+export async function updateSupplier(supplier: Supplier): Promise<void> {
+  const { error } = await supabase.from("suppliers").update({
+    name: supplier.name,
+    description: supplier.description,
+    image: supplier.image,
+    location: supplier.location,
+    category: supplier.category,
+  }).eq("id", supplier.id);
+  if (error) throw error;
+}
+
+export async function deleteSupplier(id: string): Promise<void> {
+  const { error } = await supabase.from("suppliers").delete().eq("id", id);
+  if (error) throw error;
+}
+
+export async function updateOrderStatus(orderId: string, status: Order["status"]): Promise<void> {
+  const { error } = await supabase.from("orders").update({ status }).eq("id", orderId);
+  if (error) throw error;
+}
+
+export async function updateDeliveryDay(day: DeliveryDay): Promise<void> {
+  const { error } = await supabase.from("delivery_days").update({
+    active: day.active,
+    cutoff_time: day.cutoffTime,
+  }).eq("id", day.id);
+  if (error) throw error;
+}
+
+export async function createOrder(userId: string, total: number, deliveryDay: string, items: OrderItem[]): Promise<Order> {
+  const { data: order, error } = await supabase
+    .from("orders")
+    .insert({ user_id: userId, total, status: "pending", delivery_day: deliveryDay })
+    .select()
+    .single();
+  if (error || !order) throw error ?? new Error("Failed to create order");
+
+  const { error: itemsError } = await supabase.from("order_items").insert(
+    items.map((item) => ({
+      order_id: order.id,
+      product_id: item.productId,
+      product_name: item.productName,
+      quantity: item.quantity,
+      price: item.price,
+    }))
+  );
+  if (itemsError) throw itemsError;
+
+  return {
+    id: order.id,
+    userId: order.user_id,
+    items,
+    total: Number(order.total),
+    status: order.status as Order["status"],
+    createdAt: new Date(order.created_at).toISOString().split("T")[0],
+    deliveryDay: order.delivery_day,
+  };
+}

@@ -1,8 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { type Product, type Supplier } from "@/lib/data";
-import { supabase } from "@/lib/supabase";
+import { type Product, type Supplier, getProducts, getSuppliers, createProduct, updateProduct, deleteProduct } from "@/lib/data";
 import { Plus, Pencil, Trash2, X } from "lucide-react";
 
 export default function AdminProductsPage() {
@@ -11,28 +10,23 @@ export default function AdminProductsPage() {
   const [editing, setEditing] = useState<Product | null>(null);
   const [showForm, setShowForm] = useState(false);
 
-  const fetchProducts = async () => {
-    const { data } = await supabase.from("products").select("*, suppliers(name)").order("name");
-    if (data) setProductList(data.map((p) => ({ id: p.id, supplierId: p.supplier_id, supplierName: (p.suppliers as { name: string })?.name ?? "", name: p.name, description: p.description, price: Number(p.price), unit: p.unit, image: p.image, category: p.category, inStock: p.in_stock })));
-  };
+  const fetchProducts = () => getProducts().then(setProductList).catch(console.error);
 
   useEffect(() => {
     fetchProducts();
-    supabase.from("suppliers").select("*").order("name").then(({ data }) => {
-      if (data) setSuppliers(data.map((s) => ({ id: s.id, name: s.name, description: s.description, image: s.image, location: s.location, category: s.category })));
-    });
+    getSuppliers().then(setSuppliers).catch(console.error);
   }, []);
 
   const handleDelete = async (id: string) => {
-    await supabase.from("products").delete().eq("id", id);
+    await deleteProduct(id);
     setProductList((prev) => prev.filter((p) => p.id !== id));
   };
 
   const handleSave = async (product: Product) => {
     if (editing) {
-      await supabase.from("products").update({ name: product.name, description: product.description, price: product.price, unit: product.unit, image: product.image, category: product.category, in_stock: product.inStock, supplier_id: product.supplierId }).eq("id", product.id);
+      await updateProduct(product);
     } else {
-      await supabase.from("products").insert({ name: product.name, description: product.description, price: product.price, unit: product.unit, image: product.image, category: product.category, in_stock: product.inStock, supplier_id: product.supplierId });
+      await createProduct(product);
     }
     await fetchProducts();
     setEditing(null);

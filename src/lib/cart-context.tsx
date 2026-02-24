@@ -1,8 +1,7 @@
 "use client";
 
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from "react";
-import type { Product } from "@/lib/data";
-import { supabase } from "@/lib/supabase";
+import { type Product, getProducts } from "@/lib/data";
 
 export interface CartItem {
   productId: string;
@@ -28,27 +27,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
   const [products, setProducts] = useState<Product[]>([]);
 
   useEffect(() => {
-    supabase
-      .from("products")
-      .select("*, suppliers(name)")
-      .then(({ data }) => {
-        if (data) {
-          setProducts(
-            data.map((p) => ({
-              id: p.id,
-              supplierId: p.supplier_id,
-              supplierName: (p.suppliers as { name: string })?.name ?? "",
-              name: p.name,
-              description: p.description,
-              price: Number(p.price),
-              unit: p.unit,
-              image: p.image,
-              category: p.category,
-              inStock: p.in_stock,
-            }))
-          );
-        }
-      });
+    getProducts().then(setProducts).catch(console.error);
   }, []);
 
   const addItem = useCallback((productId: string) => {

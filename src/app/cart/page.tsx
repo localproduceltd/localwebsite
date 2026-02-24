@@ -6,8 +6,7 @@ import { useRouter } from "next/navigation";
 import { Trash2, Plus, Minus, ShoppingCart, CheckCircle, Calendar } from "lucide-react";
 import { useUser } from "@clerk/nextjs";
 import { useCart } from "@/lib/cart-context";
-import { supabase } from "@/lib/supabase";
-import type { DeliveryDay } from "@/lib/data";
+import { type DeliveryDay, type OrderItem, getActiveDeliveryDays, createOrder } from "@/lib/data";
 
 export default function CartPage() {
   const { items, updateQuantity, removeItem, totalPrice, getProduct, clearCart } = useCart();
@@ -19,18 +18,7 @@ export default function CartPage() {
   const [orderPlaced, setOrderPlaced] = useState(false);
 
   useEffect(() => {
-    supabase
-      .from("delivery_days")
-      .select("*")
-      .eq("active", true)
-      .order("id")
-      .then(({ data }) => {
-        if (data) {
-          setDeliveryDays(
-            data.map((d) => ({ id: d.id, dayOfWeek: d.day_of_week, cutoffTime: d.cutoff_time, active: d.active }))
-          );
-        }
-      });
+    getActiveDeliveryDays().then(setDeliveryDays).catch(console.error);
   }, []);
 
   const handlePlaceOrder = async () => {
@@ -42,7 +30,7 @@ export default function CartPage() {
 
     setPlacing(true);
 
-    const orderItems = items
+    const orderItems: OrderItem[] = items
       .map((item) => {
         const product = getProduct(item.productId);
         if (!product) return null;
@@ -53,38 +41,17 @@ export default function CartPage() {
           price: product.price,
         };
       })
-      .filter(Boolean) as { productId: string; productName: string; quantity: number; price: number }[];
+      .filter(Boolean) as OrderItem[];
 
-    const { data: order, error } = await supabase
-      .from("orders")
-      .insert({
-        user_id: user.id,
-        total: totalPrice,
-        status: "pending",
-        delivery_day: selectedDay,
-      })
-      .select()
-      .single();
-
-    if (error || !order) {
-      setPlacing(false);
+    try {
+      await createOrder(user.id, totalPrice, selectedDay, orderItems);
+      clearCart();
+      setOrderPlaced(true);
+    } catch {
       alert("Failed to place order. Please try again.");
-      return;
+    } finally {
+      setPlacing(false);
     }
-
-    await supabase.from("order_items").insert(
-      orderItems.map((item) => ({
-        order_id: order.id,
-        product_id: item.productId,
-        product_name: item.productName,
-        quantity: item.quantity,
-        price: item.price,
-      }))
-    );
-
-    clearCart();
-    setPlacing(false);
-    setOrderPlaced(true);
   };
 
   if (orderPlaced) {

@@ -2,8 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useUser } from "@clerk/nextjs";
-import { supabase } from "@/lib/supabase";
-import type { Order } from "@/lib/data";
+import { type Order, getOrders } from "@/lib/data";
 import { Package, Clock, CheckCircle, XCircle } from "lucide-react";
 
 const statusConfig = {
@@ -19,31 +18,7 @@ export default function OrdersPage() {
 
   useEffect(() => {
     if (!user) return;
-    supabase
-      .from("orders")
-      .select("*, order_items(*)")
-      .eq("user_id", user.id)
-      .order("created_at", { ascending: false })
-      .then(({ data }) => {
-        if (data) {
-          setOrders(
-            data.map((o) => ({
-              id: o.id,
-              userId: o.user_id,
-              items: (o.order_items as Array<{ product_id: string; product_name: string; quantity: number; price: number }>).map((item) => ({
-                productId: item.product_id,
-                productName: item.product_name,
-                quantity: item.quantity,
-                price: Number(item.price),
-              })),
-              total: Number(o.total),
-              status: o.status as Order["status"],
-              createdAt: new Date(o.created_at).toISOString().split("T")[0],
-              deliveryDay: o.delivery_day,
-            }))
-          );
-        }
-      });
+    getOrders(user.id).then(setOrders).catch(console.error);
   }, [user]);
 
   return (

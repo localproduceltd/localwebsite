@@ -1,8 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { type Supplier } from "@/lib/data";
-import { supabase } from "@/lib/supabase";
+import { type Supplier, getSuppliers, createSupplier, updateSupplier, deleteSupplier } from "@/lib/data";
 import { Plus, Pencil, Trash2, X, MapPin } from "lucide-react";
 
 export default function AdminSuppliersPage() {
@@ -10,25 +9,22 @@ export default function AdminSuppliersPage() {
   const [editing, setEditing] = useState<Supplier | null>(null);
   const [showForm, setShowForm] = useState(false);
 
-  const fetchSuppliers = async () => {
-    const { data } = await supabase.from("suppliers").select("*").order("name");
-    if (data) setSupplierList(data.map((s) => ({ id: s.id, name: s.name, description: s.description, image: s.image, location: s.location, category: s.category })));
-  };
+  const fetchSuppliers = () => getSuppliers().then(setSupplierList).catch(console.error);
 
   useEffect(() => { fetchSuppliers(); }, []);
 
   const handleDelete = async (id: string) => {
-    await supabase.from("suppliers").delete().eq("id", id);
+    await deleteSupplier(id);
     setSupplierList((prev) => prev.filter((s) => s.id !== id));
   };
 
   const handleSave = async (supplier: Supplier) => {
     if (editing) {
-      await supabase.from("suppliers").update({ name: supplier.name, description: supplier.description, image: supplier.image, location: supplier.location, category: supplier.category }).eq("id", supplier.id);
+      await updateSupplier(supplier);
       setSupplierList((prev) => prev.map((s) => (s.id === supplier.id ? supplier : s)));
     } else {
-      const { data } = await supabase.from("suppliers").insert({ name: supplier.name, description: supplier.description, image: supplier.image, location: supplier.location, category: supplier.category }).select().single();
-      if (data) setSupplierList((prev) => [...prev, { id: data.id, name: data.name, description: data.description, image: data.image, location: data.location, category: data.category }]);
+      const created = await createSupplier(supplier);
+      setSupplierList((prev) => [...prev, created]);
     }
     setEditing(null);
     setShowForm(false);

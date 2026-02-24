@@ -1,8 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { type Order } from "@/lib/data";
-import { supabase } from "@/lib/supabase";
+import { type Order, getOrders, updateOrderStatus } from "@/lib/data";
 import { Package, Clock, CheckCircle, XCircle } from "lucide-react";
 
 const statusConfig = {
@@ -18,26 +17,11 @@ export default function AdminOrdersPage() {
   const [orderList, setOrderList] = useState<Order[]>([]);
 
   useEffect(() => {
-    supabase.from("orders").select("*, order_items(*)").order("created_at", { ascending: false }).then(({ data }) => {
-      if (data) setOrderList(data.map((o) => ({
-        id: o.id,
-        userId: o.user_id,
-        items: (o.order_items as Array<{ product_id: string; product_name: string; quantity: number; price: number }>).map((item) => ({
-          productId: item.product_id,
-          productName: item.product_name,
-          quantity: item.quantity,
-          price: Number(item.price),
-        })),
-        total: Number(o.total),
-        status: o.status as Order["status"],
-        createdAt: new Date(o.created_at).toISOString().split("T")[0],
-        deliveryDay: o.delivery_day,
-      })));
-    });
+    getOrders().then(setOrderList).catch(console.error);
   }, []);
 
   const updateStatus = async (orderId: string, newStatus: Order["status"]) => {
-    await supabase.from("orders").update({ status: newStatus }).eq("id", orderId);
+    await updateOrderStatus(orderId, newStatus);
     setOrderList((prev) =>
       prev.map((o) => (o.id === orderId ? { ...o, status: newStatus } : o))
     );
