@@ -39,6 +39,7 @@ export default function CartPage() {
           productName: product.name,
           quantity: item.quantity,
           price: product.price,
+          supplierId: product.supplierId,
         };
       })
       .filter(Boolean) as OrderItem[];
@@ -60,12 +61,12 @@ export default function CartPage() {
         <CheckCircle size={48} className="mx-auto text-primary-light" />
         <h1 className="mt-4 text-2xl font-bold text-primary">Order Placed!</h1>
         <p className="mt-2 text-muted">
-          Your order has been placed for <span className="font-semibold text-primary">{selectedDay}</span> delivery.
+          Your order has been placed for <span className="font-semibold text-primary">{new Date(selectedDay + "T00:00:00").toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })}</span> delivery.
         </p>
         <div className="mt-6 flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
           <Link
             href="/orders"
-            className="inline-block rounded-lg bg-primary px-6 py-3 font-semibold text-white transition hover:bg-primary-light"
+            className="inline-block rounded-lg bg-primary px-6 py-3 font-semibold text-background transition hover:bg-primary-light"
           >
             View My Orders
           </Link>
@@ -88,7 +89,7 @@ export default function CartPage() {
         <p className="mt-2 text-muted">Browse our products and add items to get started.</p>
         <Link
           href="/products"
-          className="mt-6 inline-block rounded-lg bg-primary px-6 py-3 font-semibold text-white transition hover:bg-primary-light"
+          className="mt-6 inline-block rounded-lg bg-primary px-6 py-3 font-semibold text-background transition hover:bg-primary-light"
         >
           Browse Products
         </Link>
@@ -116,7 +117,7 @@ export default function CartPage() {
               <div className="flex-1 min-w-0">
                 <p className="text-xs text-primary-light">{product.supplierName}</p>
                 <h3 className="font-semibold text-primary">{product.name}</h3>
-                <p className="text-sm text-muted">&euro;{product.price.toFixed(2)} / {product.unit}</p>
+                <p className="text-sm text-muted">£{product.price.toFixed(2)} / {product.unit}</p>
               </div>
               <div className="flex items-center gap-2">
                 <button
@@ -134,7 +135,7 @@ export default function CartPage() {
                 </button>
               </div>
               <p className="w-20 text-right font-bold text-primary">
-                &euro;{(product.price * item.quantity).toFixed(2)}
+                £{(product.price * item.quantity).toFixed(2)}
               </p>
               <button
                 onClick={() => removeItem(item.productId)}
@@ -151,28 +152,34 @@ export default function CartPage() {
       <div className="mt-8 rounded-xl bg-surface p-6 shadow-sm">
         <div className="flex items-center gap-2">
           <Calendar size={20} className="text-primary" />
-          <h2 className="text-lg font-semibold text-primary">Choose Delivery Day</h2>
+          <h2 className="text-lg font-semibold text-primary">Choose Delivery Date</h2>
         </div>
         {deliveryDays.length === 0 ? (
-          <p className="mt-3 text-sm text-muted">No delivery days available at the moment.</p>
+          <p className="mt-3 text-sm text-muted">No delivery dates available at the moment.</p>
         ) : (
           <div className="mt-4 flex flex-wrap gap-3">
-            {deliveryDays.map((day) => (
-              <button
-                key={day.id}
-                onClick={() => setSelectedDay(day.dayOfWeek)}
-                className={`rounded-lg border-2 px-5 py-3 text-sm font-semibold transition ${
-                  selectedDay === day.dayOfWeek
-                    ? "border-primary bg-primary text-white"
-                    : "border-primary/20 bg-background text-primary hover:border-primary-light"
-                }`}
-              >
-                <span className="block">{day.dayOfWeek}</span>
-                <span className="block text-xs font-normal opacity-70">
-                  Order by {day.cutoffTime}
-                </span>
-              </button>
-            ))}
+            {deliveryDays.map((day) => {
+              const d = new Date(day.deliveryDate + "T00:00:00");
+              const label = d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
+              const cutoffD = new Date(day.cutoffDate + "T00:00:00");
+              const cutoffLabel = cutoffD.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
+              return (
+                <button
+                  key={day.id}
+                  onClick={() => setSelectedDay(day.deliveryDate)}
+                  className={`rounded-lg border-2 px-5 py-3 text-sm font-semibold transition ${
+                    selectedDay === day.deliveryDate
+                      ? "border-primary bg-primary text-background"
+                      : "border-primary/20 bg-background text-primary hover:border-primary-light"
+                  }`}
+                >
+                  <span className="block">{label}</span>
+                  <span className="block text-xs font-normal opacity-70">
+                    Order by {cutoffLabel}, {day.cutoffTime}
+                  </span>
+                </button>
+              );
+            })}
           </div>
         )}
       </div>
@@ -181,7 +188,7 @@ export default function CartPage() {
       <div className="mt-6 rounded-xl bg-surface p-6 shadow-sm">
         <div className="flex items-center justify-between border-b border-primary/5 pb-4">
           <span className="text-muted">Subtotal</span>
-          <span className="font-semibold text-primary">&euro;{totalPrice.toFixed(2)}</span>
+          <span className="font-semibold text-primary">£{totalPrice.toFixed(2)}</span>
         </div>
         {selectedDay && (
           <div className="flex items-center justify-between border-b border-primary/5 py-4">
@@ -191,7 +198,7 @@ export default function CartPage() {
         )}
         <div className="flex items-center justify-between pt-4">
           <span className="text-lg font-bold text-primary">Total</span>
-          <span className="text-lg font-bold text-primary">&euro;{totalPrice.toFixed(2)}</span>
+          <span className="text-lg font-bold text-primary">£{totalPrice.toFixed(2)}</span>
         </div>
         <button
           disabled={!selectedDay || placing}

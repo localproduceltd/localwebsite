@@ -1,96 +1,125 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { type Product, type Supplier, type Locality, type ProductStatus, LOCALITY_OPTIONS, getProducts, getSuppliers, createProduct, updateProduct, deleteProduct, updateProductStatus } from "@/lib/data";
-import { Plus, Pencil, Trash2, X, Check, XCircle } from "lucide-react";
+import { useUser } from "@clerk/nextjs";
+import {
+  type Product,
+  type Supplier,
+  type SupplierUser,
+  type Locality,
+  type ProductStatus,
+  LOCALITY_OPTIONS,
+  getSupplierUser,
+  getSupplier,
+  getProductsBySupplier,
+  createProduct,
+  updateProduct,
+  deleteProduct,
+} from "@/lib/data";
+import { Plus, Pencil, Trash2, X, Loader2 } from "lucide-react";
 
-export default function AdminProductsPage() {
-  const [productList, setProductList] = useState<Product[]>([]);
-  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+export default function SupplierProductsPage() {
+  const { user, isLoaded } = useUser();
+  const [supplierUser, setSupplierUser] = useState<SupplierUser | null>(null);
+  const [supplier, setSupplier] = useState<Supplier | null>(null);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<Product | null>(null);
   const [showForm, setShowForm] = useState(false);
-  const [statusFilter, setStatusFilter] = useState<ProductStatus | "all">("all");
 
-  const fetchProducts = () => getProducts().then(setProductList).catch(console.error);
-
-  useEffect(() => {
-    fetchProducts();
-    getSuppliers().then(setSuppliers).catch(console.error);
-  }, []);
-
-  const handleDelete = async (id: string) => {
-    await deleteProduct(id);
-    setProductList((prev) => prev.filter((p) => p.id !== id));
+  const fetchProducts = async (supplierId: string) => {
+    const prods = await getProductsBySupplier(supplierId);
+    setProducts(prods);
   };
 
+  useEffect(() => {
+    if (!isLoaded || !user) return;
+    (async () => {
+      const su = await getSupplierUser(user.id);
+      setSupplierUser(su);
+      if (su) {
+        const s = await getSupplier(su.supplierId);
+        setSupplier(s);
+        if (s) await fetchProducts(s.id);
+      }
+      setLoading(false);
+    })();
+  }, [isLoaded, user]);
+
   const handleSave = async (product: Product) => {
+    if (!supplier) return;
     if (editing) {
-      await updateProduct(product);
+      // Editing an existing product → set back to pending
+      await updateProduct({ ...product, status: "pending" });
     } else {
-      await createProduct(product);
+      // New product → pending
+      await createProduct({ ...product, supplierId: supplier.id, status: "pending" });
     }
-    await fetchProducts();
+    await fetchProducts(supplier.id);
     setEditing(null);
     setShowForm(false);
   };
 
-  const handleStatusChange = async (productId: string, status: ProductStatus) => {
-    await updateProductStatus(productId, status);
-    setProductList((prev) => prev.map((p) => (p.id === productId ? { ...p, status } : p)));
+  const handleDelete = async (id: string) => {
+    if (!supplier) return;
+    await deleteProduct(id);
+    setProducts((prev) => prev.filter((p) => p.id !== id));
   };
 
-  const filtered = statusFilter === "all" ? productList : productList.filter((p) => p.status === statusFilter);
-  const pendingCount = productList.filter((p) => p.status === "pending").length;
+  if (!isLoaded || loading) {
+    return (
+      <div className="flex min-h-[50vh] items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-secondary" />
+      </div>
+    );
+  }
+
+  if (!supplierUser || !supplier) {
+    return (
+      <div className="mx-auto max-w-2xl px-4 py-16 text-center">
+        <h1 className="text-2xl font-bold text-primary">No Supplier Account</h1>
+        <p className="mt-2 text-muted">Your account is not linked to a supplier.</p>
+      </div>
+    );
+  }
+
+  const pendingCount = products.filter((p) => p.status === "pending").length;
+  const approvedCount = products.filter((p) => p.status === "approved").length;
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
+    <div className="mx-auto max-w-5xl px-4 py-10 sm:px-6 lg:px-8">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-primary">Products</h1>
-          <p className="mt-1 text-muted">{productList.length} products{pendingCount > 0 && <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-bold text-amber-700">{pendingCount} pending</span>}</p>
+          <h1 className="text-2xl font-bold text-primary">Your Products</h1>
+          <p className="mt-1 text-sm text-muted">
+            {products.length} products
+            {pendingCount > 0 && <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-bold text-amber-700">{pendingCount} pending</span>}
+            {approvedCount > 0 && <span className="ml-2 rounded-full bg-green-100 px-2 py-0.5 text-xs font-bold text-green-700">{approvedCount} approved</span>}
+          </p>
         </div>
         <button
           onClick={() => { setEditing(null); setShowForm(true); }}
-          className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-background transition hover:bg-primary-light"
+          className="inline-flex items-center gap-2 rounded-lg bg-secondary px-4 py-2 text-sm font-semibold text-white transition hover:bg-secondary/90"
         >
           <Plus size={16} /> Add Product
         </button>
       </div>
 
-      {/* Product Form Modal */}
       {showForm && (
-        <ProductForm
+        <SupplierProductForm
           product={editing}
-          suppliers={suppliers}
+          supplierId={supplier.id}
+          supplierName={supplier.name}
           onSave={handleSave}
           onCancel={() => { setEditing(null); setShowForm(false); }}
         />
       )}
 
-      {/* Status filter */}
-      <div className="mt-6 flex gap-2">
-        {(["all", "approved", "pending", "rejected"] as const).map((s) => (
-          <button
-            key={s}
-            onClick={() => setStatusFilter(s)}
-            className={`rounded-full px-3 py-1 text-xs font-semibold capitalize transition ${
-              statusFilter === s
-                ? "bg-primary text-white"
-                : "bg-primary/10 text-primary hover:bg-primary/20"
-            }`}
-          >
-            {s} {s !== "all" && `(${productList.filter((p) => p.status === s).length})`}
-          </button>
-        ))}
-      </div>
-
-      {/* Product Table */}
-      <div className="mt-4 overflow-hidden rounded-xl bg-surface shadow-sm">
+      <div className="mt-8 overflow-hidden rounded-xl bg-surface shadow-sm">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-primary/5 bg-primary/5 text-left">
               <th className="px-4 py-3 font-semibold text-primary">Product</th>
-              <th className="px-4 py-3 font-semibold text-primary">Supplier</th>
               <th className="px-4 py-3 font-semibold text-primary">Category</th>
               <th className="px-4 py-3 font-semibold text-primary">Locality</th>
               <th className="px-4 py-3 font-semibold text-primary text-right">Price</th>
@@ -100,12 +129,17 @@ export default function AdminProductsPage() {
             </tr>
           </thead>
           <tbody>
-            {filtered.map((product) => (
+            {products.length === 0 && (
+              <tr>
+                <td colSpan={7} className="px-4 py-8 text-center text-muted">No products yet. Add your first product!</td>
+              </tr>
+            )}
+            {products.map((product) => (
               <tr key={product.id} className="border-b border-primary/5 last:border-0">
                 <td className="px-4 py-3">
                   <div className="flex items-center gap-3">
                     <div className="h-10 w-10 overflow-hidden rounded-lg bg-secondary/10">
-                      <img src={product.image} alt="" className="h-full w-full object-cover" />
+                      {product.image && <img src={product.image} alt="" className="h-full w-full object-cover" />}
                     </div>
                     <div>
                       <p className="font-medium text-primary">{product.name}</p>
@@ -113,7 +147,6 @@ export default function AdminProductsPage() {
                     </div>
                   </div>
                 </td>
-                <td className="px-4 py-3 text-muted">{product.supplierName}</td>
                 <td className="px-4 py-3">
                   <span className="rounded-full bg-secondary/20 px-2.5 py-0.5 text-xs font-medium text-primary">
                     {product.category}
@@ -138,64 +171,50 @@ export default function AdminProductsPage() {
                   </span>
                 </td>
                 <td className="px-4 py-3 text-right">
-                  <div className="flex items-center justify-end gap-1">
-                    {product.status !== "approved" && (
-                      <button
-                        onClick={() => handleStatusChange(product.id, "approved")}
-                        title="Approve"
-                        className="rounded p-1.5 text-green-600 transition hover:bg-green-50"
-                      >
-                        <Check size={14} />
-                      </button>
-                    )}
-                    {product.status !== "rejected" && (
-                      <button
-                        onClick={() => handleStatusChange(product.id, "rejected")}
-                        title="Reject"
-                        className="rounded p-1.5 text-red-500 transition hover:bg-red-50"
-                      >
-                        <XCircle size={14} />
-                      </button>
-                    )}
-                    <button
-                      onClick={() => { setEditing(product); setShowForm(true); }}
-                      className="rounded p-1.5 text-muted transition hover:bg-secondary/20 hover:text-primary"
-                    >
-                      <Pencil size={14} />
-                    </button>
-                    <button
-                      onClick={() => handleDelete(product.id)}
-                      className="rounded p-1.5 text-muted transition hover:bg-red-50 hover:text-red-600"
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                  </div>
+                  <button
+                    onClick={() => { setEditing(product); setShowForm(true); }}
+                    className="mr-2 rounded p-1.5 text-muted transition hover:bg-secondary/20 hover:text-primary"
+                  >
+                    <Pencil size={14} />
+                  </button>
+                  <button
+                    onClick={() => handleDelete(product.id)}
+                    className="rounded p-1.5 text-muted transition hover:bg-red-50 hover:text-red-600"
+                  >
+                    <Trash2 size={14} />
+                  </button>
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+
+      <p className="mt-4 text-xs text-muted">
+        New products and edits require admin approval before they appear on the site.
+      </p>
     </div>
   );
 }
 
-function ProductForm({
+function SupplierProductForm({
   product,
-  suppliers,
+  supplierId,
+  supplierName,
   onSave,
   onCancel,
 }: {
   product: Product | null;
-  suppliers: Supplier[];
+  supplierId: string;
+  supplierName: string;
   onSave: (p: Product) => void;
   onCancel: () => void;
 }) {
   const [form, setForm] = useState<Product>(
     product ?? {
       id: "",
-      supplierId: "",
-      supplierName: "",
+      supplierId,
+      supplierName,
       name: "",
       description: "",
       price: 0,
@@ -206,7 +225,7 @@ function ProductForm({
       locality: "Local" as Locality,
       lat: null,
       lng: null,
-      status: "approved" as ProductStatus,
+      status: "pending" as ProductStatus,
     }
   );
 
@@ -219,6 +238,9 @@ function ProductForm({
             <X size={20} />
           </button>
         </div>
+        {product && (
+          <p className="mt-1 text-xs text-amber-600">Editing will set this product back to pending approval.</p>
+        )}
         <div className="mt-4 space-y-3 overflow-y-auto flex-1">
           <input
             placeholder="Product name"
@@ -226,19 +248,6 @@ function ProductForm({
             onChange={(e) => setForm({ ...form, name: e.target.value })}
             className="w-full rounded-lg border border-primary/20 bg-background px-3 py-2 text-sm outline-none focus:border-primary-light"
           />
-          <select
-            value={form.supplierId}
-            onChange={(e) => {
-              const s = suppliers.find((s) => s.id === e.target.value);
-              setForm({ ...form, supplierId: e.target.value, supplierName: s?.name ?? "" });
-            }}
-            className="w-full rounded-lg border border-primary/20 bg-background px-3 py-2 text-sm outline-none focus:border-primary-light"
-          >
-            <option value="">Select a supplier...</option>
-            {suppliers.map((s) => (
-              <option key={s.id} value={s.id}>{s.name}</option>
-            ))}
-          </select>
           <textarea
             placeholder="Description"
             value={form.description}
@@ -317,9 +326,9 @@ function ProductForm({
           </button>
           <button
             onClick={() => onSave(form)}
-            className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-background hover:bg-primary-light"
+            className="rounded-lg bg-secondary px-4 py-2 text-sm font-semibold text-white hover:bg-secondary/90"
           >
-            {product ? "Save Changes" : "Add Product"}
+            {product ? "Save & Submit for Approval" : "Add Product"}
           </button>
         </div>
       </div>

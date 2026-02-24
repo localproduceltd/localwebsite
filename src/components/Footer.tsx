@@ -9,50 +9,57 @@ export default function Footer() {
   if (pathname.startsWith("/admin")) return null;
 
   return (
-    <footer className="border-t border-primary/10 bg-primary text-white">
+    <footer className="bg-primary">
       <div className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
-        <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-10 sm:grid-cols-2 lg:grid-cols-4">
           {/* Brand */}
           <div>
-            <h3 className="text-lg font-bold">
-              <span className="text-accent">&#9670;</span> Local Produce
-            </h3>
-            <p className="mt-2 text-sm text-white/70">
-              Connecting you with the finest local farmers and artisan producers.
+            <Link href="/" className="flex items-center gap-2 text-xl font-bold text-white">
+              <img src="/logo-carrot.png" alt="Logo" className="h-8 w-8 object-contain" />
+              Local Produce
+            </Link>
+            <p className="mt-3 text-sm leading-relaxed text-white/60">
+              Connecting Derbyshire with the finest local farmers and artisan producers.
             </p>
           </div>
 
           {/* Shop */}
           <div>
-            <h4 className="font-semibold text-accent">Shop</h4>
-            <ul className="mt-2 space-y-1 text-sm text-white/70">
-              <li><Link href="/products" className="hover:text-white">All Products</Link></li>
-              <li><Link href="/suppliers" className="hover:text-white">Our Suppliers</Link></li>
-              <li><Link href="/cart" className="hover:text-white">Cart</Link></li>
+            <h4 className="text-sm font-bold uppercase tracking-wider text-primary-light">Shop</h4>
+            <ul className="mt-3 space-y-2 text-sm">
+              <li><Link href="/suppliers" className="text-white/60 transition hover:text-white">Our Suppliers</Link></li>
+              <li><Link href="/products" className="text-white/60 transition hover:text-white">All Products</Link></li>
+              <li><Link href="/map" className="text-white/60 transition hover:text-white">Map</Link></li>
+              <li><Link href="/cart" className="text-white/60 transition hover:text-white">Cart</Link></li>
             </ul>
           </div>
 
           {/* Account */}
           <div>
-            <h4 className="font-semibold text-accent">Account</h4>
-            <ul className="mt-2 space-y-1 text-sm text-white/70">
-              <li><Link href="/orders" className="hover:text-white">My Orders</Link></li>
-              <li><Link href="/login" className="hover:text-white">Sign In</Link></li>
+            <h4 className="text-sm font-bold uppercase tracking-wider text-primary-light">Account</h4>
+            <ul className="mt-3 space-y-2 text-sm">
+              <li><Link href="/orders" className="text-white/60 transition hover:text-white">My Orders</Link></li>
+              <li><Link href="/sign-in" className="text-white/60 transition hover:text-white">Sign In</Link></li>
             </ul>
           </div>
 
           {/* Contact */}
           <div>
-            <h4 className="font-semibold text-accent">Contact</h4>
-            <ul className="mt-2 space-y-1 text-sm text-white/70">
-              <li>info@localproduce.ie</li>
-              <li>+353 1 234 5678</li>
+            <h4 className="text-sm font-bold uppercase tracking-wider text-primary-light">Contact</h4>
+            <ul className="mt-3 space-y-2 text-sm text-white/60">
+              <li>info@localproduce.co.uk</li>
+              <li>Ashbourne, Derbyshire</li>
             </ul>
           </div>
         </div>
 
-        <div className="mt-8 border-t border-white/10 pt-6 text-center text-xs text-white/50">
-          &copy; {new Date().getFullYear()} Local Produce Ltd. All rights reserved.
+        <div className="mt-10 border-t border-white/10 pt-6 flex flex-col items-center justify-between gap-2 sm:flex-row">
+          <p className="text-xs text-white/40">
+            &copy; {new Date().getFullYear()} Local Produce Ltd. All rights reserved.
+          </p>
+          <p className="text-xs text-white/40">
+            Fresh, local food delivered to your door.
+          </p>
         </div>
       </div>
     </footer>

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Check } from "lucide-react";
 import { useCart } from "@/lib/cart-context";
 import type { Product } from "@/lib/data";
+import { LOCALITY_COLORS } from "@/lib/locality";
 
 export default function ProductCard({ product }: { product: Product }) {
   const { addItem, items } = useCart();
@@ -41,14 +42,26 @@ export default function ProductCard({ product }: { product: Product }) {
         </div>
         <h3 className="mt-1 font-semibold text-primary">{product.name}</h3>
         <p className="mt-0.5 text-sm text-muted">{product.description}</p>
-        <div className="mt-3 flex items-center justify-between">
-          <span className="text-lg font-bold text-primary">&euro;{product.price.toFixed(2)}</span>
+        {product.locality && (
+          <span
+            className="mt-2 inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold"
+            style={{
+              background: (LOCALITY_COLORS[product.locality] ?? LOCALITY_COLORS["Local"]).bg,
+              color: (LOCALITY_COLORS[product.locality] ?? LOCALITY_COLORS["Local"]).text,
+              border: `1px solid ${(LOCALITY_COLORS[product.locality] ?? LOCALITY_COLORS["Local"]).border}`,
+            }}
+          >
+            {product.locality}
+          </span>
+        )}
+        <div className="mt-2 flex items-center justify-between">
+          <span className="text-lg font-bold text-primary">£{product.price.toFixed(2)}</span>
           <span className="text-xs text-muted">{product.unit}</span>
         </div>
         <button
           disabled={!product.inStock}
           onClick={handleAdd}
-          className={`mt-3 w-full rounded-lg py-2 text-sm font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-50 ${
+          className={`mt-3 w-full rounded-lg py-2 text-sm font-semibold text-background transition disabled:cursor-not-allowed disabled:opacity-50 ${
             justAdded ? "bg-primary-light" : "bg-primary hover:bg-primary-light"
           }`}
         >

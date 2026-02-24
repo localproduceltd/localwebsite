@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from "react";
-import { type Product, getProducts } from "@/lib/data";
+import { type Product, getApprovedProducts } from "@/lib/data";
 
 export interface CartItem {
   productId: string;
@@ -27,7 +27,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
   const [products, setProducts] = useState<Product[]>([]);
 
   useEffect(() => {
-    getProducts().then(setProducts).catch(console.error);
+    getApprovedProducts().then(setProducts).catch(console.error);
   }, []);
 
   const addItem = useCallback((productId: string) => {

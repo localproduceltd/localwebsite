@@ -1,34 +1,36 @@
 import Link from "next/link";
-import { getProducts, getSuppliers } from "@/lib/data";
+import { getApprovedProducts, getActiveSuppliers } from "@/lib/data";
 import { ArrowRight, Leaf, Truck, ShieldCheck } from "lucide-react";
 
 export default async function Home() {
-  const products = await getProducts();
-  const suppliers = await getSuppliers();
-  const featured = products.filter((p) => p.inStock).slice(0, 4);
+  const products = await getApprovedProducts();
+  const suppliers = await getActiveSuppliers();
+  const localLocalities = ["Own Produce", "Local", "Regional"];
+  const featured = products.filter((p) => p.inStock && localLocalities.includes(p.locality)).slice(0, 4);
 
   return (
     <>
       {/* Hero */}
-      <section className="relative bg-primary px-4 py-24 text-center text-white sm:py-32">
-        <div className="mx-auto max-w-3xl">
-          <h1 className="text-4xl font-extrabold tracking-tight sm:text-5xl lg:text-6xl">
-            Fresh Local Produce,<br />
-            <span className="text-accent">Delivered to You</span>
+      <section className="relative overflow-hidden px-4 py-16 text-center text-white sm:py-20">
+        <img src="/background.png" alt="" className="absolute inset-0 h-full w-full object-cover" />
+        <div className="absolute inset-0 bg-primary/85" />
+        <div className="relative mx-auto max-w-3xl">
+          <h1 className="text-3xl font-extrabold tracking-tight sm:text-4xl lg:text-5xl">
+            Derbyshire's Fresh Produce, <span className="text-[1.15em] font-extrabold text-primary-light">Delivered</span>
           </h1>
-          <p className="mx-auto mt-4 max-w-xl text-lg text-white/80">
-            Shop directly from trusted local farmers and artisan producers. Quality food, straight from the source.
+          <p className="mx-auto mt-4 max-w-2xl text-lg font-semibold text-white/90">
+            Shop from Ashbourne &amp; Belper's farmers, producers and independant suppliers. Local, quality food delivered straight to your door!
           </p>
           <div className="mt-8 flex flex-col items-center justify-center gap-4 sm:flex-row">
             <Link
               href="/products"
-              className="inline-flex items-center gap-2 rounded-lg bg-accent px-6 py-3 font-semibold text-primary transition hover:bg-accent/90"
+              className="inline-flex items-center gap-2 rounded-lg bg-secondary px-6 py-3 font-semibold text-white transition hover:bg-secondary/90"
             >
               Browse Products <ArrowRight size={18} />
             </Link>
             <Link
               href="/suppliers"
-              className="inline-flex items-center gap-2 rounded-lg border-2 border-white/30 px-6 py-3 font-semibold text-white transition hover:border-white hover:bg-white/10"
+              className="inline-flex items-center gap-2 rounded-lg border-2 border-white/40 px-6 py-3 font-semibold text-white transition hover:border-white hover:bg-white/10"
             >
               Meet Our Suppliers
             </Link>
@@ -71,7 +73,7 @@ export default async function Home() {
               <h2 className="text-2xl font-bold text-primary sm:text-3xl">Featured Products</h2>
               <p className="mt-1 text-muted">Hand-picked favourites from our suppliers</p>
             </div>
-            <Link href="/products" className="hidden text-sm font-semibold text-primary-light hover:underline sm:inline-flex items-center gap-1">
+            <Link href="/products" className="hidden text-sm font-semibold text-secondary hover:underline sm:inline-flex items-center gap-1">
               View all <ArrowRight size={14} />
             </Link>
           </div>
@@ -95,7 +97,7 @@ export default async function Home() {
                   <h3 className="mt-1 font-semibold text-primary">{product.name}</h3>
                   <p className="mt-0.5 text-sm text-muted">{product.description}</p>
                   <div className="mt-3 flex items-center justify-between">
-                    <span className="text-lg font-bold text-primary">&euro;{product.price.toFixed(2)}</span>
+                    <span className="text-lg font-bold text-primary">£{product.price.toFixed(2)}</span>
                     <span className="text-xs text-muted">{product.unit}</span>
                   </div>
                 </div>
@@ -104,7 +106,7 @@ export default async function Home() {
           </div>
 
           <div className="mt-6 text-center sm:hidden">
-            <Link href="/products" className="text-sm font-semibold text-primary-light hover:underline">
+            <Link href="/products" className="text-sm font-semibold text-secondary hover:underline">
               View all products &rarr;
             </Link>
           </div>
@@ -119,7 +121,7 @@ export default async function Home() {
               <h2 className="text-2xl font-bold text-primary sm:text-3xl">Our Suppliers</h2>
               <p className="mt-1 text-muted">Meet the people behind your food</p>
             </div>
-            <Link href="/suppliers" className="hidden text-sm font-semibold text-primary-light hover:underline sm:inline-flex items-center gap-1">
+            <Link href="/suppliers" className="hidden text-sm font-semibold text-secondary hover:underline sm:inline-flex items-center gap-1">
               View all <ArrowRight size={14} />
             </Link>
           </div>
@@ -144,7 +146,7 @@ export default async function Home() {
                   </span>
                   <h3 className="mt-2 font-semibold text-primary">{supplier.name}</h3>
                   <p className="mt-1 text-sm text-muted line-clamp-2">{supplier.description}</p>
-                  <p className="mt-2 text-xs text-primary-light font-medium">{supplier.location}</p>
+                  <p className="mt-2 text-xs text-secondary font-medium">{supplier.location}</p>
                 </div>
               </Link>
             ))}
@@ -159,7 +161,7 @@ export default async function Home() {
           <p className="mt-2 text-white/70">Sign in to place your order and get fresh local produce delivered on our next delivery day.</p>
           <Link
             href="/products"
-            className="mt-6 inline-flex items-center gap-2 rounded-lg bg-accent px-6 py-3 font-semibold text-primary transition hover:bg-accent/90"
+            className="mt-6 inline-flex items-center gap-2 rounded-lg bg-secondary px-6 py-3 font-semibold text-white transition hover:bg-secondary/90"
           >
             Start Shopping <ArrowRight size={18} />
           </Link>

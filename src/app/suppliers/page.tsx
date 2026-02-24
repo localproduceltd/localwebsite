@@ -1,9 +1,9 @@
 import Link from "next/link";
-import { getSuppliers } from "@/lib/data";
+import { getActiveSuppliers } from "@/lib/data";
 import { MapPin } from "lucide-react";
 
 export default async function SuppliersPage() {
-  const suppliers = await getSuppliers();
+  const suppliers = await getActiveSuppliers();
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8">

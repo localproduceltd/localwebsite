@@ -72,9 +72,9 @@ export default function OrdersPage() {
                         <tr key={i} className="border-t border-primary/5">
                           <td className="py-2 text-primary">{item.productName}</td>
                           <td className="py-2 text-center text-muted">{item.quantity}</td>
-                          <td className="py-2 text-right text-muted">&euro;{item.price.toFixed(2)}</td>
+                          <td className="py-2 text-right text-muted">£{item.price.toFixed(2)}</td>
                           <td className="py-2 text-right font-medium text-primary">
-                            &euro;{(item.quantity * item.price).toFixed(2)}
+                            £{(item.quantity * item.price).toFixed(2)}
                           </td>
                         </tr>
                       ))}
@@ -85,7 +85,7 @@ export default function OrdersPage() {
                 {/* Order total */}
                 <div className="flex justify-end border-t border-primary/5 bg-secondary/5 px-6 py-3">
                   <p className="text-sm font-bold text-primary">
-                    Total: &euro;{order.total.toFixed(2)}
+                    Total: £{order.total.toFixed(2)}
                   </p>
                 </div>
               </div>

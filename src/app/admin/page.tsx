@@ -31,7 +31,7 @@ export default async function AdminDashboard() {
               href={stat.href}
               className="group rounded-xl bg-surface p-6 shadow-sm transition hover:shadow-md"
             >
-              <div className={`inline-flex h-10 w-10 items-center justify-center rounded-lg ${stat.color} text-white`}>
+              <div className={`inline-flex h-10 w-10 items-center justify-center rounded-lg ${stat.color} text-background`}>
                 <Icon size={20} />
               </div>
               <p className="mt-4 text-3xl font-bold text-primary">{stat.value}</p>
@@ -53,7 +53,7 @@ export default async function AdminDashboard() {
                   <p className="text-xs text-muted">{order.createdAt}</p>
                 </div>
                 <div className="text-right">
-                  <p className="text-sm font-semibold text-primary">&euro;{order.total.toFixed(2)}</p>
+                  <p className="text-sm font-semibold text-primary">£{order.total.toFixed(2)}</p>
                   <p className="text-xs capitalize text-muted">{order.status}</p>
                 </div>
               </div>

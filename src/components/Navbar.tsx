@@ -9,8 +9,9 @@ import { SignedIn, SignedOut, UserButton } from "@clerk/nextjs";
 
 const NAV_LINKS = [
   { href: "/", label: "Home" },
-  { href: "/products", label: "Products" },
   { href: "/suppliers", label: "Suppliers" },
+  { href: "/products", label: "Products" },
+  { href: "/map", label: "Map" },
 ];
 
 export default function Navbar() {
@@ -18,43 +19,44 @@ export default function Navbar() {
   const { totalItems } = useCart();
   const pathname = usePathname();
 
-  if (pathname.startsWith("/admin")) return null;
+  if (pathname.startsWith("/admin") || pathname === "/supplier" || pathname.startsWith("/supplier/")) return null;
 
   return (
     <header className="sticky top-0 z-50 bg-primary text-white shadow-md">
-      <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
+      <div className="mx-auto flex h-18 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
         {/* Logo */}
-        <Link href="/" className="flex items-center gap-2 text-xl font-bold tracking-tight">
-          <span className="text-accent">&#9670;</span> Local Produce
+        <Link href="/" className="flex items-center gap-2.5 text-3xl font-bold tracking-tight">
+          <img src="/logo-carrot.png" alt="Logo" className="h-14 w-14 object-contain" />
+          Local Produce
         </Link>
 
         {/* Desktop nav */}
-        <nav className="hidden items-center gap-6 md:flex">
+        <nav className="hidden items-center gap-8 md:flex">
           {NAV_LINKS.map((link) => (
             <Link
               key={link.href}
               href={link.href}
-              className="text-sm font-medium transition-colors hover:text-accent"
+              className="text-base font-medium transition-colors hover:text-white/70"
             >
               {link.label}
             </Link>
           ))}
           <SignedIn>
-            <Link href="/orders" className="text-sm font-medium transition-colors hover:text-accent">
+            <Link href="/orders" className="text-base font-medium transition-colors hover:text-white/70">
               My Orders
             </Link>
           </SignedIn>
         </nav>
 
         {/* Right side */}
-        <div className="flex items-center gap-3">
-          <Link href="/products" className="hidden rounded-full bg-white/10 p-2 transition hover:bg-white/20 md:inline-flex">
-            <Search size={18} />
+        <div className="flex items-center gap-4">
+          <Link href="/products" className="hidden rounded-full bg-white/15 p-2.5 transition hover:bg-white/25 md:inline-flex">
+            <Search size={20} />
           </Link>
-          <Link href="/cart" className="relative rounded-full bg-white/10 p-2 transition hover:bg-white/20">
-            <ShoppingCart size={18} />
+          <Link href="/cart" className="relative rounded-full bg-white/15 p-2.5 transition hover:bg-white/25">
+            <ShoppingCart size={20} />
             {totalItems > 0 && (
-              <span className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-accent text-[10px] font-bold text-primary">
+              <span className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-secondary text-[11px] font-bold text-white">
                 {totalItems}
               </span>
             )}
@@ -65,7 +67,7 @@ export default function Navbar() {
               afterSignOutUrl="/"
               appearance={{
                 elements: {
-                  avatarBox: "h-8 w-8",
+                  avatarBox: "h-9 w-9",
                 },
               }}
             />
@@ -73,7 +75,7 @@ export default function Navbar() {
           <SignedOut>
             <Link
               href="/sign-in"
-              className="hidden rounded-md bg-accent px-4 py-1.5 text-sm font-semibold text-primary transition hover:bg-accent/90 md:inline-flex"
+              className="hidden rounded-lg bg-accent px-5 py-2 text-sm font-semibold text-primary transition hover:bg-accent/90 md:inline-flex"
             >
               Sign In
             </Link>
@@ -81,7 +83,7 @@ export default function Navbar() {
 
           {/* Mobile menu button */}
           <button
-            className="rounded-full bg-white/10 p-2 transition hover:bg-white/20 md:hidden"
+            className="rounded-full bg-white/15 p-2 transition hover:bg-white/25 md:hidden"
             onClick={() => setMobileOpen(!mobileOpen)}
             aria-label="Toggle menu"
           >
@@ -92,12 +94,12 @@ export default function Navbar() {
 
       {/* Mobile menu */}
       {mobileOpen && (
-        <nav className="border-t border-white/10 bg-primary px-4 pb-4 pt-2 md:hidden">
+        <nav className="border-t border-white/20 bg-primary px-4 pb-4 pt-2 md:hidden">
           {NAV_LINKS.map((link) => (
             <Link
               key={link.href}
               href={link.href}
-              className="block rounded-md px-3 py-2 text-sm font-medium transition-colors hover:bg-white/10 hover:text-accent"
+              className="block rounded-md px-3 py-2 text-sm font-medium transition-colors hover:bg-white/15 hover:text-white"
               onClick={() => setMobileOpen(false)}
             >
               {link.label}
@@ -106,7 +108,7 @@ export default function Navbar() {
           <SignedIn>
             <Link
               href="/orders"
-              className="block rounded-md px-3 py-2 text-sm font-medium transition-colors hover:bg-white/10 hover:text-accent"
+              className="block rounded-md px-3 py-2 text-sm font-medium transition-colors hover:bg-white/15 hover:text-white"
               onClick={() => setMobileOpen(false)}
             >
               My Orders
