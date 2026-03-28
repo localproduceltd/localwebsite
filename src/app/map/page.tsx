@@ -2,13 +2,18 @@
 
 import { useState, useEffect, useRef, useMemo } from "react";
 import dynamic from "next/dynamic";
-import L from "leaflet";
-import "leaflet/dist/leaflet.css";
 import { useCart } from "@/lib/cart-context";
 import { type Supplier, getActiveSuppliers, getCustomerProfile } from "@/lib/data";
 import { LOCALITY_COLORS } from "@/lib/locality";
 import { ShoppingBag, Package, Layers } from "lucide-react";
 import { useUser } from "@clerk/nextjs";
+
+// Dynamically import Leaflet to avoid SSR issues
+let L: typeof import("leaflet") | null = null;
+if (typeof window !== "undefined") {
+  L = require("leaflet");
+  require("leaflet/dist/leaflet.css");
+}
 
 type FilterMode = "both" | "products" | "suppliers";
 
@@ -47,7 +52,7 @@ export default function MapPage() {
 
   // Initialise map
   useEffect(() => {
-    if (!mapRef.current || mapInstanceRef.current) return;
+    if (!mapRef.current || mapInstanceRef.current || !L) return;
     const map = L.map(mapRef.current).setView([53.0356, -1.6847], 12);
     mapInstanceRef.current = map;
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
@@ -62,7 +67,7 @@ export default function MapPage() {
   // Update markers when filter or data changes
   useEffect(() => {
     const map = mapInstanceRef.current;
-    if (!map) return;
+    if (!map || !L) return;
 
     // Clear existing markers
     map.eachLayer((layer) => {
