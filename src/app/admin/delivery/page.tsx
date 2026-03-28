@@ -9,8 +9,14 @@ import {
   deleteDeliveryZone,
 } from "@/lib/data";
 import { MapPin, Save, Loader2, Plus, Trash2, Pencil, X } from "lucide-react";
-import L from "leaflet";
-import "leaflet/dist/leaflet.css";
+import dynamic from "next/dynamic";
+
+// Dynamically import Leaflet to avoid SSR issues
+let L: typeof import("leaflet") | null = null;
+if (typeof window !== "undefined") {
+  L = require("leaflet");
+  require("leaflet/dist/leaflet.css");
+}
 
 const ZONE_COLORS = ["#8E9F68", "#A30E4E", "#FF9310", "#3B82F6", "#8B5CF6", "#EC4899"];
 
@@ -41,7 +47,7 @@ export default function AdminDeliveryPage() {
 
   // Init map + draw zones (re-runs when loading finishes or zones change)
   useEffect(() => {
-    if (loading || !mapRef.current) return;
+    if (loading || !mapRef.current || !L) return;
 
     // Create map if it doesn't exist yet
     if (!mapInstanceRef.current) {
