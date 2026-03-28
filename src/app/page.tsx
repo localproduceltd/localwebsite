@@ -1,67 +1,120 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import Link from "next/link";
-import { ArrowRight, Star, MapPin, Package } from "lucide-react";
-import { getApprovedProducts, getActiveSuppliers, getAverageRatings, getActiveDeliveryDays } from "@/lib/data";
-import type { Product, Supplier, DeliveryDay } from "@/lib/data";
+import { useState } from "react";
+import { supabase } from "@/lib/supabase";
+import { Mail, CheckCircle2, Calendar } from "lucide-react";
 import AboutJosie from "@/components/AboutJosie";
-import SupplierDistance from "@/components/SupplierDistance";
 
-export default function Home() {
-  const [products, setProducts] = useState<Product[]>([]);
-  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
-  const [avgRatings, setAvgRatings] = useState<Record<string, { avg: number; count: number }>>({});
-  const [deliveryDays, setDeliveryDays] = useState<DeliveryDay[]>([]);
+export default function HoldingPage() {
+  const [email, setEmail] = useState("");
+  const [submitted, setSubmitted] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
-  useEffect(() => {
-    Promise.all([
-      getApprovedProducts(),
-      getActiveSuppliers(),
-      getAverageRatings(),
-      getActiveDeliveryDays(),
-    ]).then(([p, s, r, d]) => {
-      setProducts(p);
-      setSuppliers(s);
-      setAvgRatings(r);
-      setDeliveryDays(d);
-    }).catch(console.error);
-  }, []);
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setError("");
 
-  const nextDelivery = deliveryDays[0] ?? null;
-  const localLocalities = ["Own Produce", "Local", "Regional"];
-  const featured = products.filter((p) => p.inStock && localLocalities.includes(p.locality)).slice(0, 4);
+    try {
+      const { error: dbError } = await supabase
+        .from("email_signups")
+        .insert([{ email, created_at: new Date().toISOString() }]);
+
+      if (dbError) throw dbError;
+      
+      setSubmitted(true);
+      setEmail("");
+    } catch (err) {
+      setError("Something went wrong. Please try again.");
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
-    <>
-      {/* Hero */}
-      <section className="relative overflow-hidden px-4 py-16 text-center text-white sm:py-10">
-        <img src="/Header Image.jpg" alt="" className="absolute inset-0 h-full w-full object-cover brightness-50" />
+    <div className="min-h-screen bg-background">
+      {/* Hero Section */}
+      <section className="relative overflow-hidden px-4 py-24 text-center text-white sm:py-32">
+        <img 
+          src="/Header Image.jpg" 
+          alt="" 
+          className="absolute inset-0 h-full w-full object-cover brightness-50" 
+        />
         <div className="relative mx-auto max-w-5xl">
-          <div className="flex justify-center">
-            <h1 className="text-4xl font-extrabold tracking-tight text-surface drop-shadow-sm sm:text-6xl lg:text-7xl sm:whitespace-nowrap">
+          <div className="flex justify-center mb-8">
+            <h1 className="text-5xl font-extrabold tracking-tight text-surface drop-shadow-sm sm:text-7xl lg:text-8xl">
               Derbyshire's Produce: <span className="font-extrabold uppercase tracking-wider text-surface">Delivered</span>
             </h1>
           </div>
-          <div className="mt-8 flex flex-col items-center justify-center gap-6 sm:flex-row sm:gap-10">
-            <Link
-              href="/products"
-              className="inline-flex items-center gap-2 rounded-lg bg-secondary px-6 py-3 font-semibold text-white transition hover:bg-secondary/90"
-            >
-              Start Shopping <ArrowRight size={18} />
-            </Link>
-            <Link
-              href="/suppliers"
-              className="inline-flex items-center gap-2 rounded-lg bg-surface px-6 py-3 font-semibold text-primary transition hover:bg-surface/90"
-            >
-              Meet Our Suppliers
-            </Link>
+          
+          <div className="mt-12 inline-flex items-center gap-3 rounded-full bg-primary px-6 py-3 text-xl font-bold text-white shadow-lg sm:text-2xl">
+            <Calendar size={28} />
+            <span>Orders Open: 1st May 2026</span>
           </div>
+
+          <p className="mt-8 text-xl text-surface/90 sm:text-2xl font-medium">
+            Ashbourne &amp; Belper's best farmers, producers and independents.<br />
+            Quality local food, delivered directly to your door!
+          </p>
         </div>
       </section>
 
-      {/* Value props */}
-      <section className="border-b border-primary/5 bg-white px-4 py-12">
+      {/* Email Signup Section */}
+      <section className="px-4 py-16 bg-white">
+        <div className="mx-auto max-w-2xl text-center">
+          <h2 className="text-3xl font-bold text-primary sm:text-4xl">
+            Be First to Know
+          </h2>
+          <p className="mt-4 text-lg text-muted">
+            Enter your email address below to receive exclusive launch offers for our first few customers only.
+          </p>
+
+          {!submitted ? (
+            <form onSubmit={handleSubmit} className="mt-8">
+              <div className="flex flex-col gap-3 sm:flex-row sm:gap-4">
+                <div className="flex-1">
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="Enter your email address"
+                    required
+                    className="w-full rounded-lg border border-primary/20 bg-surface px-4 py-3 text-base outline-none focus:border-secondary focus:ring-2 focus:ring-secondary/20"
+                  />
+                </div>
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="inline-flex items-center justify-center gap-2 rounded-lg bg-secondary px-6 py-3 font-semibold text-white transition hover:bg-secondary/90 disabled:opacity-50"
+                >
+                  <Mail size={20} />
+                  {loading ? "Signing up..." : "Join the List"}
+                </button>
+              </div>
+              {error && (
+                <p className="mt-3 text-sm text-red-600">{error}</p>
+              )}
+            </form>
+          ) : (
+            <div className="mt-8 rounded-xl bg-green-50 border-2 border-green-200 px-6 py-8">
+              <div className="flex items-center justify-center gap-3 text-green-800">
+                <CheckCircle2 size={32} />
+                <div className="text-left">
+                  <p className="text-xl font-bold">You're on the list!</p>
+                  <p className="mt-1 text-sm text-green-700">
+                    We'll send you exclusive offers and launch updates soon.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </section>
+
+      {/* Value Props */}
+      <section className="border-t border-primary/5 bg-white px-4 py-12">
         <p className="mx-auto mb-10 max-w-7xl text-center text-xl font-semibold text-primary sm:text-2xl">
           Ashbourne &amp; Belper&apos;s best farmers, producers and independents.<br />Quality local food, delivered directly to your door!
         </p>
@@ -76,144 +129,28 @@ export default function Home() {
           <AboutJosie />
           <div className="flex flex-col items-center text-center">
             <div className="h-12 w-12 overflow-hidden rounded-full">
-              <img src="/images/clock.png" alt="Next Delivery" className="h-full w-full object-cover" />
+              <img src="/images/clock.png" alt="Delivered Fresh" className="h-full w-full object-cover" />
             </div>
-            <h3 className="mt-3 font-semibold text-secondary">Next Delivery Day</h3>
-            {nextDelivery ? (
-              <p className="mt-1 text-sm font-bold text-secondary">
-                {new Date(nextDelivery.deliveryDate + "T00:00:00").toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })}
-              </p>
-            ) : (
-              <p className="mt-1 text-sm text-muted">Coming soon</p>
-            )}
-            <Link href="/map" className="mt-2 text-xs font-medium text-secondary hover:underline">
-              Click to see if we cover your area &rarr;
-            </Link>
+            <h3 className="mt-3 font-semibold text-secondary">Delivered Fresh</h3>
+            <p className="mt-1 text-sm text-muted">Weekly delivery straight to your door</p>
           </div>
         </div>
       </section>
 
-      {/* Suppliers preview */}
-      <section className="border-t border-primary/5 bg-surface px-4 py-16">
-        <div className="mx-auto max-w-7xl">
-          <div className="flex items-end justify-between">
-            <div>
-              <h2 className="text-2xl font-bold text-primary sm:text-3xl">Local Suppliers</h2>
-              <p className="mt-1 text-muted">Meet the farmers, producers and suppliers behind your produce</p>
-            </div>
-            <Link href="/suppliers" className="hidden text-sm font-semibold text-secondary hover:underline sm:inline-flex items-center gap-1">
-              View all <ArrowRight size={14} />
-            </Link>
-          </div>
-
-          <div className="mt-8 grid gap-4 grid-cols-2 sm:grid-cols-3 lg:grid-cols-4">
-            {suppliers.slice(0, 3).map((supplier) => (
-              <Link
-                key={supplier.id}
-                href={`/suppliers/${supplier.id}`}
-                className="group overflow-hidden rounded-xl bg-surface shadow-sm transition hover:shadow-md"
-              >
-                <div className="aspect-[3/2] overflow-hidden">
-                  <img
-                    src={supplier.image}
-                    alt={supplier.name}
-                    className="h-full w-full object-cover transition-transform group-hover:scale-105"
-                  />
-                </div>
-                <div className="p-4">
-                  <span className="inline-block rounded-full bg-secondary/20 px-2.5 py-0.5 text-xs font-medium text-primary">
-                    {supplier.category}
-                  </span>
-                  <h3 className="mt-2 font-semibold text-primary">{supplier.name}</h3>
-                  <p className="mt-1 text-sm text-muted line-clamp-2">{supplier.description}</p>
-                  <div className="mt-2 flex items-center justify-between">
-                    <p className="text-xs text-secondary font-medium">{supplier.location}</p>
-                    <SupplierDistance supplierLat={supplier.lat} supplierLng={supplier.lng} />
-                  </div>
-                </div>
-              </Link>
-            ))}
-          </div>
-
-          <div className="mt-6 text-center sm:hidden">
-            <Link href="/suppliers" className="text-sm font-semibold text-secondary hover:underline">
-              View all suppliers &rarr;
-            </Link>
-          </div>
+      {/* Footer */}
+      <footer className="border-t border-primary/10 bg-white px-4 py-8">
+        <div className="mx-auto max-w-7xl text-center">
+          <p className="text-sm text-muted">
+            Questions? Email us at{" "}
+            <a href="mailto:josie@localproduce.ltd" className="font-medium text-secondary hover:underline">
+              josie@localproduce.ltd
+            </a>
+          </p>
+          <p className="mt-2 text-xs text-muted">
+            © 2026 Local Produce Ltd. All rights reserved.
+          </p>
         </div>
-      </section>
-
-      {/* Featured Products */}
-      <section className="bg-surface px-4 py-16">
-        <div className="mx-auto max-w-7xl">
-          <div className="flex items-end justify-between">
-            <div>
-              <h2 className="text-2xl font-bold text-primary sm:text-3xl">Josie's Top Picks</h2>
-              <p className="mt-1 text-muted">Hand-picked favourites from our suppliers</p>
-            </div>
-            <Link href="/products" className="hidden text-sm font-semibold text-secondary hover:underline sm:inline-flex items-center gap-1">
-              View all <ArrowRight size={14} />
-            </Link>
-          </div>
-
-          <div className="mt-8 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
-            {featured.map((product) => (
-              <div key={product.id} className="group overflow-hidden rounded-xl bg-surface shadow-sm transition hover:shadow-md">
-                <div className="aspect-[4/3] overflow-hidden bg-secondary/10">
-                  {product.image ? (
-                    <img
-                      src={product.image}
-                      alt={product.name}
-                      className="h-full w-full object-cover transition-transform group-hover:scale-105"
-                    />
-                  ) : (
-                    <div className="flex h-full w-full items-center justify-center text-muted text-sm">No image</div>
-                  )}
-                </div>
-                <div className="p-4">
-                  <p className="text-xs font-medium text-secondary">{product.supplierName}</p>
-                  <h3 className="mt-1 font-semibold text-primary">{product.name}</h3>
-                  <p className="mt-0.5 text-sm text-muted">{product.description}</p>
-                  <div className="mt-3 flex items-center justify-between">
-                    <span className="text-lg font-bold text-primary">£{product.price.toFixed(2)}</span>
-                    <span className="text-xs text-muted">{product.unit}</span>
-                  </div>
-                  {avgRatings[product.id] && (
-                    <div className="mt-1 flex items-center gap-1">
-                      <div className="flex items-center gap-0.5">
-                        {[1, 2, 3, 4, 5].map((s) => (
-                          <Star key={s} size={12} className={avgRatings[product.id].avg >= s ? "fill-accent text-accent" : avgRatings[product.id].avg >= s - 0.5 ? "fill-accent/50 text-accent" : "text-primary/15"} />
-                        ))}
-                      </div>
-                      <span className="text-xs text-muted">({avgRatings[product.id].count})</span>
-                    </div>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-
-          <div className="mt-6 text-center sm:hidden">
-            <Link href="/products" className="text-sm font-semibold text-secondary hover:underline">
-              View all products &rarr;
-            </Link>
-          </div>
-        </div>
-      </section>
-
-      {/* CTA */}
-      <section className="bg-secondary px-4 py-16 text-center text-white">
-        <div className="mx-auto max-w-2xl">
-          <h2 className="text-2xl font-bold sm:text-3xl">Ready to taste the difference?</h2>
-          <p className="mt-2 text-white/90">Sign in and get fresh local produce from Derbyshire&apos;s best, delivered straight to your door.</p>
-          <Link
-            href="/products"
-            className="mt-6 inline-flex items-center gap-2 rounded-lg bg-primary px-6 py-3 font-semibold text-white transition hover:bg-primary/90"
-          >
-            Start Shopping <ArrowRight size={18} />
-          </Link>
-        </div>
-      </section>
-    </>
+      </footer>
+    </div>
   );
 }

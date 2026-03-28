@@ -10,9 +10,9 @@ const isProtectedRoute = createRouteMatcher([
 
 const isAdminRoute = createRouteMatcher(["/admin(.*)"]);
 
-// Public routes that should redirect to holding page
-const isPublicCustomerRoute = createRouteMatcher([
-  "/",
+// Customer routes that non-admin users should not access (redirected to root)
+const isCustomerRoute = createRouteMatcher([
+  "/home(.*)",
   "/products(.*)",
   "/suppliers(.*)",
   "/map(.*)",
@@ -21,7 +21,6 @@ const isPublicCustomerRoute = createRouteMatcher([
 
 // Routes that should always be accessible
 const isAlwaysAccessible = createRouteMatcher([
-  "/holding(.*)",
   "/admin(.*)",
   "/supplier-portal(.*)",
   "/sign-in(.*)",
@@ -35,9 +34,9 @@ export default clerkMiddleware(async (auth, req) => {
   const role = (sessionClaims?.metadata as { role?: string })?.role;
   const isAdmin = role === "admin";
 
-  // Redirect public customer routes to holding page (but allow admin to see everything)
-  if (isPublicCustomerRoute(req) && !isAlwaysAccessible(req) && !isAdmin) {
-    return NextResponse.redirect(new URL("/holding", req.url));
+  // Redirect non-admin users from customer routes to root (holding page)
+  if (isCustomerRoute(req) && !isAdmin) {
+    return NextResponse.redirect(new URL("/", req.url));
   }
 
   if (isProtectedRoute(req)) {
@@ -46,7 +45,7 @@ export default clerkMiddleware(async (auth, req) => {
 
   if (isAdminRoute(req)) {
     if (!isAdmin) {
-      return Response.redirect(new URL("/holding", req.url));
+      return Response.redirect(new URL("/", req.url));
     }
   }
 });
