@@ -49,14 +49,13 @@ export default function HoldingPage() {
             </h1>
           </div>
           
-          <div className="mt-12 inline-flex items-center gap-3 rounded-full bg-primary px-6 py-3 text-xl font-bold text-white shadow-lg sm:text-2xl">
+          <div className="mt-12 inline-flex items-center gap-3 rounded-full bg-secondary px-6 py-3 text-xl font-bold text-white shadow-lg sm:text-2xl">
             <Calendar size={28} />
             <span>Orders Open: 1st May 2026</span>
           </div>
 
           <p className="mt-8 text-xl text-surface/90 sm:text-2xl font-medium">
-            Ashbourne &amp; Belper's best farmers, producers and independents.<br />
-            Quality local food, delivered directly to your door!
+            Quality local food, delivered directly to your door
           </p>
         </div>
       </section>
@@ -65,7 +64,7 @@ export default function HoldingPage() {
       <section className="px-4 py-16 bg-white">
         <div className="mx-auto max-w-2xl text-center">
           <h2 className="text-3xl font-bold text-primary sm:text-4xl">
-            Be First to Know
+            Be First To Know
           </h2>
           <p className="mt-4 text-lg text-muted">
             Enter your email address below to receive exclusive launch offers for our first few customers only.
@@ -116,7 +115,7 @@ export default function HoldingPage() {
       {/* Value Props */}
       <section className="border-t border-primary/5 bg-white px-4 py-12">
         <p className="mx-auto mb-10 max-w-7xl text-center text-xl font-semibold text-primary sm:text-2xl">
-          Ashbourne &amp; Belper&apos;s best farmers, producers and independents.<br />Quality local food, delivered directly to your door!
+          Ashbourne &amp; Belper&apos;s best farmers, producers and independents.<br />Quality local food, delivered directly to your door
         </p>
         <div className="mx-auto grid max-w-5xl gap-8 sm:grid-cols-3">
           <div className="flex flex-col items-center text-center">

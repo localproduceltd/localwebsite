@@ -30,7 +30,7 @@ export default function Navbar() {
         {/* Logo */}
         <Link href="/" className="flex items-center gap-0.5 text-3xl font-bold tracking-tight">
           <CarrieFeedback />
-          <span className="text-4xl font-bold tracking-wide text-surface">Local</span>
+          <span className="text-5xl font-bold tracking-tight text-surface">Local</span>
         </Link>
 
         {/* Desktop nav */}

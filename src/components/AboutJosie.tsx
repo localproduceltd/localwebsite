@@ -18,7 +18,7 @@ export default function AboutJosie() {
         </div>
         <h3 className="mt-3 font-semibold text-primary">Managed Locally</h3>
         <p className="mt-1 text-sm text-muted">Run by Josie<br />I work directly with every supplier</p>
-        <span className="mt-1 text-[10px] font-medium text-secondary">
+        <span className="mt-1 text-xs font-medium text-secondary">
           Tap to learn more
         </span>
       </button>
