@@ -585,6 +585,141 @@ export async function getRatingsByOrder(userId: string, orderId: string): Promis
   return map;
 }
 
+export async function getProductRatings(productId: string): Promise<Array<{ stars: number; createdAt: string }>> {
+  const { data, error } = await supabase
+    .from("ratings")
+    .select("stars, created_at")
+    .eq("product_id", productId)
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  return (data ?? []).map((r) => ({ stars: r.stars, createdAt: r.created_at }));
+}
+
+// ─── Customer Profiles ──────────────────────────────────────────────────────
+
+export interface CustomerProfile {
+  id: string;
+  clerkUserId: string;
+  postcode: string | null;
+  lat: number | null;
+  lng: number | null;
+}
+
+export async function getCustomerProfile(clerkUserId: string): Promise<CustomerProfile | null> {
+  const { data, error } = await supabase
+    .from("customer_profiles")
+    .select("*")
+    .eq("clerk_user_id", clerkUserId)
+    .single();
+  if (error) return null;
+  return {
+    id: data.id,
+    clerkUserId: data.clerk_user_id,
+    postcode: data.postcode ?? null,
+    lat: data.lat ?? null,
+    lng: data.lng ?? null,
+  };
+}
+
+export async function saveCustomerPostcode(
+  clerkUserId: string,
+  postcode: string,
+  lat: number,
+  lng: number
+): Promise<void> {
+  const { error } = await supabase
+    .from("customer_profiles")
+    .upsert(
+      { clerk_user_id: clerkUserId, postcode, lat, lng, updated_at: new Date().toISOString() },
+      { onConflict: "clerk_user_id" }
+    );
+  if (error) throw error;
+}
+
+export async function clearCustomerPostcode(clerkUserId: string): Promise<void> {
+  const { error } = await supabase
+    .from("customer_profiles")
+    .upsert(
+      { clerk_user_id: clerkUserId, postcode: null, lat: null, lng: null, updated_at: new Date().toISOString() },
+      { onConflict: "clerk_user_id" }
+    );
+  if (error) throw error;
+}
+
+// ─── Delivery Zones ─────────────────────────────────────────────────────────
+
+export interface DeliveryZone {
+  id: string;
+  name: string;
+  centreLat: number;
+  centreLng: number;
+  radiusMiles: number;
+}
+
+export async function getDeliveryZones(): Promise<DeliveryZone[]> {
+  const { data, error } = await supabase
+    .from("delivery_zones")
+    .select("*")
+    .order("name");
+  if (error) throw error;
+  return (data ?? []).map((d) => ({
+    id: d.id,
+    name: d.name,
+    centreLat: d.centre_lat,
+    centreLng: d.centre_lng,
+    radiusMiles: d.radius_miles,
+  }));
+}
+
+export async function createDeliveryZone(zone: Omit<DeliveryZone, "id">): Promise<DeliveryZone> {
+  const { data, error } = await supabase
+    .from("delivery_zones")
+    .insert({
+      name: zone.name,
+      centre_lat: zone.centreLat,
+      centre_lng: zone.centreLng,
+      radius_miles: zone.radiusMiles,
+    })
+    .select()
+    .single();
+  if (error) throw error;
+  return {
+    id: data.id,
+    name: data.name,
+    centreLat: data.centre_lat,
+    centreLng: data.centre_lng,
+    radiusMiles: data.radius_miles,
+  };
+}
+
+export async function updateDeliveryZone(zone: DeliveryZone): Promise<void> {
+  const { error } = await supabase
+    .from("delivery_zones")
+    .update({
+      name: zone.name,
+      centre_lat: zone.centreLat,
+      centre_lng: zone.centreLng,
+      radius_miles: zone.radiusMiles,
+    })
+    .eq("id", zone.id);
+  if (error) throw error;
+}
+
+export async function deleteDeliveryZone(id: string): Promise<void> {
+  const { error } = await supabase.from("delivery_zones").delete().eq("id", id);
+  if (error) throw error;
+}
+
+// Legacy compat — kept so old imports don't break during migration
+export type DeliverySettings = DeliveryZone;
+export async function getDeliverySettings(): Promise<DeliverySettings | null> {
+  const zones = await getDeliveryZones();
+  return zones[0] ?? null;
+}
+export async function updateDeliverySettings(settings: DeliverySettings): Promise<void> {
+  return updateDeliveryZone(settings);
+}
+
 export async function getAverageRatings(): Promise<Record<string, { avg: number; count: number }>> {
   const { data, error } = await supabase
     .from("ratings")

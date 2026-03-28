@@ -25,7 +25,7 @@ export default function Footer() {
 
           {/* Shop */}
           <div>
-            <h4 className="text-sm font-bold uppercase tracking-wider text-primary-light">Shop</h4>
+            <h4 className="text-sm font-bold uppercase tracking-wider text-secondary">Shop</h4>
             <ul className="mt-3 space-y-2 text-sm">
               <li><Link href="/suppliers" className="text-white/60 transition hover:text-white">Our Suppliers</Link></li>
               <li><Link href="/products" className="text-white/60 transition hover:text-white">All Products</Link></li>
@@ -36,7 +36,7 @@ export default function Footer() {
 
           {/* Account */}
           <div>
-            <h4 className="text-sm font-bold uppercase tracking-wider text-primary-light">Account</h4>
+            <h4 className="text-sm font-bold uppercase tracking-wider text-secondary">Account</h4>
             <ul className="mt-3 space-y-2 text-sm">
               <li><Link href="/orders" className="text-white/60 transition hover:text-white">My Orders</Link></li>
               <li><Link href="/sign-in" className="text-white/60 transition hover:text-white">Sign In</Link></li>
@@ -45,7 +45,7 @@ export default function Footer() {
 
           {/* Contact */}
           <div>
-            <h4 className="text-sm font-bold uppercase tracking-wider text-primary-light">Contact</h4>
+            <h4 className="text-sm font-bold uppercase tracking-wider text-secondary">Contact</h4>
             <ul className="mt-3 space-y-2 text-sm text-white/60">
               <li>josie@localproduce.ltd</li>
               <li>Ashbourne, Derbyshire</li>

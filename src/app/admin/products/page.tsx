@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { type Product, type Supplier, type Locality, type ProductStatus, LOCALITY_OPTIONS, getProducts, getSuppliers, createProduct, updateProduct, deleteProduct, updateProductStatus } from "@/lib/data";
+import { PRODUCT_CATEGORIES } from "@/lib/categories";
 import { Plus, Pencil, Trash2, X, Check, XCircle } from "lucide-react";
 
 export default function AdminProductsPage() {
@@ -51,7 +52,7 @@ export default function AdminProductsPage() {
         </div>
         <button
           onClick={() => { setEditing(null); setShowForm(true); }}
-          className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-background transition hover:bg-primary-light"
+          className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-background transition hover:bg-secondary"
         >
           <Plus size={16} /> Add Product
         </button>
@@ -224,7 +225,7 @@ function ProductForm({
             placeholder="Product name"
             value={form.name}
             onChange={(e) => setForm({ ...form, name: e.target.value })}
-            className="w-full rounded-lg border border-primary/20 bg-background px-3 py-2 text-sm outline-none focus:border-primary-light"
+            className="w-full rounded-lg border border-primary/20 bg-surface px-3 py-2 text-sm outline-none focus:border-secondary"
           />
           <select
             value={form.supplierId}
@@ -232,7 +233,7 @@ function ProductForm({
               const s = suppliers.find((s) => s.id === e.target.value);
               setForm({ ...form, supplierId: e.target.value, supplierName: s?.name ?? "" });
             }}
-            className="w-full rounded-lg border border-primary/20 bg-background px-3 py-2 text-sm outline-none focus:border-primary-light"
+            className="w-full rounded-lg border border-primary/20 bg-surface px-3 py-2 text-sm outline-none focus:border-secondary"
           >
             <option value="">Select a supplier...</option>
             {suppliers.map((s) => (
@@ -243,7 +244,7 @@ function ProductForm({
             placeholder="Description"
             value={form.description}
             onChange={(e) => setForm({ ...form, description: e.target.value })}
-            className="w-full rounded-lg border border-primary/20 bg-background px-3 py-2 text-sm outline-none focus:border-primary-light"
+            className="w-full rounded-lg border border-primary/20 bg-surface px-3 py-2 text-sm outline-none focus:border-secondary"
             rows={2}
           />
           <div className="grid grid-cols-2 gap-3">
@@ -253,31 +254,35 @@ function ProductForm({
               step="0.01"
               value={form.price || ""}
               onChange={(e) => setForm({ ...form, price: parseFloat(e.target.value) || 0 })}
-              className="rounded-lg border border-primary/20 bg-background px-3 py-2 text-sm outline-none focus:border-primary-light"
+              className="rounded-lg border border-primary/20 bg-surface px-3 py-2 text-sm outline-none focus:border-secondary"
             />
             <input
               placeholder="Unit (e.g. 500g)"
               value={form.unit}
               onChange={(e) => setForm({ ...form, unit: e.target.value })}
-              className="rounded-lg border border-primary/20 bg-background px-3 py-2 text-sm outline-none focus:border-primary-light"
+              className="rounded-lg border border-primary/20 bg-surface px-3 py-2 text-sm outline-none focus:border-secondary"
             />
           </div>
-          <input
-            placeholder="Category"
+          <select
             value={form.category}
             onChange={(e) => setForm({ ...form, category: e.target.value })}
-            className="w-full rounded-lg border border-primary/20 bg-background px-3 py-2 text-sm outline-none focus:border-primary-light"
-          />
+            className="w-full rounded-lg border border-primary/20 bg-surface px-3 py-2 text-sm outline-none focus:border-secondary"
+          >
+            <option value="">Select category...</option>
+            {PRODUCT_CATEGORIES.map((cat) => (
+              <option key={cat} value={cat}>{cat}</option>
+            ))}
+          </select>
           <input
             placeholder="Image URL"
             value={form.image}
             onChange={(e) => setForm({ ...form, image: e.target.value })}
-            className="w-full rounded-lg border border-primary/20 bg-background px-3 py-2 text-sm outline-none focus:border-primary-light"
+            className="w-full rounded-lg border border-primary/20 bg-surface px-3 py-2 text-sm outline-none focus:border-secondary"
           />
           <select
             value={form.locality}
             onChange={(e) => setForm({ ...form, locality: e.target.value as Locality })}
-            className="w-full rounded-lg border border-primary/20 bg-background px-3 py-2 text-sm outline-none focus:border-primary-light"
+            className="w-full rounded-lg border border-primary/20 bg-surface px-3 py-2 text-sm outline-none focus:border-secondary"
           >
             {LOCALITY_OPTIONS.map((opt) => (
               <option key={opt} value={opt}>{opt}</option>
@@ -290,7 +295,7 @@ function ProductForm({
               step="any"
               value={form.lat ?? ""}
               onChange={(e) => setForm({ ...form, lat: e.target.value ? parseFloat(e.target.value) : null })}
-              className="rounded-lg border border-primary/20 bg-background px-3 py-2 text-sm outline-none focus:border-primary-light"
+              className="rounded-lg border border-primary/20 bg-surface px-3 py-2 text-sm outline-none focus:border-secondary"
             />
             <input
               placeholder="Longitude (optional)"
@@ -298,7 +303,7 @@ function ProductForm({
               step="any"
               value={form.lng ?? ""}
               onChange={(e) => setForm({ ...form, lng: e.target.value ? parseFloat(e.target.value) : null })}
-              className="rounded-lg border border-primary/20 bg-background px-3 py-2 text-sm outline-none focus:border-primary-light"
+              className="rounded-lg border border-primary/20 bg-surface px-3 py-2 text-sm outline-none focus:border-secondary"
             />
           </div>
           <label className="flex items-center gap-2 text-sm text-primary">
@@ -312,12 +317,12 @@ function ProductForm({
           </label>
         </div>
         <div className="mt-6 flex justify-end gap-3">
-          <button onClick={onCancel} className="rounded-lg border border-primary/20 px-4 py-2 text-sm font-medium text-muted hover:bg-background">
+          <button onClick={onCancel} className="rounded-lg border border-primary/20 px-4 py-2 text-sm font-medium text-muted hover:bg-surface">
             Cancel
           </button>
           <button
             onClick={() => onSave(form)}
-            className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-background hover:bg-primary-light"
+            className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-background hover:bg-secondary"
           >
             {product ? "Save Changes" : "Add Product"}
           </button>

@@ -5,10 +5,10 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useUser, SignedIn } from "@clerk/nextjs";
 import UserAvatar from "@/components/UserAvatar";
-import { Store, Package, ClipboardList, ArrowLeft, LayoutDashboard, Menu, X } from "lucide-react";
+import { Store, Package, ClipboardList, ArrowLeft, LayoutDashboard, Menu, X, Eye } from "lucide-react";
 
 const SUPPLIER_NAV = [
-  { href: "/supplier-portal", label: "Profile", icon: Store },
+  { href: "/supplier-portal", label: "Your Page", icon: Eye },
   { href: "/supplier-portal/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/supplier-portal/products", label: "Products", icon: Package },
   { href: "/supplier-portal/orders", label: "Orders", icon: ClipboardList },
@@ -20,7 +20,7 @@ export default function SupplierLayout({ children }: { children: React.ReactNode
   const [mobileOpen, setMobileOpen] = useState(false);
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen">
       {/* Supplier header */}
       <header className="sticky top-0 z-50 bg-secondary text-white shadow-md">
         <div className="mx-auto flex h-14 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">

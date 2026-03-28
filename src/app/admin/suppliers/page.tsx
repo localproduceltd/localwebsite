@@ -13,6 +13,21 @@ import {
   deleteSupplierUser,
 } from "@/lib/data";
 import { Plus, Pencil, Trash2, X, MapPin, UserPlus, Link2, Power } from "lucide-react";
+import ImageUpload from "@/components/ImageUpload";
+import MapPicker from "@/components/MapPicker";
+
+const SUPPLIER_CATEGORIES = [
+  "Greengrocer",
+  "Farm Shop",
+  "Bakery",
+  "Cheesemonger",
+  "Butcher",
+  "Fishmonger",
+  "Deli",
+  "Brewery",
+  "Winery",
+  "Other",
+];
 
 export default function AdminSuppliersPage() {
   const [supplierList, setSupplierList] = useState<Supplier[]>([]);
@@ -76,7 +91,7 @@ export default function AdminSuppliersPage() {
         </div>
         <button
           onClick={() => { setEditing(null); setShowForm(true); }}
-          className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-background transition hover:bg-primary-light"
+          className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-background transition hover:bg-secondary"
         >
           <Plus size={16} /> Add Supplier
         </button>
@@ -96,7 +111,7 @@ export default function AdminSuppliersPage() {
           return (
             <div key={supplier.id} className={`overflow-hidden rounded-xl bg-surface shadow-sm ${!supplier.active ? "opacity-60" : ""}`}>
               <div className="relative aspect-[3/2] overflow-hidden">
-                <img src={supplier.image} alt={supplier.name} className="h-full w-full object-cover" />
+                <img src={supplier.image || "/images/Holding Image - Supplier.png"} alt={supplier.name} className="h-full w-full object-cover" />
                 <span className={`absolute top-2 right-2 rounded-full px-2.5 py-0.5 text-xs font-bold ${supplier.active ? "bg-green-100 text-green-700" : "bg-red-100 text-red-600"}`}>
                   {supplier.active ? "Live" : "Not Live"}
                 </span>
@@ -107,7 +122,7 @@ export default function AdminSuppliersPage() {
                 </span>
                 <h3 className="mt-2 font-semibold text-primary">{supplier.name}</h3>
                 <p className="mt-1 text-sm text-muted line-clamp-2">{supplier.description}</p>
-                <div className="mt-2 flex items-center gap-1 text-xs text-primary-light">
+                <div className="mt-2 flex items-center gap-1 text-xs text-secondary">
                   <MapPin size={12} />
                   <span>{supplier.location}</span>
                 </div>
@@ -174,16 +189,16 @@ export default function AdminSuppliersPage() {
               placeholder="user_2x..." 
               value={linkClerkId}
               onChange={(e) => setLinkClerkId(e.target.value)}
-              className="mt-3 w-full rounded-lg border border-primary/20 bg-background px-3 py-2 text-sm font-mono outline-none focus:border-primary-light"
+              className="mt-3 w-full rounded-lg border border-primary/20 bg-surface px-3 py-2 text-sm font-mono outline-none focus:border-secondary"
             />
             <div className="mt-4 flex justify-end gap-3">
-              <button onClick={() => setLinkingSupplierId(null)} className="rounded-lg border border-primary/20 px-4 py-2 text-sm font-medium text-muted hover:bg-background">
+              <button onClick={() => setLinkingSupplierId(null)} className="rounded-lg border border-primary/20 px-4 py-2 text-sm font-medium text-muted hover:bg-surface">
                 Cancel
               </button>
               <button
                 onClick={handleLinkUser}
                 disabled={!linkClerkId.trim()}
-                className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-light disabled:opacity-40"
+                className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-secondary disabled:opacity-40"
               >
                 Link User
               </button>
@@ -217,6 +232,7 @@ function SupplierForm({
       active: false,
     }
   );
+  const [showMapPicker, setShowMapPicker] = useState(false);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
@@ -232,13 +248,13 @@ function SupplierForm({
             placeholder="Supplier name"
             value={form.name}
             onChange={(e) => setForm({ ...form, name: e.target.value })}
-            className="w-full rounded-lg border border-primary/20 bg-background px-3 py-2 text-sm outline-none focus:border-primary-light"
+            className="w-full rounded-lg border border-primary/20 bg-surface px-3 py-2 text-sm outline-none focus:border-secondary"
           />
           <textarea
             placeholder="Description"
             value={form.description}
             onChange={(e) => setForm({ ...form, description: e.target.value })}
-            className="w-full rounded-lg border border-primary/20 bg-background px-3 py-2 text-sm outline-none focus:border-primary-light"
+            className="w-full rounded-lg border border-primary/20 bg-surface px-3 py-2 text-sm outline-none focus:border-secondary"
             rows={3}
           />
           <div className="grid grid-cols-2 gap-3">
@@ -246,51 +262,60 @@ function SupplierForm({
               placeholder="Location"
               value={form.location}
               onChange={(e) => setForm({ ...form, location: e.target.value })}
-              className="rounded-lg border border-primary/20 bg-background px-3 py-2 text-sm outline-none focus:border-primary-light"
+              className="rounded-lg border border-primary/20 bg-surface px-3 py-2 text-sm outline-none focus:border-secondary"
             />
-            <input
-              placeholder="Category"
+            <select
               value={form.category}
               onChange={(e) => setForm({ ...form, category: e.target.value })}
-              className="rounded-lg border border-primary/20 bg-background px-3 py-2 text-sm outline-none focus:border-primary-light"
+              className="rounded-lg border border-primary/20 bg-surface px-3 py-2 text-sm outline-none focus:border-secondary"
+            >
+              <option value="">Select category</option>
+              {SUPPLIER_CATEGORIES.map((cat) => (
+                <option key={cat} value={cat}>
+                  {cat}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-muted mb-1">Supplier Image</label>
+            <ImageUpload
+              currentImage={form.image}
+              onImageChange={(url) => setForm({ ...form, image: url })}
             />
           </div>
-          <input
-            placeholder="Image URL"
-            value={form.image}
-            onChange={(e) => setForm({ ...form, image: e.target.value })}
-            className="w-full rounded-lg border border-primary/20 bg-background px-3 py-2 text-sm outline-none focus:border-primary-light"
-          />
-          <div className="grid grid-cols-2 gap-3">
-            <input
-              placeholder="Latitude (optional)"
-              type="number"
-              step="any"
-              value={form.lat ?? ""}
-              onChange={(e) => setForm({ ...form, lat: e.target.value ? parseFloat(e.target.value) : null })}
-              className="rounded-lg border border-primary/20 bg-background px-3 py-2 text-sm outline-none focus:border-primary-light"
-            />
-            <input
-              placeholder="Longitude (optional)"
-              type="number"
-              step="any"
-              value={form.lng ?? ""}
-              onChange={(e) => setForm({ ...form, lng: e.target.value ? parseFloat(e.target.value) : null })}
-              className="rounded-lg border border-primary/20 bg-background px-3 py-2 text-sm outline-none focus:border-primary-light"
-            />
+          <div>
+            <label className="block text-xs font-medium text-muted mb-1">Location on Map</label>
+            <button
+              type="button"
+              onClick={() => setShowMapPicker(true)}
+              className="inline-flex items-center gap-2 rounded-lg border border-primary/20 bg-surface px-3 py-2 text-sm font-medium text-primary transition hover:bg-secondary/10"
+            >
+              <MapPin size={16} />
+              {form.lat && form.lng ? `${form.lat.toFixed(4)}, ${form.lng.toFixed(4)}` : "Set location on map"}
+            </button>
+            <p className="mt-1 text-xs text-muted">Click to search for location or pin it on the map</p>
           </div>
         </div>
         <div className="mt-6 flex justify-end gap-3">
-          <button onClick={onCancel} className="rounded-lg border border-primary/20 px-4 py-2 text-sm font-medium text-muted hover:bg-background">
+          <button onClick={onCancel} className="rounded-lg border border-primary/20 px-4 py-2 text-sm font-medium text-muted hover:bg-surface">
             Cancel
           </button>
           <button
             onClick={() => onSave(form)}
-            className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-background hover:bg-primary-light"
+            className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-background hover:bg-secondary"
           >
             {supplier ? "Save Changes" : "Add Supplier"}
           </button>
         </div>
+        {showMapPicker && (
+          <MapPicker
+            lat={form.lat}
+            lng={form.lng}
+            onLocationSelect={(lat, lng) => setForm({ ...form, lat, lng })}
+            onClose={() => setShowMapPicker(false)}
+          />
+        )}
       </div>
     </div>
   );

@@ -23,11 +23,11 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className={`${dmSans.variable} antialiased bg-background text-foreground`}>
+      <body className={`${dmSans.variable} antialiased bg-surface text-foreground`}>
         <ClerkProvider
           appearance={{
             variables: {
-              colorPrimary: "#9C5273",
+              colorPrimary: "#8E9F68",
             },
           }}
         >

@@ -45,13 +45,13 @@ export default function UserAvatar({ size = "h-9 w-9", bg = "bg-secondary" }: { 
         <div className="absolute right-0 top-full mt-2 w-44 rounded-xl bg-surface shadow-lg border border-primary/10 overflow-hidden z-50">
           <button
             onClick={() => { openUserProfile(); setOpen(false); }}
-            className="w-full px-4 py-2.5 text-left text-sm font-medium text-primary hover:bg-background transition"
+            className="w-full px-4 py-2.5 text-left text-sm font-medium text-primary hover:bg-surface transition"
           >
             Manage Account
           </button>
           <button
             onClick={() => signOut({ redirectUrl: "/" })}
-            className="w-full px-4 py-2.5 text-left text-sm font-medium text-red-600 hover:bg-background transition"
+            className="w-full px-4 py-2.5 text-left text-sm font-medium text-red-600 hover:bg-surface transition"
           >
             Sign Out
           </button>

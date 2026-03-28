@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
 :root {
-  --background: #f6f5f3;
+  --background: #ffffff;
   --foreground: #1a1a1a;
 }
 
@@ -10,11 +10,10 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-dm-sans);
   --font-mono: var(--font-geist-mono);
-  --color-primary: #829461;
-  --color-primary-light: #ABB95B;
-  --color-accent: #FFC559;
-  --color-secondary: #9C5273;
-  --color-surface: #ffffff;
+  --color-primary: #A30E4E;
+  --color-secondary: #8E9F68;
+  --color-accent: #FF9310;
+  --color-surface: #f7f5ef;
   --color-muted: #6b7280;
 }
 

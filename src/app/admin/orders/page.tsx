@@ -100,12 +100,12 @@ export default function AdminOrdersPage() {
               className="flex w-full items-center gap-2 mb-4 text-left"
             >
               {isOpen ? <ChevronDown size={18} className="text-primary" /> : <ChevronRight size={18} className="text-muted" />}
-              <Calendar size={18} className={upcoming ? "text-primary-light" : "text-muted"} />
+              <Calendar size={18} className={upcoming ? "text-secondary" : "text-muted"} />
               <h2 className={`text-lg font-bold ${upcoming ? "text-primary" : "text-muted"}`}>
                 {deliveryDay === "unassigned" ? "No Delivery Date" : formatDeliveryDate(deliveryDay)}
               </h2>
               {upcoming && (
-                <span className="rounded-full bg-primary-light/20 px-2 py-0.5 text-[10px] font-bold text-primary-light uppercase">Upcoming</span>
+                <span className="rounded-full bg-secondary/20 px-2 py-0.5 text-[10px] font-bold text-secondary uppercase">Upcoming</span>
               )}
               <span className="rounded-full bg-secondary/20 px-2.5 py-0.5 text-xs font-semibold text-primary">
                 {orders.length} order{orders.length !== 1 ? "s" : ""} · £{total.toFixed(2)}
@@ -161,7 +161,7 @@ export default function AdminOrdersPage() {
                           <select
                             value={order.status}
                             onChange={(e) => updateStatus(order.id, e.target.value as Order["status"])}
-                            className="rounded-lg border border-primary/20 bg-background px-2 py-1 text-sm outline-none focus:border-primary-light"
+                            className="rounded-lg border border-primary/20 bg-surface px-2 py-1 text-sm outline-none focus:border-secondary"
                           >
                             {statusOptions.map((s) => (
                               <option key={s} value={s}>

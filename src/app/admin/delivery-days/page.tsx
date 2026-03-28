@@ -68,7 +68,7 @@ export default function AdminDeliveryDaysPage() {
         </div>
         <button
           onClick={openNew}
-          className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-background transition hover:bg-primary-light"
+          className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-background transition hover:bg-secondary"
         >
           <Plus size={16} /> Add Date
         </button>
@@ -91,7 +91,7 @@ export default function AdminDeliveryDaysPage() {
                   type="date"
                   value={form.deliveryDate}
                   onChange={(e) => setForm({ ...form, deliveryDate: e.target.value })}
-                  className="w-full rounded-lg border border-primary/20 bg-background px-3 py-2 text-sm outline-none focus:border-primary-light"
+                  className="w-full rounded-lg border border-primary/20 bg-surface px-3 py-2 text-sm outline-none focus:border-secondary"
                 />
               </div>
               <div>
@@ -100,7 +100,7 @@ export default function AdminDeliveryDaysPage() {
                   type="date"
                   value={form.cutoffDate}
                   onChange={(e) => setForm({ ...form, cutoffDate: e.target.value })}
-                  className="w-full rounded-lg border border-primary/20 bg-background px-3 py-2 text-sm outline-none focus:border-primary-light"
+                  className="w-full rounded-lg border border-primary/20 bg-surface px-3 py-2 text-sm outline-none focus:border-secondary"
                 />
               </div>
               <div>
@@ -109,18 +109,18 @@ export default function AdminDeliveryDaysPage() {
                   type="time"
                   value={form.cutoffTime}
                   onChange={(e) => setForm({ ...form, cutoffTime: e.target.value })}
-                  className="w-full rounded-lg border border-primary/20 bg-background px-3 py-2 text-sm outline-none focus:border-primary-light"
+                  className="w-full rounded-lg border border-primary/20 bg-surface px-3 py-2 text-sm outline-none focus:border-secondary"
                 />
               </div>
             </div>
             <div className="mt-6 flex justify-end gap-3">
-              <button onClick={() => setShowForm(false)} className="rounded-lg border border-primary/20 px-4 py-2 text-sm font-medium text-muted hover:bg-background">
+              <button onClick={() => setShowForm(false)} className="rounded-lg border border-primary/20 px-4 py-2 text-sm font-medium text-muted hover:bg-surface">
                 Cancel
               </button>
               <button
                 onClick={handleSave}
                 disabled={!form.deliveryDate || !form.cutoffDate || !form.cutoffTime}
-                className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-background hover:bg-primary-light disabled:opacity-50"
+                className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-background hover:bg-secondary disabled:opacity-50"
               >
                 {editingDay ? "Save Changes" : "Add Date"}
               </button>
@@ -139,7 +139,7 @@ export default function AdminDeliveryDaysPage() {
         ) : (
           <div className="mt-3 space-y-3">
             {upcoming.map((day) => (
-              <div key={day.id} className="flex items-center justify-between rounded-xl bg-surface p-5 shadow-sm ring-2 ring-primary-light/20">
+              <div key={day.id} className="flex items-center justify-between rounded-xl bg-surface p-5 shadow-sm ring-2 ring-secondary/20">
                 <div>
                   <p className="font-semibold text-primary">{formatDate(day.deliveryDate)}</p>
                   <p className="text-xs text-muted">

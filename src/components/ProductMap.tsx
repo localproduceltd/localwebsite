@@ -58,12 +58,12 @@ export default function ProductMap({ products, onAddToCart }: ProductMapProps) {
               box-shadow:0 2px 4px rgba(0,0,0,0.3);
             "></div>
             <span style="
-              background:white;
+              background:#f7f5ef;
               padding:2px 8px;
               border-radius:6px;
               font-size:12px;
               font-weight:600;
-              color:#829461;
+              color:#A30E4E;
               box-shadow:0 1px 4px rgba(0,0,0,0.15);
               line-height:1.3;
             ">${product.name}</span>
@@ -77,9 +77,9 @@ export default function ProductMap({ products, onAddToCart }: ProductMapProps) {
 
       const popupContent = `
         <div style="min-width:180px;font-family:system-ui,sans-serif;">
-          <p style="font-weight:700;font-size:14px;margin:0;color:#829461;">${product.name}</p>
+          <p style="font-weight:700;font-size:14px;margin:0;color:#A30E4E;">${product.name}</p>
           <p style="font-size:12px;color:#6b7280;margin:2px 0;">${product.supplierName}</p>
-          <p style="font-size:13px;font-weight:600;color:#829461;margin:4px 0 2px;">
+          <p style="font-size:13px;font-weight:600;color:#A30E4E;margin:4px 0 2px;">
             £${product.price.toFixed(2)} <span style="font-weight:400;color:#6b7280;">/ ${product.unit}</span>
           </p>
           <span style="
@@ -89,7 +89,7 @@ export default function ProductMap({ products, onAddToCart }: ProductMapProps) {
           ">${product.locality}</span>
           ${onAddToCart && product.inStock ? `<button onclick="window.__addToCart__('${product.id}')" style="
             display:block;width:100%;margin-top:8px;padding:6px 0;
-            background:#829461;color:#f6f5f3;border:none;border-radius:8px;
+            background:#A30E4E;color:#fff;border:none;border-radius:8px;
             font-size:12px;font-weight:600;cursor:pointer;
           ">Add to Cart</button>` : ""}
         </div>

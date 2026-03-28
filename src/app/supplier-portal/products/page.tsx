@@ -17,7 +17,11 @@ import {
   deleteProduct,
   getAverageRatings,
 } from "@/lib/data";
-import { Plus, Pencil, Trash2, X, Loader2, Star } from "lucide-react";
+import { PRODUCT_CATEGORIES } from "@/lib/categories";
+import { LOCALITY_COLORS } from "@/lib/locality";
+import { Plus, Pencil, Trash2, X, Loader2, Star, Package, Filter, MapPin } from "lucide-react";
+import ImageUpload from "@/components/ImageUpload";
+import MapPicker from "@/components/MapPicker";
 
 export default function SupplierProductsPage() {
   const { user, isLoaded } = useUser();
@@ -28,6 +32,7 @@ export default function SupplierProductsPage() {
   const [editing, setEditing] = useState<Product | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [avgRatings, setAvgRatings] = useState<Record<string, { avg: number; count: number }>>({});
+  const [categoryFilter, setCategoryFilter] = useState<string>("all");
 
   const fetchProducts = async (supplierId: string) => {
     const prods = await getProductsBySupplier(supplierId);
@@ -70,10 +75,17 @@ export default function SupplierProductsPage() {
     setProducts((prev) => prev.filter((p) => p.id !== id));
   };
 
+  const handleToggleStock = async (product: Product) => {
+    if (!supplier) return;
+    const updated = { ...product, inStock: !product.inStock };
+    await updateProduct(updated);
+    setProducts((prev) => prev.map((p) => (p.id === product.id ? updated : p)));
+  };
+
   if (!isLoaded || loading) {
     return (
       <div className="flex min-h-[50vh] items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-secondary" />
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
       </div>
     );
   }
@@ -87,26 +99,54 @@ export default function SupplierProductsPage() {
     );
   }
 
+  // Filter and sort products
+  const filteredProducts = products
+    .filter((p) => categoryFilter === "all" || p.category === categoryFilter)
+    .sort((a, b) => {
+      // First sort by category
+      if (a.category !== b.category) {
+        return a.category.localeCompare(b.category);
+      }
+      // Then sort alphabetically by name
+      return a.name.localeCompare(b.name);
+    });
+
   const pendingCount = products.filter((p) => p.status === "pending").length;
   const approvedCount = products.filter((p) => p.status === "approved").length;
+  const categoriesInUse = Array.from(new Set(products.map((p) => p.category))).sort();
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-10 sm:px-6 lg:px-8">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-primary">Your Products</h1>
           <p className="mt-1 text-sm text-muted">
-            {products.length} products
+            {filteredProducts.length} of {products.length} products
             {pendingCount > 0 && <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-bold text-amber-700">{pendingCount} pending</span>}
             {approvedCount > 0 && <span className="ml-2 rounded-full bg-green-100 px-2 py-0.5 text-xs font-bold text-green-700">{approvedCount} approved</span>}
           </p>
         </div>
-        <button
-          onClick={() => { setEditing(null); setShowForm(true); }}
-          className="inline-flex items-center gap-2 rounded-lg bg-secondary px-4 py-2 text-sm font-semibold text-white transition hover:bg-secondary/90"
-        >
-          <Plus size={16} /> Add Product
-        </button>
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            <Filter size={16} className="text-muted" />
+            <select
+              value={categoryFilter}
+              onChange={(e) => setCategoryFilter(e.target.value)}
+              className="rounded-lg border border-primary/20 bg-surface px-3 py-2 text-sm outline-none focus:border-secondary"
+            >
+              <option value="all">All Categories</option>
+              {categoriesInUse.map((cat) => (
+                <option key={cat} value={cat}>{cat}</option>
+              ))}
+            </select>
+          </div>
+          <button
+            onClick={() => { setEditing(null); setShowForm(true); }}
+            className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition hover:bg-primary/90"
+          >
+            <Plus size={16} /> Add Product
+          </button>
+        </div>
       </div>
 
       {showForm && (
@@ -124,18 +164,28 @@ export default function SupplierProductsPage() {
         {products.length === 0 && (
           <p className="py-8 text-center text-muted">No products yet. Add your first product!</p>
         )}
-        {products.map((product) => (
-          <div key={product.id} className="rounded-xl bg-surface p-4 shadow-sm">
-            <div className="flex items-start gap-3">
-              <div className="h-14 w-14 flex-shrink-0 overflow-hidden rounded-lg bg-secondary/10">
-                {product.image && <img src={product.image} alt="" className="h-full w-full object-cover" />}
+        {filteredProducts.length === 0 && products.length > 0 && (
+          <p className="py-8 text-center text-muted">No products match the selected category.</p>
+        )}
+        {filteredProducts.map((product) => {
+          const localityColors = LOCALITY_COLORS[product.locality] ?? LOCALITY_COLORS["Local"];
+          return (
+            <div key={product.id} className={`rounded-xl bg-surface p-4 shadow-sm ${!product.inStock ? "opacity-50" : ""}`}>
+              <div className="flex items-start gap-3">
+                <div className="h-14 w-14 flex-shrink-0 overflow-hidden rounded-lg bg-secondary/10">
+                  {product.image && <img src={product.image} alt="" className="h-full w-full object-cover" />}
               </div>
               <div className="flex-1 min-w-0">
                 <p className="font-medium text-primary">{product.name}</p>
                 <p className="text-xs text-muted">{product.unit}</p>
                 <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
                   <span className="rounded-full bg-secondary/20 px-2 py-0.5 text-[10px] font-medium text-primary">{product.category}</span>
-                  <span className="rounded-full bg-accent/20 px-2 py-0.5 text-[10px] font-medium text-primary">{product.locality ?? "—"}</span>
+                  <span 
+                    className="rounded-full px-2 py-0.5 text-[10px] font-semibold"
+                    style={{ background: localityColors.bg, color: localityColors.text, border: `1px solid ${localityColors.border}` }}
+                  >
+                    {product.locality ?? "—"}
+                  </span>
                   <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
                     product.status === "approved" ? "bg-green-100 text-green-700" :
                     product.status === "pending" ? "bg-amber-100 text-amber-700" :
@@ -157,7 +207,16 @@ export default function SupplierProductsPage() {
             <div className="mt-3 flex items-center justify-between border-t border-primary/5 pt-3">
               <div className="flex items-center gap-2">
                 <span className="font-semibold text-primary">£{product.price.toFixed(2)}</span>
-                <span className={`inline-block h-2.5 w-2.5 rounded-full ${product.inStock ? "bg-green-500" : "bg-red-400"}`} />
+                <button
+                  onClick={() => handleToggleStock(product)}
+                  className={`rounded-full px-2.5 py-1 text-[10px] font-bold transition ${
+                    product.inStock 
+                      ? "bg-green-100 text-green-700 hover:bg-green-200" 
+                      : "bg-red-100 text-red-600 hover:bg-red-200"
+                  }`}
+                >
+                  {product.inStock ? "In Stock" : "Out of Stock"}
+                </button>
               </div>
               <div className="flex items-center gap-1">
                 <button
@@ -175,7 +234,8 @@ export default function SupplierProductsPage() {
               </div>
             </div>
           </div>
-        ))}
+        );
+        })}
       </div>
 
       {/* Desktop table view */}
@@ -199,8 +259,15 @@ export default function SupplierProductsPage() {
                 <td colSpan={8} className="px-4 py-8 text-center text-muted">No products yet. Add your first product!</td>
               </tr>
             )}
-            {products.map((product) => (
-              <tr key={product.id} className="border-b border-primary/5 last:border-0">
+            {filteredProducts.length === 0 && products.length > 0 && (
+              <tr>
+                <td colSpan={8} className="px-4 py-8 text-center text-muted">No products match the selected category.</td>
+              </tr>
+            )}
+            {filteredProducts.map((product) => {
+              const localityColors = LOCALITY_COLORS[product.locality] ?? LOCALITY_COLORS["Local"];
+              return (
+              <tr key={product.id} className={`border-b border-primary/5 last:border-0 ${!product.inStock ? "opacity-50" : ""}`}>
                 <td className="px-4 py-3">
                   <div className="flex items-center gap-3">
                     <div className="h-10 w-10 overflow-hidden rounded-lg bg-secondary/10">
@@ -218,13 +285,25 @@ export default function SupplierProductsPage() {
                   </span>
                 </td>
                 <td className="px-4 py-3">
-                  <span className="rounded-full bg-accent/20 px-2.5 py-0.5 text-xs font-medium text-primary">
+                  <span 
+                    className="rounded-full px-2.5 py-0.5 text-xs font-semibold"
+                    style={{ background: localityColors.bg, color: localityColors.text, border: `1px solid ${localityColors.border}` }}
+                  >
                     {product.locality ?? "—"}
                   </span>
                 </td>
                 <td className="px-4 py-3 text-right font-medium text-primary">£{product.price.toFixed(2)}</td>
                 <td className="px-4 py-3 text-center">
-                  <span className={`inline-block h-2.5 w-2.5 rounded-full ${product.inStock ? "bg-green-500" : "bg-red-400"}`} />
+                  <button
+                    onClick={() => handleToggleStock(product)}
+                    className={`rounded-full px-2.5 py-1 text-xs font-bold transition ${
+                      product.inStock 
+                        ? "bg-green-100 text-green-700 hover:bg-green-200" 
+                        : "bg-red-100 text-red-600 hover:bg-red-200"
+                    }`}
+                  >
+                    {product.inStock ? "In Stock" : "Out of Stock"}
+                  </button>
                 </td>
                 <td className="px-4 py-3 text-center">
                   {avgRatings[product.id] ? (
@@ -264,7 +343,8 @@ export default function SupplierProductsPage() {
                   </button>
                 </td>
               </tr>
-            ))}
+            );
+            })}
           </tbody>
         </table>
       </div>
@@ -307,6 +387,7 @@ function SupplierProductForm({
       status: "pending" as ProductStatus,
     }
   );
+  const [showMapPicker, setShowMapPicker] = useState(false);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
@@ -325,92 +406,131 @@ function SupplierProductForm({
             placeholder="Product name"
             value={form.name}
             onChange={(e) => setForm({ ...form, name: e.target.value })}
-            className="w-full rounded-lg border border-primary/20 bg-background px-3 py-2 text-sm outline-none focus:border-primary-light"
+            className="w-full rounded-lg border border-primary/20 bg-surface px-3 py-2 text-sm outline-none focus:border-secondary"
           />
           <textarea
             placeholder="Description"
             value={form.description}
             onChange={(e) => setForm({ ...form, description: e.target.value })}
-            className="w-full rounded-lg border border-primary/20 bg-background px-3 py-2 text-sm outline-none focus:border-primary-light"
+            className="w-full rounded-lg border border-primary/20 bg-surface px-3 py-2 text-sm outline-none focus:border-secondary"
             rows={2}
           />
           <div className="grid grid-cols-2 gap-3">
-            <input
-              placeholder="Price"
-              type="number"
-              step="0.01"
-              value={form.price || ""}
-              onChange={(e) => setForm({ ...form, price: parseFloat(e.target.value) || 0 })}
-              className="rounded-lg border border-primary/20 bg-background px-3 py-2 text-sm outline-none focus:border-primary-light"
-            />
-            <input
-              placeholder="Unit (e.g. 500g)"
-              value={form.unit}
-              onChange={(e) => setForm({ ...form, unit: e.target.value })}
-              className="rounded-lg border border-primary/20 bg-background px-3 py-2 text-sm outline-none focus:border-primary-light"
-            />
+            <div>
+              <label className="block text-xs font-medium text-muted mb-1">Price</label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-semibold text-primary">£</span>
+                <input
+                  placeholder="0.00"
+                  type="number"
+                  step="0.01"
+                  value={form.price || ""}
+                  onChange={(e) => setForm({ ...form, price: parseFloat(e.target.value) || 0 })}
+                  className="w-full rounded-lg border border-primary/20 bg-surface pl-7 pr-3 py-2 text-sm outline-none focus:border-secondary"
+                />
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-muted mb-1">Unit</label>
+              <input
+                placeholder="e.g. 500g"
+                value={form.unit}
+                onChange={(e) => setForm({ ...form, unit: e.target.value })}
+                className="w-full rounded-lg border border-primary/20 bg-surface px-3 py-2 text-sm outline-none focus:border-secondary"
+              />
+            </div>
           </div>
-          <input
-            placeholder="Category"
-            value={form.category}
-            onChange={(e) => setForm({ ...form, category: e.target.value })}
-            className="w-full rounded-lg border border-primary/20 bg-background px-3 py-2 text-sm outline-none focus:border-primary-light"
-          />
-          <input
-            placeholder="Image URL"
-            value={form.image}
-            onChange={(e) => setForm({ ...form, image: e.target.value })}
-            className="w-full rounded-lg border border-primary/20 bg-background px-3 py-2 text-sm outline-none focus:border-primary-light"
-          />
-          <select
-            value={form.locality}
-            onChange={(e) => setForm({ ...form, locality: e.target.value as Locality })}
-            className="w-full rounded-lg border border-primary/20 bg-background px-3 py-2 text-sm outline-none focus:border-primary-light"
-          >
-            {LOCALITY_OPTIONS.map((opt) => (
-              <option key={opt} value={opt}>{opt}</option>
-            ))}
-          </select>
-          <div className="grid grid-cols-2 gap-3">
-            <input
-              placeholder="Latitude (optional)"
-              type="number"
-              step="any"
-              value={form.lat ?? ""}
-              onChange={(e) => setForm({ ...form, lat: e.target.value ? parseFloat(e.target.value) : null })}
-              className="rounded-lg border border-primary/20 bg-background px-3 py-2 text-sm outline-none focus:border-primary-light"
-            />
-            <input
-              placeholder="Longitude (optional)"
-              type="number"
-              step="any"
-              value={form.lng ?? ""}
-              onChange={(e) => setForm({ ...form, lng: e.target.value ? parseFloat(e.target.value) : null })}
-              className="rounded-lg border border-primary/20 bg-background px-3 py-2 text-sm outline-none focus:border-primary-light"
-            />
+          <div>
+            <label className="block text-xs font-medium text-muted mb-1">Category</label>
+            <select
+              value={form.category}
+              onChange={(e) => setForm({ ...form, category: e.target.value })}
+              className="w-full rounded-lg border border-primary/20 bg-surface px-3 py-2 text-sm outline-none focus:border-secondary"
+            >
+              <option value="">Select category...</option>
+              {PRODUCT_CATEGORIES.map((cat) => (
+                <option key={cat} value={cat}>{cat}</option>
+              ))}
+            </select>
           </div>
-          <label className="flex items-center gap-2 text-sm text-primary">
-            <input
-              type="checkbox"
-              checked={form.inStock}
-              onChange={(e) => setForm({ ...form, inStock: e.target.checked })}
-              className="rounded"
-            />
-            In Stock
-          </label>
+          <ImageUpload
+            currentImage={form.image}
+            onImageChange={(url) => setForm({ ...form, image: url })}
+          />
+          <div>
+            <label className="block text-xs font-medium text-muted mb-1">Locality</label>
+            <select
+              value={form.locality}
+              onChange={(e) => setForm({ ...form, locality: e.target.value as Locality })}
+              className="w-full rounded-lg border border-primary/20 bg-surface px-3 py-2 text-sm outline-none focus:border-secondary"
+            >
+              {LOCALITY_OPTIONS.map((opt) => (
+                <option key={opt} value={opt}>{opt}</option>
+              ))}
+            </select>
+            <p className="mt-1.5 text-xs text-muted">
+              <strong>Own Produce:</strong> Produced by you • <strong>Local:</strong> Within 20 miles of you • <strong>Regional:</strong> From Derbyshire or surrounding counties • <strong>UK:</strong> From elsewhere in the UK • <strong>International:</strong> From outside the UK
+            </p>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-muted mb-1">Location (optional)</label>
+            <button
+              type="button"
+              onClick={() => setShowMapPicker(true)}
+              className="inline-flex items-center gap-2 rounded-lg border border-primary/20 bg-surface px-3 py-2 text-sm font-medium text-primary transition hover:bg-secondary/10"
+            >
+              <MapPin size={16} />
+              {form.lat && form.lng ? `${form.lat.toFixed(4)}, ${form.lng.toFixed(4)}` : "Set location on map"}
+            </button>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-primary mb-2">Stock Status</label>
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => setForm({ ...form, inStock: true })}
+                className={`flex-1 rounded-lg border-2 px-4 py-3 text-sm font-bold transition ${
+                  form.inStock
+                    ? "border-green-500 bg-green-50 text-green-700"
+                    : "border-primary/20 bg-surface text-muted hover:border-primary/40"
+                }`}
+              >
+                In Stock
+              </button>
+              <button
+                type="button"
+                onClick={() => setForm({ ...form, inStock: false })}
+                className={`flex-1 rounded-lg border-2 px-4 py-3 text-sm font-bold transition ${
+                  !form.inStock
+                    ? "border-red-500 bg-red-50 text-red-700"
+                    : "border-primary/20 bg-surface text-muted hover:border-primary/40"
+                }`}
+              >
+                Out of Stock
+              </button>
+            </div>
+          </div>
         </div>
         <div className="mt-6 flex justify-end gap-3">
-          <button onClick={onCancel} className="rounded-lg border border-primary/20 px-4 py-2 text-sm font-medium text-muted hover:bg-background">
+          <button onClick={onCancel} className="rounded-lg border border-primary/20 px-4 py-2 text-sm font-medium text-muted hover:bg-surface">
             Cancel
           </button>
           <button
             onClick={() => onSave(form)}
-            className="rounded-lg bg-secondary px-4 py-2 text-sm font-semibold text-white hover:bg-secondary/90"
+            className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary/90"
           >
             {product ? "Save & Submit for Approval" : "Add Product"}
           </button>
         </div>
       </div>
+      {showMapPicker && (
+        <MapPicker
+          lat={form.lat}
+          lng={form.lng}
+          onLocationSelect={(lat, lng) => setForm({ ...form, lat, lng })}
+          onClose={() => setShowMapPicker(false)}
+        />
+      )}
     </div>
   );
 }

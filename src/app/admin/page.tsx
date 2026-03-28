@@ -12,9 +12,9 @@ export default async function AdminDashboard() {
 
   const stats = [
     { label: "Products", value: products.length, icon: Package, href: "/admin/products", color: "bg-primary" },
-    { label: "Suppliers", value: suppliers.length, icon: Users, href: "/admin/suppliers", color: "bg-primary-light" },
+    { label: "Suppliers", value: suppliers.length, icon: Users, href: "/admin/suppliers", color: "bg-secondary" },
     { label: "Orders", value: orders.length, icon: ShoppingCart, href: "/admin/orders", color: "bg-accent" },
-    { label: "Delivery Days", value: deliveryDays.filter((d) => d.active).length, icon: Calendar, href: "/admin/delivery-days", color: "bg-secondary" },
+    { label: "Delivery Days", value: deliveryDays.length, icon: Calendar, href: "/admin/delivery-days", color: "bg-secondary" },
   ];
 
   return (
@@ -35,7 +35,7 @@ export default async function AdminDashboard() {
                 <Icon size={20} />
               </div>
               <p className="mt-4 text-3xl font-bold text-primary">{stat.value}</p>
-              <p className="mt-1 text-sm text-muted group-hover:text-primary-light">{stat.label}</p>
+              <p className="mt-1 text-sm text-muted group-hover:text-secondary">{stat.label}</p>
             </Link>
           );
         })}
@@ -47,7 +47,7 @@ export default async function AdminDashboard() {
           <h2 className="text-lg font-semibold text-primary">Recent Orders</h2>
           <div className="mt-4 space-y-3">
             {orders.slice(0, 5).map((order) => (
-              <div key={order.id} className="flex items-center justify-between rounded-lg bg-background p-3">
+              <div key={order.id} className="flex items-center justify-between rounded-lg bg-surface p-3">
                 <div>
                   <p className="text-sm font-medium text-primary">Order #{order.orderNumber}</p>
                   <p className="text-xs text-muted">{order.createdAt}</p>
@@ -62,7 +62,7 @@ export default async function AdminDashboard() {
               <p className="text-sm text-muted">No orders yet</p>
             )}
           </div>
-          <Link href="/admin/orders" className="mt-4 block text-center text-sm font-medium text-primary-light hover:underline">
+          <Link href="/admin/orders" className="mt-4 block text-center text-sm font-medium text-secondary hover:underline">
             View all orders &rarr;
           </Link>
         </div>
@@ -71,21 +71,21 @@ export default async function AdminDashboard() {
         <div className="rounded-xl bg-surface p-6 shadow-sm">
           <h2 className="text-lg font-semibold text-primary">Quick Actions</h2>
           <div className="mt-4 space-y-3">
-            <Link href="/admin/products" className="flex items-center gap-3 rounded-lg bg-background p-4 transition hover:bg-secondary/10">
+            <Link href="/admin/products" className="flex items-center gap-3 rounded-lg bg-surface p-4 transition hover:bg-secondary/10">
               <Package size={20} className="text-primary" />
               <div>
                 <p className="font-medium text-primary">Manage Products</p>
                 <p className="text-xs text-muted">Add, edit or remove products</p>
               </div>
             </Link>
-            <Link href="/admin/suppliers" className="flex items-center gap-3 rounded-lg bg-background p-4 transition hover:bg-secondary/10">
+            <Link href="/admin/suppliers" className="flex items-center gap-3 rounded-lg bg-surface p-4 transition hover:bg-secondary/10">
               <Users size={20} className="text-primary" />
               <div>
                 <p className="font-medium text-primary">Manage Suppliers</p>
                 <p className="text-xs text-muted">Add, edit or remove suppliers</p>
               </div>
             </Link>
-            <Link href="/admin/delivery-days" className="flex items-center gap-3 rounded-lg bg-background p-4 transition hover:bg-secondary/10">
+            <Link href="/admin/delivery-days" className="flex items-center gap-3 rounded-lg bg-surface p-4 transition hover:bg-secondary/10">
               <Calendar size={20} className="text-primary" />
               <div>
                 <p className="font-medium text-primary">Delivery Days</p>

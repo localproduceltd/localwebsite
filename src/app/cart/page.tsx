@@ -58,15 +58,15 @@ export default function CartPage() {
   if (orderPlaced) {
     return (
       <div className="mx-auto max-w-4xl px-4 py-20 text-center sm:px-6 lg:px-8">
-        <CheckCircle size={48} className="mx-auto text-primary-light" />
+        <CheckCircle size={48} className="mx-auto text-secondary" />
         <h1 className="mt-4 text-2xl font-bold text-primary">Order Placed!</h1>
         <p className="mt-2 text-muted">
           Your order has been placed for <span className="font-semibold text-primary">{new Date(selectedDay + "T00:00:00").toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })}</span> delivery.
         </p>
         <div className="mt-6 flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
           <Link
-            href="/orders"
-            className="inline-block rounded-lg bg-primary px-6 py-3 font-semibold text-background transition hover:bg-primary-light"
+            href="/account"
+            className="inline-block rounded-lg bg-primary px-6 py-3 font-semibold text-background transition hover:bg-secondary"
           >
             View My Orders
           </Link>
@@ -89,7 +89,7 @@ export default function CartPage() {
         <p className="mt-2 text-muted">Browse our products and add items to get started.</p>
         <Link
           href="/products"
-          className="mt-6 inline-block rounded-lg bg-primary px-6 py-3 font-semibold text-background transition hover:bg-primary-light"
+          className="mt-6 inline-block rounded-lg bg-primary px-6 py-3 font-semibold text-background transition hover:bg-secondary"
         >
           Browse Products
         </Link>
@@ -100,7 +100,7 @@ export default function CartPage() {
   return (
     <div className="mx-auto max-w-4xl px-4 py-10 sm:px-6 lg:px-8">
       <h1 className="text-3xl font-bold text-primary">Shopping Cart</h1>
-      <p className="mt-1 text-muted">{items.length} item{items.length !== 1 ? "s" : ""} in your cart</p>
+      <p className="mt-1 text-secondary">{items.length} item{items.length !== 1 ? "s" : ""} in your cart</p>
 
       <div className="mt-8 space-y-6">
         {(() => {
@@ -121,39 +121,43 @@ export default function CartPage() {
                   return (
                     <div
                       key={item.productId}
-                      className="flex items-center gap-4 rounded-xl bg-surface p-4 shadow-sm"
+                      className="rounded-xl bg-surface p-4 shadow-sm"
                     >
-                      <div className="h-20 w-20 flex-shrink-0 overflow-hidden rounded-lg bg-secondary/10">
-                        <img src={product.image} alt={product.name} className="h-full w-full object-cover" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <h3 className="font-semibold text-primary">{product.name}</h3>
-                        <p className="text-sm text-muted">£{product.price.toFixed(2)} / {product.unit}</p>
-                      </div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-4">
+                        <div className="h-16 w-16 flex-shrink-0 overflow-hidden rounded-lg bg-secondary/10 sm:h-20 sm:w-20">
+                          <img src={product.image} alt={product.name} className="h-full w-full object-cover" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <h3 className="font-semibold text-primary">{product.name}</h3>
+                          <p className="text-sm text-muted">£{product.price.toFixed(2)} / {product.unit}</p>
+                        </div>
                         <button
-                          onClick={() => updateQuantity(item.productId, -1)}
-                          className="flex h-8 w-8 items-center justify-center rounded-full bg-secondary/20 text-primary transition hover:bg-secondary/40"
+                          onClick={() => removeItem(item.productId)}
+                          className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-red-400 transition hover:bg-red-50 hover:text-red-600"
                         >
-                          <Minus size={14} />
-                        </button>
-                        <span className="w-8 text-center font-semibold text-primary">{item.quantity}</span>
-                        <button
-                          onClick={() => updateQuantity(item.productId, 1)}
-                          className="flex h-8 w-8 items-center justify-center rounded-full bg-secondary/20 text-primary transition hover:bg-secondary/40"
-                        >
-                          <Plus size={14} />
+                          <Trash2 size={16} />
                         </button>
                       </div>
-                      <p className="w-20 text-right font-bold text-primary">
-                        £{(product.price * item.quantity).toFixed(2)}
-                      </p>
-                      <button
-                        onClick={() => removeItem(item.productId)}
-                        className="flex h-8 w-8 items-center justify-center rounded-full text-red-400 transition hover:bg-red-50 hover:text-red-600"
-                      >
-                        <Trash2 size={16} />
-                      </button>
+                      <div className="mt-3 flex items-center justify-between border-t border-primary/5 pt-3">
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => updateQuantity(item.productId, -1)}
+                            className="flex h-8 w-8 items-center justify-center rounded-full bg-secondary/20 text-primary transition hover:bg-secondary/40"
+                          >
+                            <Minus size={14} />
+                          </button>
+                          <span className="w-8 text-center font-semibold text-primary">{item.quantity}</span>
+                          <button
+                            onClick={() => updateQuantity(item.productId, 1)}
+                            className="flex h-8 w-8 items-center justify-center rounded-full bg-secondary/20 text-primary transition hover:bg-secondary/40"
+                          >
+                            <Plus size={14} />
+                          </button>
+                        </div>
+                        <p className="font-bold text-primary">
+                          £{(product.price * item.quantity).toFixed(2)}
+                        </p>
+                      </div>
                     </div>
                   );
                 })}
@@ -166,7 +170,7 @@ export default function CartPage() {
       {/* Delivery Day Picker */}
       <div className="mt-8 rounded-xl bg-surface p-6 shadow-sm">
         <div className="flex items-center gap-2">
-          <Calendar size={20} className="text-primary" />
+          <Calendar size={20} className="text-secondary" />
           <h2 className="text-lg font-semibold text-primary">Choose Delivery Date</h2>
         </div>
         {deliveryDays.length === 0 ? (
@@ -185,7 +189,7 @@ export default function CartPage() {
                   className={`rounded-lg border-2 px-5 py-3 text-sm font-semibold transition ${
                     selectedDay === day.deliveryDate
                       ? "border-primary bg-primary text-background"
-                      : "border-primary/20 bg-background text-primary hover:border-primary-light"
+                      : "border-primary/20 bg-surface text-primary hover:border-secondary"
                   }`}
                 >
                   <span className="block">{label}</span>
@@ -224,7 +228,7 @@ export default function CartPage() {
         </button>
         {!isSignedIn && (
           <p className="mt-2 text-center text-xs text-muted">
-            You&apos;ll need to <Link href="/sign-in" className="text-primary-light hover:underline">sign in</Link> to complete your order
+            You&apos;ll need to <Link href="/sign-in" className="text-secondary hover:underline">sign in</Link> to complete your order
           </p>
         )}
       </div>

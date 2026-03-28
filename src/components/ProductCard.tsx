@@ -33,7 +33,7 @@ export default function ProductCard({ product }: { product: Product }) {
       </div>
       <div className="p-4">
         <div className="flex items-center justify-between">
-          <span className="text-xs font-medium text-primary-light">{product.supplierName || product.category}</span>
+          <span className="text-xs font-medium text-secondary">{product.supplierName || product.category}</span>
           {!product.inStock && (
             <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-600">
               Out of Stock
@@ -62,7 +62,7 @@ export default function ProductCard({ product }: { product: Product }) {
           disabled={!product.inStock}
           onClick={handleAdd}
           className={`mt-3 w-full rounded-lg py-2 text-sm font-semibold text-background transition disabled:cursor-not-allowed disabled:opacity-50 ${
-            justAdded ? "bg-primary-light" : "bg-primary hover:bg-primary-light"
+            justAdded ? "bg-secondary" : "bg-primary hover:bg-secondary"
           }`}
         >
           {!product.inStock ? "Unavailable" : justAdded ? (

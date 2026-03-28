@@ -170,7 +170,7 @@ export default function SupplierOrdersPage() {
   if (!isLoaded || loading) {
     return (
       <div className="flex min-h-[50vh] items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-secondary" />
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
       </div>
     );
   }
@@ -219,7 +219,7 @@ export default function SupplierOrdersPage() {
                       return (
                         <td key={day} className="px-3 py-2.5 text-center">
                           {qty > 0 ? (
-                            <span className="inline-block rounded-full bg-secondary/15 px-2.5 py-0.5 text-xs font-bold text-secondary">
+                            <span className="inline-block rounded-full bg-primary/15 px-2.5 py-0.5 text-xs font-bold text-primary">
                               {qty}
                             </span>
                           ) : (
@@ -275,7 +275,7 @@ export default function SupplierOrdersPage() {
               {isPast ? (
                 isCollapsed ? <ChevronRight size={18} className="text-muted" /> : <ChevronDown size={18} className="text-muted" />
               ) : (
-                <Calendar size={18} className="text-primary-light" />
+                <Calendar size={18} className="text-secondary" />
               )}
               <h2 className={`text-lg font-bold ${isPast ? "text-muted" : "text-primary"}`}>
                 {group.deliveryDay === "unassigned" ? "No Delivery Date" : formatDeliveryDate(group.deliveryDay)}
@@ -339,7 +339,7 @@ export default function SupplierOrdersPage() {
                     </table>
                   </div>
 
-                  <div className="flex flex-wrap items-center justify-between gap-4 border-t border-primary/5 bg-secondary/5 px-6 py-3">
+                  <div className="flex flex-wrap items-center justify-between gap-4 border-t border-primary/5 bg-primary/5 px-6 py-3">
                     {isReadOnly ? (
                       <span className={`inline-flex items-center gap-1.5 text-xs font-semibold ${cfg.color}`}>
                         <StatusIcon size={14} />
@@ -360,7 +360,7 @@ export default function SupplierOrdersPage() {
                                 className={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium transition ${
                                   isActive
                                     ? sc.color + " ring-1 ring-current"
-                                    : "bg-background text-muted hover:bg-primary/5"
+                                    : "bg-surface text-muted hover:bg-primary/5"
                                 }`}
                               >
                                 <Icon size={12} />

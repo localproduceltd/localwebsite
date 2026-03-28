@@ -70,7 +70,7 @@ export default function OrdersPage() {
   return (
     <div className="mx-auto max-w-4xl px-4 py-10 sm:px-6 lg:px-8">
       <h1 className="text-3xl font-bold text-primary">My Orders</h1>
-      <p className="mt-1 text-muted">View your order history and track current orders</p>
+      <p className="mt-1 text-secondary">View your order history and track current orders</p>
 
       {orders.length === 0 ? (
         <div className="mt-16 text-center">
@@ -95,7 +95,7 @@ export default function OrdersPage() {
                   </div>
                   <div className="flex items-center gap-4">
                     <span className="text-xs text-muted">
-                      Delivery: <span className="font-medium text-primary">{order.deliveryDay}</span>
+                      Delivery: <span className="font-medium text-secondary">{order.deliveryDay}</span>
                     </span>
                     <span className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-semibold ${status.color}`}>
                       <StatusIcon size={12} />

@@ -49,15 +49,15 @@ export default function CarrieFeedback() {
         className="block"
         aria-label="Leave feedback"
       >
-        <img src="/logo-carrot.png" alt="Carrie the Carrot" className="h-16 w-16 object-contain transition hover:scale-110" />
+        <img src="/logo-carrot.png" alt="Carrie the Carrot" className="h-14 w-14 object-contain transition hover:scale-110" />
       </button>
 
       {/* Tooltip on hover */}
       {showTooltip && (
-        <div className="absolute left-0 top-full mt-2 w-56 rounded-lg bg-white px-4 py-2.5 text-sm font-medium shadow-lg z-50">
-          <div className="absolute -top-1.5 left-6 h-3 w-3 rotate-45 bg-white" />
-          <span className="flex items-center gap-1.5 text-[#829461]">
-            <MessageCircleHeart size={14} className="flex-shrink-0 text-[#9C5273]" />
+        <div className="absolute left-0 top-full z-50 mt-2 hidden w-56 rounded-lg border border-primary/10 bg-surface px-4 py-2.5 text-sm font-medium shadow-lg sm:block">
+          <div className="absolute -top-1.5 left-6 h-3 w-3 rotate-45 border-l border-t border-primary/10 bg-surface" />
+          <span className="flex items-center gap-1.5 text-primary">
+            <MessageCircleHeart size={14} className="flex-shrink-0 text-secondary" />
             Hi! I&apos;m Carrie 🥕 Click me to leave feedback and ideas!
           </span>
         </div>
@@ -65,7 +65,7 @@ export default function CarrieFeedback() {
 
       {/* Feedback form popup */}
       {showForm && (
-        <div ref={formRef} className="absolute left-0 top-full mt-3 w-80 rounded-xl bg-white p-5 shadow-xl z-50 border border-[#829461]/10 text-[#829461]">
+        <div ref={formRef} className="fixed inset-x-4 top-20 z-50 mx-auto max-w-sm rounded-xl border border-primary/10 bg-surface p-5 shadow-xl text-primary sm:absolute sm:inset-auto sm:left-0 sm:top-full sm:mt-3 sm:mx-0 sm:w-80">
           {submitted ? (
             <div className="py-6 text-center">
               <p className="text-3xl">🥕💜</p>
@@ -90,14 +90,14 @@ export default function CarrieFeedback() {
                 placeholder="Your name (optional)"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                className="mt-4 w-full rounded-lg border border-primary/20 bg-background px-3 py-2 text-sm outline-none focus:border-primary-light"
+                className="mt-4 w-full rounded-lg border border-primary/20 bg-surface px-3 py-2 text-sm outline-none focus:border-secondary"
               />
               <textarea
                 placeholder="Request a local supplier or product, suggest a feature, or tell us how we're doing!"
                 value={feedback}
                 onChange={(e) => setFeedback(e.target.value)}
                 rows={3}
-                className="mt-2 w-full rounded-lg border border-primary/20 bg-background px-3 py-2 text-sm outline-none focus:border-primary-light resize-none"
+                className="mt-2 w-full rounded-lg border border-primary/20 bg-surface px-3 py-2 text-sm outline-none focus:border-secondary resize-none"
               />
               <button
                 onClick={handleSubmit}

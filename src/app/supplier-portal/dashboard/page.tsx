@@ -127,7 +127,7 @@ export default function SupplierDashboardPage() {
   if (!isLoaded || loading) {
     return (
       <div className="flex min-h-[50vh] items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-secondary" />
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
       </div>
     );
   }
@@ -239,7 +239,7 @@ export default function SupplierDashboardPage() {
       {metrics.deliveryBreakdown.length > 0 && (
         <div className="mt-8 overflow-hidden rounded-xl bg-surface p-6 shadow-sm">
           <div className="flex items-center gap-2 mb-4">
-            <BarChart3 size={18} className="text-primary-light" />
+            <BarChart3 size={18} className="text-secondary" />
             <h2 className="text-sm font-bold text-primary">Revenue by Delivery Day</h2>
           </div>
           <div className="space-y-3">
@@ -249,7 +249,7 @@ export default function SupplierDashboardPage() {
                   {formatDeliveryDate(d.day)}
                   {!d.isPast && <span className="ml-1 text-[10px] text-secondary font-bold">upcoming</span>}
                 </span>
-                <div className="flex-1 h-7 rounded-lg bg-background overflow-hidden">
+                <div className="flex-1 h-7 rounded-lg bg-surface overflow-hidden">
                   <div
                     className={`h-full rounded-lg flex items-center px-2 text-[11px] font-bold text-white transition-all ${d.isPast ? "bg-primary/60" : "bg-secondary"}`}
                     style={{ width: `${Math.max((d.revenue / maxRevenue) * 100, 8)}%` }}
