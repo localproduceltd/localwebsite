@@ -15,7 +15,6 @@ import dynamic from "next/dynamic";
 let L: typeof import("leaflet") | null = null;
 if (typeof window !== "undefined") {
   L = require("leaflet");
-  require("leaflet/dist/leaflet.css");
 }
 
 const ZONE_COLORS = ["#8E9F68", "#A30E4E", "#FF9310", "#3B82F6", "#8B5CF6", "#EC4899"];
@@ -47,6 +46,7 @@ export default function AdminDeliveryPage() {
 
   // Init map + draw zones (re-runs when loading finishes or zones change)
   useEffect(() => {
+    console.log('Map init check:', { loading, hasMapRef: !!mapRef.current, hasL: !!L });
     if (loading || !mapRef.current || !L) return;
 
     // Create map if it doesn't exist yet
@@ -57,6 +57,11 @@ export default function AdminDeliveryPage() {
         attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
       }).addTo(map);
       layersRef.current = L.layerGroup().addTo(map);
+      
+      // Force map to recalculate size after a short delay
+      setTimeout(() => {
+        map.invalidateSize();
+      }, 100);
     }
 
     const map = mapInstanceRef.current;
@@ -177,7 +182,8 @@ export default function AdminDeliveryPage() {
       <div className="mt-6 rounded-xl bg-surface p-4 shadow-sm">
         <div
           ref={mapRef}
-          className="overflow-hidden rounded-xl border border-primary/10 h-[400px]"
+          className="overflow-hidden rounded-xl border border-primary/10 h-[400px] w-full bg-gray-100"
+          style={{ minHeight: '400px' }}
         />
       </div>
 

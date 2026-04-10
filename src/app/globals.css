@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "leaflet/dist/leaflet.css";
 
 :root {
   --background: #ffffff;
@@ -29,3 +30,9 @@ body {
   border: none !important;
 }
 
+/* Ensure Leaflet map container displays properly */
+.leaflet-container {
+  height: 100%;
+  width: 100%;
+  z-index: 0;
+}

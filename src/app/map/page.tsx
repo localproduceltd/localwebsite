@@ -12,7 +12,6 @@ import { useUser } from "@clerk/nextjs";
 let L: typeof import("leaflet") | null = null;
 if (typeof window !== "undefined") {
   L = require("leaflet");
-  require("leaflet/dist/leaflet.css");
 }
 
 type FilterMode = "both" | "products" | "suppliers";
@@ -58,6 +57,12 @@ export default function MapPage() {
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
     }).addTo(map);
+    
+    // Force map to recalculate size after a short delay
+    setTimeout(() => {
+      map.invalidateSize();
+    }, 100);
+    
     return () => {
       map.remove();
       mapInstanceRef.current = null;
@@ -281,7 +286,8 @@ export default function MapPage() {
 
       <div
         ref={mapRef}
-        className="mt-6 overflow-hidden rounded-xl border border-primary/10 shadow-sm h-[400px] sm:h-[600px]"
+        className="mt-6 overflow-hidden rounded-xl border border-primary/10 shadow-sm h-[400px] sm:h-[600px] w-full bg-gray-100"
+        style={{ minHeight: '400px' }}
       />
 
       <div className="mt-4 flex flex-wrap items-center gap-4 text-xs text-muted">
