@@ -12,7 +12,8 @@ import {
   createSupplierUser,
   deleteSupplierUser,
 } from "@/lib/data";
-import { Plus, Pencil, Trash2, X, MapPin, UserPlus, Link2, Power } from "lucide-react";
+import { Plus, Pencil, Trash2, X, MapPin, UserPlus, Link2, ChevronDown, ChevronRight } from "lucide-react";
+import { type SupplierStatus } from "@/lib/data";
 import ImageUpload from "@/components/ImageUpload";
 import MapPicker from "@/components/MapPicker";
 
@@ -29,6 +30,14 @@ const SUPPLIER_CATEGORIES = [
   "Other",
 ];
 
+const STATUS_CONFIG: Record<SupplierStatus, { label: string; color: string; bgColor: string }> = {
+  launch_live: { label: "Live", color: "text-green-700", bgColor: "bg-green-100" },
+  launch_not_live: { label: "Not Live", color: "text-red-600", bgColor: "bg-red-100" },
+  development_live: { label: "Development Live", color: "text-blue-700", bgColor: "bg-blue-100" },
+  development_coming_soon: { label: "Development Coming Soon", color: "text-amber-700", bgColor: "bg-amber-100" },
+  archived: { label: "Archived", color: "text-gray-500", bgColor: "bg-gray-100" },
+};
+
 export default function AdminSuppliersPage() {
   const [supplierList, setSupplierList] = useState<Supplier[]>([]);
   const [editing, setEditing] = useState<Supplier | null>(null);
@@ -36,6 +45,22 @@ export default function AdminSuppliersPage() {
   const [supplierUsers, setSupplierUsers] = useState<(SupplierUser & { supplierName: string })[]>([]);
   const [linkingSupplierId, setLinkingSupplierId] = useState<string | null>(null);
   const [linkClerkId, setLinkClerkId] = useState("");
+  
+  // Collapsible sections
+  const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
+    main: true,
+    prelaunch: false,
+    archived: false,
+  });
+  
+  const toggleSection = (section: string) => {
+    setExpandedSections((prev) => ({ ...prev, [section]: !prev[section] }));
+  };
+  
+  // Group suppliers by status
+  const mainSuppliers = supplierList.filter((s) => s.status === "launch_live" || s.status === "launch_not_live");
+  const developmentSuppliers = supplierList.filter((s) => s.status === "development_live" || s.status === "development_coming_soon");
+  const archivedSuppliers = supplierList.filter((s) => s.status === "archived");
 
   const fetchSuppliers = () => getSuppliers().then(setSupplierList).catch(console.error);
   const fetchSupplierUsers = () => getSupplierUsers().then(setSupplierUsers).catch(console.error);
@@ -43,8 +68,16 @@ export default function AdminSuppliersPage() {
   useEffect(() => { fetchSuppliers(); fetchSupplierUsers(); }, []);
 
   const handleDelete = async (id: string) => {
-    await deleteSupplier(id);
-    setSupplierList((prev) => prev.filter((s) => s.id !== id));
+    const supplier = supplierList.find((s) => s.id === id);
+    if (!confirm(`Are you sure you want to delete "${supplier?.name}" and all their products? This cannot be undone.`)) return;
+    
+    try {
+      await deleteSupplier(id);
+      setSupplierList((prev) => prev.filter((s) => s.id !== id));
+    } catch (error) {
+      alert("Cannot delete this supplier. It may have orders linked to it. Please set the supplier to 'Not Live' instead.");
+      console.error("Delete failed:", error);
+    }
   };
 
   const handleSave = async (supplier: Supplier) => {
@@ -59,8 +92,8 @@ export default function AdminSuppliersPage() {
     setShowForm(false);
   };
 
-  const handleToggleActive = async (supplier: Supplier) => {
-    const updated = { ...supplier, active: !supplier.active };
+  const handleStatusChange = async (supplier: Supplier, newStatus: SupplierStatus) => {
+    const updated = { ...supplier, status: newStatus, active: newStatus === "launch_live" };
     await updateSupplier(updated);
     setSupplierList((prev) => prev.map((s) => (s.id === supplier.id ? updated : s)));
   };
@@ -105,73 +138,105 @@ export default function AdminSuppliersPage() {
         />
       )}
 
-      <div className="mt-8 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-        {supplierList.map((supplier) => {
-          const linked = supplierUsers.find((su) => su.supplierId === supplier.id);
-          return (
-            <div key={supplier.id} className={`overflow-hidden rounded-xl bg-surface shadow-sm ${!supplier.active ? "opacity-60" : ""}`}>
-              <div className="relative aspect-[3/2] overflow-hidden">
-                <img src={supplier.image || "/images/Holding Image - Supplier.png"} alt={supplier.name} className="h-full w-full object-cover" />
-                <span className={`absolute top-2 right-2 rounded-full px-2.5 py-0.5 text-xs font-bold ${supplier.active ? "bg-green-100 text-green-700" : "bg-red-100 text-red-600"}`}>
-                  {supplier.active ? "Live" : "Not Live"}
-                </span>
-              </div>
-              <div className="p-4">
-                <span className="inline-block rounded-full bg-secondary/20 px-2.5 py-0.5 text-xs font-medium text-primary">
-                  {supplier.category}
-                </span>
-                <h3 className="mt-2 font-semibold text-primary">{supplier.name}</h3>
-                <p className="mt-1 text-sm text-muted line-clamp-2">{supplier.description}</p>
-                <div className="mt-2 flex items-center gap-1 text-xs text-secondary">
-                  <MapPin size={12} />
-                  <span>{supplier.location}</span>
-                </div>
+      {/* Main Suppliers Section (Live / Not Live) */}
+      <div className="mt-8">
+        <button
+          onClick={() => toggleSection("main")}
+          className="flex w-full items-center justify-between rounded-lg bg-surface px-4 py-3 text-left shadow-sm transition hover:bg-surface/80"
+        >
+          <div className="flex items-center gap-3">
+            {expandedSections.main ? <ChevronDown size={20} className="text-primary" /> : <ChevronRight size={20} className="text-primary" />}
+            <h2 className="text-lg font-semibold text-primary">Launch</h2>
+            <span className="rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-primary">{mainSuppliers.length}</span>
+          </div>
+        </button>
+        
+        {expandedSections.main && (
+          <div className="mt-4 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+            {mainSuppliers.map((supplier) => (
+              <SupplierCard
+                key={supplier.id}
+                supplier={supplier}
+                supplierUsers={supplierUsers}
+                onEdit={() => { setEditing(supplier); setShowForm(true); }}
+                onDelete={() => handleDelete(supplier.id)}
+                onStatusChange={(status) => handleStatusChange(supplier, status)}
+                onLinkUser={() => { setLinkingSupplierId(supplier.id); setLinkClerkId(""); }}
+                onUnlinkUser={handleUnlinkUser}
+              />
+            ))}
+          </div>
+        )}
+      </div>
 
-                {/* Linked user info */}
-                <div className="mt-2 text-xs">
-                  {linked ? (
-                    <div className="flex items-center justify-between rounded-lg bg-primary/5 px-2 py-1">
-                      <span className="flex items-center gap-1 text-primary"><Link2 size={11} /> Linked: <span className="font-mono text-[10px]">{linked.clerkUserId.slice(0, 16)}...</span></span>
-                      <button onClick={() => handleUnlinkUser(linked.id)} className="text-red-500 hover:text-red-700 font-medium">Unlink</button>
-                    </div>
-                  ) : (
-                    <button
-                      onClick={() => { setLinkingSupplierId(supplier.id); setLinkClerkId(""); }}
-                      className="flex items-center gap-1 text-secondary hover:underline"
-                    >
-                      <UserPlus size={11} /> Link supplier login
-                    </button>
-                  )}
-                </div>
+      {/* Pre-launch Suppliers Section */}
+      <div className="mt-6">
+        <button
+          onClick={() => toggleSection("prelaunch")}
+          className="flex w-full items-center justify-between rounded-lg bg-surface px-4 py-3 text-left shadow-sm transition hover:bg-surface/80"
+        >
+          <div className="flex items-center gap-3">
+            {expandedSections.prelaunch ? <ChevronDown size={20} className="text-primary" /> : <ChevronRight size={20} className="text-primary" />}
+            <h2 className="text-lg font-semibold text-primary">Pre-launch</h2>
+            <span className="rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-medium text-blue-700">{developmentSuppliers.length}</span>
+          </div>
+        </button>
+        
+        {expandedSections.prelaunch && (
+          <div className="mt-4 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+            {developmentSuppliers.length === 0 ? (
+              <p className="col-span-full text-sm text-muted py-4">No pre-launch suppliers yet.</p>
+            ) : (
+              developmentSuppliers.map((supplier) => (
+                <SupplierCard
+                  key={supplier.id}
+                  supplier={supplier}
+                  supplierUsers={supplierUsers}
+                  onEdit={() => { setEditing(supplier); setShowForm(true); }}
+                  onDelete={() => handleDelete(supplier.id)}
+                  onStatusChange={(status) => handleStatusChange(supplier, status)}
+                  onLinkUser={() => { setLinkingSupplierId(supplier.id); setLinkClerkId(""); }}
+                  onUnlinkUser={handleUnlinkUser}
+                />
+              ))
+            )}
+          </div>
+        )}
+      </div>
 
-                <div className="mt-3 flex gap-2 border-t border-primary/5 pt-3">
-                  <button
-                    onClick={() => handleToggleActive(supplier)}
-                    className={`flex-1 inline-flex items-center justify-center gap-1 rounded-lg py-1.5 text-xs font-medium transition ${
-                      supplier.active
-                        ? "bg-red-50 text-red-600 hover:bg-red-100"
-                        : "bg-green-50 text-green-700 hover:bg-green-100"
-                    }`}
-                  >
-                    <Power size={12} /> {supplier.active ? "Set Not Live" : "Set Live"}
-                  </button>
-                  <button
-                    onClick={() => { setEditing(supplier); setShowForm(true); }}
-                    className="flex-1 inline-flex items-center justify-center gap-1 rounded-lg bg-secondary/20 py-1.5 text-xs font-medium text-primary transition hover:bg-secondary/30"
-                  >
-                    <Pencil size={12} /> Edit
-                  </button>
-                  <button
-                    onClick={() => handleDelete(supplier.id)}
-                    className="flex-1 inline-flex items-center justify-center gap-1 rounded-lg bg-red-50 py-1.5 text-xs font-medium text-red-600 transition hover:bg-red-100"
-                  >
-                    <Trash2 size={12} /> Delete
-                  </button>
-                </div>
-              </div>
-            </div>
-          );
-        })}
+      {/* Archived Suppliers Section */}
+      <div className="mt-6">
+        <button
+          onClick={() => toggleSection("archived")}
+          className="flex w-full items-center justify-between rounded-lg bg-surface px-4 py-3 text-left shadow-sm transition hover:bg-surface/80"
+        >
+          <div className="flex items-center gap-3">
+            {expandedSections.archived ? <ChevronDown size={20} className="text-muted" /> : <ChevronRight size={20} className="text-muted" />}
+            <h2 className="text-lg font-semibold text-muted">Archived</h2>
+            <span className="rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-500">{archivedSuppliers.length}</span>
+          </div>
+        </button>
+        
+        {expandedSections.archived && (
+          <div className="mt-4 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+            {archivedSuppliers.length === 0 ? (
+              <p className="col-span-full text-sm text-muted py-4">No archived suppliers.</p>
+            ) : (
+              archivedSuppliers.map((supplier) => (
+                <SupplierCard
+                  key={supplier.id}
+                  supplier={supplier}
+                  supplierUsers={supplierUsers}
+                  onEdit={() => { setEditing(supplier); setShowForm(true); }}
+                  onDelete={() => handleDelete(supplier.id)}
+                  onStatusChange={(status) => handleStatusChange(supplier, status)}
+                  onLinkUser={() => { setLinkingSupplierId(supplier.id); setLinkClerkId(""); }}
+                  onUnlinkUser={handleUnlinkUser}
+                />
+              ))
+            )}
+          </div>
+        )}
       </div>
 
       {/* Link Clerk User modal */}
@@ -230,6 +295,7 @@ function SupplierForm({
       lat: null,
       lng: null,
       active: false,
+      status: "launch_not_live",
     }
   );
   const [showMapPicker, setShowMapPicker] = useState(false);
@@ -316,6 +382,97 @@ function SupplierForm({
             onClose={() => setShowMapPicker(false)}
           />
         )}
+      </div>
+    </div>
+  );
+}
+
+function SupplierCard({
+  supplier,
+  supplierUsers,
+  onEdit,
+  onDelete,
+  onStatusChange,
+  onLinkUser,
+  onUnlinkUser,
+}: {
+  supplier: Supplier;
+  supplierUsers: (SupplierUser & { supplierName: string })[];
+  onEdit: () => void;
+  onDelete: () => void;
+  onStatusChange: (status: SupplierStatus) => void;
+  onLinkUser: () => void;
+  onUnlinkUser: (id: string) => void;
+}) {
+  const linked = supplierUsers.find((su) => su.supplierId === supplier.id);
+  const statusConfig = STATUS_CONFIG[supplier.status];
+
+  return (
+    <div className="overflow-hidden rounded-xl bg-surface shadow-sm">
+      <div className="relative aspect-[3/2] overflow-hidden">
+        <img src={supplier.image || "/images/Holding Image - Supplier.png"} alt={supplier.name} className="h-full w-full object-cover" />
+        <span className={`absolute top-2 right-2 rounded-full px-2.5 py-0.5 text-xs font-bold ${statusConfig.bgColor} ${statusConfig.color}`}>
+          {statusConfig.label}
+        </span>
+      </div>
+      <div className="p-4">
+        <span className="inline-block rounded-full bg-secondary/20 px-2.5 py-0.5 text-xs font-medium text-primary">
+          {supplier.category}
+        </span>
+        <h3 className="mt-2 font-semibold text-primary">{supplier.name}</h3>
+        <p className="mt-1 text-sm text-muted line-clamp-2">{supplier.description}</p>
+        <div className="mt-2 flex items-center gap-1 text-xs text-secondary">
+          <MapPin size={12} />
+          <span>{supplier.location}</span>
+        </div>
+
+        {/* Status dropdown */}
+        <div className="mt-3">
+          <label className="block text-xs font-medium text-muted mb-1">Status</label>
+          <select
+            value={supplier.status}
+            onChange={(e) => onStatusChange(e.target.value as SupplierStatus)}
+            className="w-full rounded-lg border border-primary/20 bg-white px-3 py-1.5 text-xs font-medium outline-none focus:border-secondary"
+          >
+            <option value="launch_live">Live</option>
+            <option value="launch_not_live">Not Live</option>
+            <option value="development_live">Development Live</option>
+            <option value="development_coming_soon">Development Coming Soon</option>
+            <option value="archived">Archived</option>
+          </select>
+        </div>
+
+        {/* Linked user info */}
+        <div className="mt-3 text-xs">
+          {linked ? (
+            <div className="flex items-center justify-between rounded-lg bg-primary/5 px-2 py-1">
+              <span className="flex items-center gap-1 text-primary"><Link2 size={11} /> Linked: <span className="font-mono text-[10px]">{linked.clerkUserId.slice(0, 16)}...</span></span>
+              <button onClick={() => onUnlinkUser(linked.id)} className="text-red-500 hover:text-red-700 font-medium">Unlink</button>
+            </div>
+          ) : (
+            <button
+              onClick={onLinkUser}
+              className="flex items-center gap-1 text-secondary hover:underline"
+            >
+              <UserPlus size={11} /> Link supplier login
+            </button>
+          )}
+        </div>
+
+        <div className="mt-3 flex gap-2 border-t border-primary/5 pt-3">
+          <button
+            onClick={onEdit}
+            className="flex-1 inline-flex items-center justify-center gap-1 rounded-lg bg-secondary/20 py-1.5 text-xs font-medium text-primary transition hover:bg-secondary/30"
+          >
+            <Pencil size={12} /> Edit
+          </button>
+          <button
+            onClick={onDelete}
+            className="flex-1 inline-flex items-center justify-center gap-1 rounded-lg bg-red-50 py-1.5 text-xs font-medium text-red-600 transition hover:bg-red-100"
+          >
+            <Trash2 size={12} /> Delete
+          </button>
+        </div>
       </div>
     </div>
   );

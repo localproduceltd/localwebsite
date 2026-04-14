@@ -10,13 +10,16 @@ const isProtectedRoute = createRouteMatcher([
 
 const isAdminRoute = createRouteMatcher(["/admin(.*)"]);
 
-// Customer routes that non-admin users should not access (redirected to root)
-const isCustomerRoute = createRouteMatcher([
+// Pre-launch: routes that require admin (cart only - products shows overlay)
+const isAdminOnlyPreLaunch = createRouteMatcher([
+  "/cart(.*)",
+]);
+
+// Pre-launch: routes open to everyone (home, suppliers, map)
+const isPreLaunchPublic = createRouteMatcher([
   "/home(.*)",
-  "/products(.*)",
   "/suppliers(.*)",
   "/map(.*)",
-  "/cart(.*)",
 ]);
 
 // Routes that should always be accessible
@@ -28,15 +31,23 @@ const isAlwaysAccessible = createRouteMatcher([
   "/api(.*)",
 ]);
 
+// Pre-launch mode - set to false on May 8th to disable redirects
+const PRE_LAUNCH = true;
+
 export default clerkMiddleware(async (auth, req) => {
   // Check if user is admin
   const { sessionClaims } = await auth();
   const role = (sessionClaims?.metadata as { role?: string })?.role;
   const isAdmin = role === "admin";
 
-  // Redirect non-admin users from customer routes to root (holding page)
-  if (isCustomerRoute(req) && !isAdmin) {
-    return NextResponse.redirect(new URL("/", req.url));
+  // Pre-launch: redirect root (/) to /home for everyone
+  if (PRE_LAUNCH && req.nextUrl.pathname === "/") {
+    return NextResponse.redirect(new URL("/home", req.url));
+  }
+
+  // Pre-launch: redirect non-admin users from products/cart to home
+  if (PRE_LAUNCH && isAdminOnlyPreLaunch(req) && !isAdmin) {
+    return NextResponse.redirect(new URL("/home", req.url));
   }
 
   if (isProtectedRoute(req)) {

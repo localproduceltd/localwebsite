@@ -6,18 +6,14 @@ import { useUser } from "@clerk/nextjs";
 import {
   type Order,
   type CustomerProfile,
-  type DeliveryZone,
   getOrders,
   getRatingsByOrder,
   submitRating,
   getCustomerProfile,
-  saveCustomerPostcode,
-  clearCustomerPostcode,
-  getDeliveryZones,
-  getActiveSuppliers,
-  type Supplier,
+  saveCustomerAddress,
+  clearCustomerAddress,
 } from "@/lib/data";
-import { lookupPostcode, distanceMiles } from "@/lib/postcode";
+import { lookupPostcode } from "@/lib/postcode";
 import {
   Package,
   Clock,
@@ -25,12 +21,12 @@ import {
   XCircle,
   Star,
   MapPin,
-  Search,
   Trash2,
-  CheckCircle2,
-  XOctagon,
   Loader2,
   User,
+  Mail,
+  Pencil,
+  Save,
 } from "lucide-react";
 
 const statusConfig = {
@@ -71,14 +67,17 @@ function StarRating({ value, onChange }: { value: number; onChange?: (stars: num
 export default function AccountPage() {
   const { user } = useUser();
 
-  // Postcode state
+  // Profile state
   const [profile, setProfile] = useState<CustomerProfile | null>(null);
-  const [zones, setZones] = useState<DeliveryZone[]>([]);
-  const [postcodeInput, setPostcodeInput] = useState("");
-  const [lookupLoading, setLookupLoading] = useState(false);
-  const [lookupError, setLookupError] = useState("");
-  const [deliveryResult, setDeliveryResult] = useState<{ inArea: boolean; nearestZone: string; distance: number; maxRadius: number } | null>(null);
-  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [editingAddress, setEditingAddress] = useState(false);
+  const [addressForm, setAddressForm] = useState({
+    addressLine1: "",
+    addressLine2: "",
+    city: "",
+    postcode: "",
+  });
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
 
   // Orders state
   const [orders, setOrders] = useState<Order[]>([]);
@@ -89,8 +88,6 @@ export default function AccountPage() {
     if (!user) return;
 
     getCustomerProfile(user.id).then(setProfile).catch(console.error);
-    getDeliveryZones().then(setZones).catch(console.error);
-    getActiveSuppliers().then(setSuppliers).catch(console.error);
 
     getOrders(user.id).then(async (orders) => {
       setOrders(orders);
@@ -103,66 +100,61 @@ export default function AccountPage() {
     }).catch(console.error);
   }, [user]);
 
-  // Calculate delivery check against all zones
-  useEffect(() => {
-    if (profile?.lat && profile?.lng && zones.length > 0) {
-      let inArea = false;
-      let nearestZone = "";
-      let nearestDist = Infinity;
+  const startEditAddress = () => {
+    setAddressForm({
+      addressLine1: profile?.addressLine1 ?? "",
+      addressLine2: profile?.addressLine2 ?? "",
+      city: profile?.city ?? "",
+      postcode: profile?.postcode ?? "",
+    });
+    setEditingAddress(true);
+    setSaveError("");
+  };
 
-      for (const zone of zones) {
-        const dist = distanceMiles(profile.lat, profile.lng, zone.centreLat, zone.centreLng);
-        if (dist < nearestDist) {
-          nearestDist = dist;
-          nearestZone = zone.name;
-        }
-        if (dist <= zone.radiusMiles) {
-          inArea = true;
-        }
-      }
+  const handleSaveAddress = async () => {
+    if (!user || !addressForm.postcode.trim()) return;
+    setSaving(true);
+    setSaveError("");
 
-      const maxRadius = Math.max(...zones.map((z) => z.radiusMiles));
-      setDeliveryResult({ inArea, nearestZone, distance: nearestDist, maxRadius });
-    } else {
-      setDeliveryResult(null);
-    }
-  }, [profile, zones]);
-
-  const handleLookup = async () => {
-    if (!user || !postcodeInput.trim()) return;
-    setLookupLoading(true);
-    setLookupError("");
-
-    const result = await lookupPostcode(postcodeInput);
+    const result = await lookupPostcode(addressForm.postcode);
     if (!result) {
-      setLookupError("Postcode not found. Please check and try again.");
-      setLookupLoading(false);
+      setSaveError("Postcode not found. Please check and try again.");
+      setSaving(false);
       return;
     }
 
     try {
-      await saveCustomerPostcode(user.id, result.postcode, result.lat, result.lng);
+      await saveCustomerAddress(user.id, {
+        addressLine1: addressForm.addressLine1.trim(),
+        addressLine2: addressForm.addressLine2.trim() || undefined,
+        city: addressForm.city.trim(),
+        postcode: result.postcode,
+      }, result.lat, result.lng);
+      
       setProfile({
         id: profile?.id ?? "",
         clerkUserId: user.id,
+        addressLine1: addressForm.addressLine1.trim(),
+        addressLine2: addressForm.addressLine2.trim() || null,
+        city: addressForm.city.trim(),
         postcode: result.postcode,
         lat: result.lat,
         lng: result.lng,
       });
-      setPostcodeInput("");
+      setEditingAddress(false);
     } catch {
-      setLookupError("Failed to save postcode. Please try again.");
+      setSaveError("Failed to save address. Please try again.");
     }
-    setLookupLoading(false);
+    setSaving(false);
   };
 
-  const handleClear = async () => {
+  const handleClearAddress = async () => {
     if (!user) return;
     try {
-      await clearCustomerPostcode(user.id);
-      setProfile((prev) => prev ? { ...prev, postcode: null, lat: null, lng: null } : null);
+      await clearCustomerAddress(user.id);
+      setProfile((prev) => prev ? { ...prev, addressLine1: null, addressLine2: null, city: null, postcode: null, lat: null, lng: null } : null);
     } catch {
-      console.error("Failed to clear postcode");
+      console.error("Failed to clear address");
     }
   };
 
@@ -175,124 +167,149 @@ export default function AccountPage() {
     }));
   };
 
-  // Supplier distances
-  const supplierDistances = profile?.lat && profile?.lng
-    ? suppliers
-        .filter((s) => s.lat != null && s.lng != null)
-        .map((s) => ({
-          ...s,
-          distance: distanceMiles(profile.lat!, profile.lng!, s.lat!, s.lng!),
-        }))
-        .sort((a, b) => a.distance - b.distance)
-    : [];
-
   return (
     <div className="mx-auto max-w-4xl px-4 py-10 sm:px-6 lg:px-8">
       <div className="flex items-center gap-3">
         <User size={28} className="text-primary" />
         <div>
           <h1 className="text-3xl font-bold text-primary">My Account</h1>
-          <p className="mt-1 text-secondary">Manage your delivery address and view orders</p>
+          <p className="mt-1 text-secondary">Manage your details and view orders</p>
         </div>
       </div>
 
-      {/* ─── Postcode / Delivery Section ─── */}
+      {/* ─── Account Details Section ─── */}
       <section className="mt-8 rounded-xl bg-surface p-6 shadow-sm">
-        <div className="flex items-center gap-2">
-          <MapPin size={20} className="text-secondary" />
-          <h2 className="text-lg font-semibold text-primary">Delivery Address</h2>
+        <div className="flex items-center gap-2 mb-4">
+          <User size={20} className="text-secondary" />
+          <h2 className="text-lg font-semibold text-primary">Account Details</h2>
         </div>
 
-        {profile?.postcode ? (
-          <div className="mt-4">
-            <div className="flex items-center gap-3">
-              <span className="rounded-lg bg-secondary/10 px-4 py-2 text-sm font-bold text-primary">
-                {profile.postcode}
-              </span>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div>
+            <label className="block text-xs font-medium text-muted mb-1">Name</label>
+            <p className="text-sm font-medium text-primary">{user?.fullName || "—"}</p>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-muted mb-1">Email</label>
+            <div className="flex items-center gap-2">
+              <Mail size={14} className="text-muted" />
+              <p className="text-sm font-medium text-primary">{user?.primaryEmailAddress?.emailAddress || "—"}</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ─── Delivery Address Section ─── */}
+      <section className="mt-6 rounded-xl bg-surface p-6 shadow-sm">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <MapPin size={20} className="text-secondary" />
+            <h2 className="text-lg font-semibold text-primary">Delivery Address</h2>
+          </div>
+          {profile?.postcode && !editingAddress && (
+            <button
+              onClick={startEditAddress}
+              className="flex items-center gap-1 text-xs font-medium text-secondary hover:text-secondary/80 transition"
+            >
+              <Pencil size={12} /> Edit
+            </button>
+          )}
+        </div>
+
+        {editingAddress ? (
+          <div className="space-y-4">
+            <div>
+              <label className="block text-xs font-medium text-muted mb-1">Address Line 1 *</label>
+              <input
+                type="text"
+                placeholder="House number and street"
+                value={addressForm.addressLine1}
+                onChange={(e) => setAddressForm({ ...addressForm, addressLine1: e.target.value })}
+                className="w-full rounded-lg border border-primary/20 bg-white px-4 py-2.5 text-sm outline-none transition focus:border-secondary focus:ring-2 focus:ring-secondary/20"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-muted mb-1">Address Line 2</label>
+              <input
+                type="text"
+                placeholder="Apartment, suite, etc. (optional)"
+                value={addressForm.addressLine2}
+                onChange={(e) => setAddressForm({ ...addressForm, addressLine2: e.target.value })}
+                className="w-full rounded-lg border border-primary/20 bg-white px-4 py-2.5 text-sm outline-none transition focus:border-secondary focus:ring-2 focus:ring-secondary/20"
+              />
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <label className="block text-xs font-medium text-muted mb-1">City / Town *</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Ashbourne"
+                  value={addressForm.city}
+                  onChange={(e) => setAddressForm({ ...addressForm, city: e.target.value })}
+                  className="w-full rounded-lg border border-primary/20 bg-white px-4 py-2.5 text-sm outline-none transition focus:border-secondary focus:ring-2 focus:ring-secondary/20"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-muted mb-1">Postcode *</label>
+                <input
+                  type="text"
+                  placeholder="e.g. DE6 1GH"
+                  value={addressForm.postcode}
+                  onChange={(e) => setAddressForm({ ...addressForm, postcode: e.target.value.toUpperCase() })}
+                  className="w-full rounded-lg border border-primary/20 bg-white px-4 py-2.5 text-sm outline-none transition focus:border-secondary focus:ring-2 focus:ring-secondary/20"
+                />
+              </div>
+            </div>
+            {saveError && (
+              <p className="text-sm text-red-600">{saveError}</p>
+            )}
+            <div className="flex gap-3">
               <button
-                onClick={handleClear}
+                onClick={handleSaveAddress}
+                disabled={saving || !addressForm.addressLine1.trim() || !addressForm.city.trim() || !addressForm.postcode.trim()}
+                className="inline-flex items-center gap-2 rounded-lg bg-primary px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-primary/90 disabled:opacity-50"
+              >
+                {saving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
+                Save Address
+              </button>
+              <button
+                onClick={() => setEditingAddress(false)}
+                className="rounded-lg px-5 py-2.5 text-sm font-medium text-muted hover:text-primary transition"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : profile?.postcode ? (
+          <div>
+            <div className="text-sm text-primary space-y-0.5">
+              {profile.addressLine1 && <p className="font-medium">{profile.addressLine1}</p>}
+              {profile.addressLine2 && <p>{profile.addressLine2}</p>}
+              {profile.city && <p>{profile.city}</p>}
+              <p className="font-semibold">{profile.postcode}</p>
+            </div>
+            <div className="mt-4 flex items-center gap-4">
+              <Link href="/map" className="text-xs font-medium text-secondary hover:underline">
+                Check delivery coverage on Map
+              </Link>
+              <button
+                onClick={handleClearAddress}
                 className="flex items-center gap-1 text-xs text-red-500 hover:text-red-700 transition"
               >
                 <Trash2 size={12} /> Remove
               </button>
             </div>
-
-            {/* Delivery area result */}
-            {deliveryResult && (
-              <div className={`mt-4 flex items-center gap-2 rounded-lg px-4 py-3 text-sm font-medium ${
-                deliveryResult.inArea
-                  ? "bg-green-50 text-green-700"
-                  : "bg-red-50 text-red-700"
-              }`}>
-                {deliveryResult.inArea ? (
-                  <>
-                    <CheckCircle2 size={18} />
-                    Great news! We deliver to your area ({deliveryResult.distance.toFixed(1)} miles from {deliveryResult.nearestZone})
-                  </>
-                ) : (
-                  <>
-                    <XOctagon size={18} />
-                    Sorry, you&apos;re {deliveryResult.distance.toFixed(1)} miles from the nearest zone ({deliveryResult.nearestZone})
-                  </>
-                )}
-              </div>
-            )}
-
-            {/* Nearby suppliers */}
-            {supplierDistances.length > 0 && (
-              <div className="mt-6">
-                <h3 className="text-sm font-semibold text-primary">Distance to suppliers</h3>
-                <div className="mt-2 space-y-2">
-                  {supplierDistances.map((s) => (
-                    <Link
-                      key={s.id}
-                      href={`/suppliers/${s.id}`}
-                      className="flex items-center justify-between rounded-lg bg-surface px-4 py-2.5 transition hover:bg-secondary/10"
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className="h-8 w-8 overflow-hidden rounded-full">
-                          <img src={s.image} alt={s.name} className="h-full w-full object-cover" />
-                        </div>
-                        <div>
-                          <p className="text-sm font-medium text-primary">{s.name}</p>
-                          <p className="text-xs text-muted">{s.location}</p>
-                        </div>
-                      </div>
-                      <span className="text-sm font-semibold text-secondary">
-                        {s.distance.toFixed(1)} mi
-                      </span>
-                    </Link>
-                  ))}
-                </div>
-              </div>
-            )}
           </div>
         ) : (
-          <div className="mt-4">
-            <p className="text-sm text-muted">Enter your postcode to check if we deliver to your area and see how far each supplier is from you.</p>
-            <div className="mt-3 flex gap-2">
-              <div className="relative flex-1">
-                <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
-                <input
-                  type="text"
-                  placeholder="e.g. DE6 1GH"
-                  value={postcodeInput}
-                  onChange={(e) => { setPostcodeInput(e.target.value.toUpperCase()); setLookupError(""); }}
-                  onKeyDown={(e) => e.key === "Enter" && handleLookup()}
-                  className="w-full rounded-lg border border-primary/20 bg-white py-2.5 pl-9 pr-4 text-sm outline-none transition focus:border-secondary focus:ring-2 focus:ring-secondary/20"
-                />
-              </div>
-              <button
-                onClick={handleLookup}
-                disabled={lookupLoading || !postcodeInput.trim()}
-                className="rounded-lg bg-primary px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {lookupLoading ? <Loader2 size={16} className="animate-spin" /> : "Check"}
-              </button>
-            </div>
-            {lookupError && (
-              <p className="mt-2 text-sm text-red-600">{lookupError}</p>
-            )}
+          <div>
+            <p className="text-sm text-muted mb-4">Add your delivery address to place orders.</p>
+            <button
+              onClick={startEditAddress}
+              className="inline-flex items-center gap-2 rounded-lg bg-primary px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-primary/90"
+            >
+              <MapPin size={16} />
+              Add Address
+            </button>
           </div>
         )}
       </section>

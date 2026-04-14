@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { DM_Sans } from "next/font/google";
+import { Raleway } from "next/font/google";
 import "leaflet/dist/leaflet.css";
 import "./globals.css";
 import { ClerkProvider } from "@clerk/nextjs";
@@ -7,8 +7,8 @@ import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import { CartProvider } from "@/lib/cart-context";
 
-const dmSans = DM_Sans({
-  variable: "--font-dm-sans",
+const raleway = Raleway({
+  variable: "--font-raleway",
   subsets: ["latin"],
 });
 
@@ -24,7 +24,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={`${dmSans.variable} antialiased bg-surface text-foreground`}>
+      <body className={`${raleway.variable} antialiased bg-surface text-foreground`}>
         <ClerkProvider
           appearance={{
             variables: {

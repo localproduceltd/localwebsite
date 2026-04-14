@@ -2,6 +2,8 @@ import { supabase } from "@/lib/supabase";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
+export type SupplierStatus = "launch_live" | "launch_not_live" | "development_live" | "development_coming_soon" | "archived";
+
 export interface Supplier {
   id: string;
   name: string;
@@ -12,6 +14,7 @@ export interface Supplier {
   lat: number | null;
   lng: number | null;
   active: boolean;
+  status: SupplierStatus;
 }
 
 export interface SupplierUser {
@@ -90,14 +93,68 @@ export async function getSuppliers(): Promise<Supplier[]> {
     lat: s.lat ?? null,
     lng: s.lng ?? null,
     active: s.active ?? true,
+    status: s.status ?? "launch_live",
   }));
 }
 
+// Development: get suppliers with development_live or development_coming_soon status
+// Orders by status (development_live first, then development_coming_soon), then by name
+export async function getPreLaunchSuppliers(): Promise<Supplier[]> {
+  const { data, error } = await supabase
+    .from("suppliers")
+    .select("*")
+    .in("status", ["development_live", "development_coming_soon"])
+    .order("status")
+    .order("name");
+  if (error) throw error;
+  // Sort so development_live comes before development_coming_soon
+  const sorted = data.sort((a, b) => {
+    if (a.status === "development_live" && b.status === "development_coming_soon") return -1;
+    if (a.status === "development_coming_soon" && b.status === "development_live") return 1;
+    return a.name.localeCompare(b.name);
+  });
+  return sorted.map((s) => ({
+    id: s.id,
+    name: s.name,
+    description: s.description,
+    image: s.image,
+    location: s.location,
+    category: s.category,
+    lat: s.lat ?? null,
+    lng: s.lng ?? null,
+    active: s.active ?? true,
+    status: s.status ?? "launch_live",
+  }));
+}
+
+// Launch: get suppliers with launch_live or launch_not_live status
+export async function getLiveSuppliers(): Promise<Supplier[]> {
+  const { data, error } = await supabase
+    .from("suppliers")
+    .select("*")
+    .in("status", ["launch_live", "launch_not_live"])
+    .order("name");
+  if (error) throw error;
+  return data.map((s) => ({
+    id: s.id,
+    name: s.name,
+    description: s.description,
+    image: s.image,
+    location: s.location,
+    category: s.category,
+    lat: s.lat ?? null,
+    lng: s.lng ?? null,
+    active: s.active ?? true,
+    status: s.status ?? "launch_live",
+  }));
+}
+
+// Get only launch_live suppliers (for homepage carousel etc.)
 export async function getActiveSuppliers(): Promise<Supplier[]> {
   const { data, error } = await supabase
     .from("suppliers")
     .select("*")
-    .eq("active", true)
+    .eq("status", "launch_live")
     .order("name");
   if (error) throw error;
   return data.map((s) => ({
@@ -110,6 +167,7 @@ export async function getActiveSuppliers(): Promise<Supplier[]> {
     lat: s.lat ?? null,
     lng: s.lng ?? null,
     active: true,
+    status: "launch_live" as const,
   }));
 }
 
@@ -130,6 +188,7 @@ export async function getSupplier(id: string): Promise<Supplier | null> {
     lat: data.lat ?? null,
     lng: data.lng ?? null,
     active: data.active ?? true,
+    status: data.status ?? "launch_live",
   };
 }
 
@@ -157,12 +216,13 @@ export async function getProducts(): Promise<Product[]> {
   }));
 }
 
+// Get approved products from launch_live suppliers only (for launch mode)
 export async function getApprovedProducts(): Promise<Product[]> {
   const { data, error } = await supabase
     .from("products")
-    .select("*, suppliers!inner(name, active)")
+    .select("*, suppliers!inner(name, active, status)")
     .eq("status", "approved")
-    .eq("suppliers.active", true)
+    .eq("suppliers.status", "launch_live")
     .order("name");
   if (error) throw error;
   return data.map((p) => ({
@@ -354,7 +414,7 @@ export async function createSupplier(supplier: Omit<Supplier, "id">): Promise<Su
     lng: supplier.lng,
   }).select().single();
   if (error) throw error;
-  return { id: data.id, name: data.name, description: data.description, image: data.image, location: data.location, category: data.category, lat: data.lat ?? null, lng: data.lng ?? null, active: data.active ?? true };
+  return { id: data.id, name: data.name, description: data.description, image: data.image, location: data.location, category: data.category, lat: data.lat ?? null, lng: data.lng ?? null, active: data.active ?? true, status: data.status ?? "launch_live" };
 }
 
 export async function updateSupplier(supplier: Supplier): Promise<void> {
@@ -367,11 +427,32 @@ export async function updateSupplier(supplier: Supplier): Promise<void> {
     lat: supplier.lat,
     lng: supplier.lng,
     active: supplier.active,
+    status: supplier.status,
   }).eq("id", supplier.id);
   if (error) throw error;
 }
 
 export async function deleteSupplier(id: string): Promise<void> {
+  // Delete supplier user links
+  await supabase.from("supplier_users").delete().eq("supplier_id", id);
+  
+  // Get all product IDs for this supplier
+  const { data: products } = await supabase.from("products").select("id").eq("supplier_id", id);
+  const productIds = products?.map((p) => p.id) ?? [];
+  
+  if (productIds.length > 0) {
+    // Delete order items for these products
+    await supabase.from("order_items").delete().in("product_id", productIds);
+    // Delete ratings for these products
+    await supabase.from("ratings").delete().in("product_id", productIds);
+    // Delete the products
+    await supabase.from("products").delete().eq("supplier_id", id);
+  }
+  
+  // Delete supplier order items
+  await supabase.from("supplier_order_items").delete().eq("supplier_id", id);
+  
+  // Finally delete the supplier
   const { error } = await supabase.from("suppliers").delete().eq("id", id);
   if (error) throw error;
 }
@@ -600,6 +681,9 @@ export async function getProductRatings(productId: string): Promise<Array<{ star
 export interface CustomerProfile {
   id: string;
   clerkUserId: string;
+  addressLine1: string | null;
+  addressLine2: string | null;
+  city: string | null;
   postcode: string | null;
   lat: number | null;
   lng: number | null;
@@ -615,12 +699,59 @@ export async function getCustomerProfile(clerkUserId: string): Promise<CustomerP
   return {
     id: data.id,
     clerkUserId: data.clerk_user_id,
+    addressLine1: data.address_line1 ?? null,
+    addressLine2: data.address_line2 ?? null,
+    city: data.city ?? null,
     postcode: data.postcode ?? null,
     lat: data.lat ?? null,
     lng: data.lng ?? null,
   };
 }
 
+export async function saveCustomerAddress(
+  clerkUserId: string,
+  address: { addressLine1: string; addressLine2?: string; city: string; postcode: string },
+  lat: number,
+  lng: number
+): Promise<void> {
+  const { error } = await supabase
+    .from("customer_profiles")
+    .upsert(
+      {
+        clerk_user_id: clerkUserId,
+        address_line1: address.addressLine1,
+        address_line2: address.addressLine2 || null,
+        city: address.city,
+        postcode: address.postcode,
+        lat,
+        lng,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "clerk_user_id" }
+    );
+  if (error) throw error;
+}
+
+export async function clearCustomerAddress(clerkUserId: string): Promise<void> {
+  const { error } = await supabase
+    .from("customer_profiles")
+    .upsert(
+      {
+        clerk_user_id: clerkUserId,
+        address_line1: null,
+        address_line2: null,
+        city: null,
+        postcode: null,
+        lat: null,
+        lng: null,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "clerk_user_id" }
+    );
+  if (error) throw error;
+}
+
+// Save just postcode (used by map page postcode checker)
 export async function saveCustomerPostcode(
   clerkUserId: string,
   postcode: string,
@@ -636,17 +767,9 @@ export async function saveCustomerPostcode(
   if (error) throw error;
 }
 
-export async function clearCustomerPostcode(clerkUserId: string): Promise<void> {
-  const { error } = await supabase
-    .from("customer_profiles")
-    .upsert(
-      { clerk_user_id: clerkUserId, postcode: null, lat: null, lng: null, updated_at: new Date().toISOString() },
-      { onConflict: "clerk_user_id" }
-    );
-  if (error) throw error;
-}
-
 // ─── Delivery Zones ─────────────────────────────────────────────────────────
+
+export type ZoneStatus = "live" | "not_live";
 
 export interface DeliveryZone {
   id: string;
@@ -654,6 +777,8 @@ export interface DeliveryZone {
   centreLat: number;
   centreLng: number;
   radiusMiles: number;
+  zoneStatus: ZoneStatus;
+  launchDate: string | null; // ISO date string for not_live zones
 }
 
 export async function getDeliveryZones(): Promise<DeliveryZone[]> {
@@ -668,6 +793,8 @@ export async function getDeliveryZones(): Promise<DeliveryZone[]> {
     centreLat: d.centre_lat,
     centreLng: d.centre_lng,
     radiusMiles: d.radius_miles,
+    zoneStatus: (d.zone_status as ZoneStatus) ?? "live",
+    launchDate: d.launch_date ?? null,
   }));
 }
 
@@ -679,6 +806,8 @@ export async function createDeliveryZone(zone: Omit<DeliveryZone, "id">): Promis
       centre_lat: zone.centreLat,
       centre_lng: zone.centreLng,
       radius_miles: zone.radiusMiles,
+      zone_status: zone.zoneStatus,
+      launch_date: zone.launchDate,
     })
     .select()
     .single();
@@ -689,6 +818,8 @@ export async function createDeliveryZone(zone: Omit<DeliveryZone, "id">): Promis
     centreLat: data.centre_lat,
     centreLng: data.centre_lng,
     radiusMiles: data.radius_miles,
+    zoneStatus: (data.zone_status as ZoneStatus) ?? "live",
+    launchDate: data.launch_date ?? null,
   };
 }
 
@@ -700,6 +831,8 @@ export async function updateDeliveryZone(zone: DeliveryZone): Promise<void> {
       centre_lat: zone.centreLat,
       centre_lng: zone.centreLng,
       radius_miles: zone.radiusMiles,
+      zone_status: zone.zoneStatus,
+      launch_date: zone.launchDate,
     })
     .eq("id", zone.id);
   if (error) throw error;

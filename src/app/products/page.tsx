@@ -1,12 +1,16 @@
 "use client";
 
 import { useMemo, useState, useEffect } from "react";
-import { Search, Check, Plus, Minus, Star, X } from "lucide-react";
+import { Search, Check, Plus, Minus, Star, X, Mail, CheckCircle2, MapPinned } from "lucide-react";
+import Link from "next/link";
 import { useCart } from "@/lib/cart-context";
 import { LOCALITY_OPTIONS, getAverageRatings, getProductRatings } from "@/lib/data";
 import type { Locality, Product } from "@/lib/data";
 import { LOCALITY_COLORS } from "@/lib/locality";
 import { PRODUCT_CATEGORIES } from "@/lib/categories";
+import { useAdmin } from "@/lib/useAdmin";
+import { PRE_LAUNCH } from "@/lib/pre-launch";
+import { supabase } from "@/lib/supabase";
 
 export default function ProductsPage() {
   const [search, setSearch] = useState("");
@@ -18,6 +22,30 @@ export default function ProductsPage() {
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [productReviews, setProductReviews] = useState<Array<{ stars: number; createdAt: string }>>([]);
   const [showAllReviews, setShowAllReviews] = useState(false);
+  const [email, setEmail] = useState("");
+  const [emailSubmitted, setEmailSubmitted] = useState(false);
+  const [emailLoading, setEmailLoading] = useState(false);
+  const [emailError, setEmailError] = useState("");
+  const isAdmin = useAdmin();
+  const showPreLaunch = PRE_LAUNCH && !isAdmin;
+
+  const handleEmailSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setEmailLoading(true);
+    setEmailError("");
+    try {
+      const { error } = await supabase
+        .from("email_signups")
+        .insert([{ email, created_at: new Date().toISOString() }]);
+      if (error) throw error;
+      setEmailSubmitted(true);
+      setEmail("");
+    } catch {
+      setEmailError("Something went wrong. Please try again.");
+    } finally {
+      setEmailLoading(false);
+    }
+  };
 
   useEffect(() => {
     getAverageRatings().then(setAvgRatings).catch(console.error);
@@ -49,11 +77,80 @@ export default function ProductsPage() {
   }).sort((a, b) => (localityOrder[a.locality] ?? 9) - (localityOrder[b.locality] ?? 9));
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
-      <div>
-        <h1 className="text-3xl font-bold text-primary">Products</h1>
-        <p className="mt-1 text-secondary">Browse fresh produce from our local suppliers</p>
-      </div>
+    <div className="relative mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
+      {/* Pre-launch overlay */}
+      {showPreLaunch && (
+        <div className="absolute inset-0 z-30 flex flex-col items-center justify-start pt-8 bg-white/80 backdrop-blur-sm">
+          {/* Coming Soon Badge */}
+          <div className="mb-8 rounded-2xl bg-primary px-8 py-4 shadow-xl">
+            <h2 className="text-2xl font-bold text-white sm:text-3xl">Coming Soon!</h2>
+          </div>
+
+          {/* Email Signup */}
+          <div className="w-full max-w-md px-4">
+            <div className="rounded-xl bg-surface p-6 shadow-lg">
+              <h3 className="text-lg font-bold text-primary text-center">Register Your Interest</h3>
+              <p className="mt-1 text-sm text-muted text-center">
+                Sign up for discounts and updates on when to order
+              </p>
+
+              {!emailSubmitted ? (
+                <form onSubmit={handleEmailSubmit} className="mt-4">
+                  <div className="flex flex-col gap-3">
+                    <input
+                      type="email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      placeholder="Enter your email address"
+                      required
+                      className="w-full rounded-lg border border-primary/20 bg-white px-4 py-3 text-base outline-none focus:border-secondary focus:ring-2 focus:ring-secondary/20"
+                    />
+                    <button
+                      type="submit"
+                      disabled={emailLoading}
+                      className="inline-flex items-center justify-center gap-2 rounded-lg bg-secondary px-6 py-3 font-semibold text-white transition hover:bg-secondary/90 disabled:opacity-50"
+                    >
+                      <Mail size={20} />
+                      {emailLoading ? "Signing up..." : "Keep Me Posted"}
+                    </button>
+                  </div>
+                  {emailError && (
+                    <p className="mt-3 text-sm text-red-600 text-center">{emailError}</p>
+                  )}
+                </form>
+              ) : (
+                <div className="mt-4 rounded-xl bg-green-50 border-2 border-green-200 px-4 py-4">
+                  <div className="flex items-center justify-center gap-3 text-green-800">
+                    <CheckCircle2 size={24} />
+                    <div className="text-left">
+                      <p className="font-bold">You're on the list!</p>
+                      <p className="text-sm text-green-700">We'll send you updates soon.</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Check Delivery */}
+            <div className="mt-4 rounded-xl bg-surface p-6 shadow-lg text-center">
+              <p className="text-sm text-muted mb-3">Want to know if we deliver to your area?</p>
+              <Link 
+                href="/map" 
+                className="inline-flex items-center gap-2 rounded-lg bg-primary px-5 py-2.5 font-semibold text-white transition hover:bg-primary/90"
+              >
+                <MapPinned size={18} />
+                Check if we deliver to you
+              </Link>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className={showPreLaunch ? "pointer-events-none select-none filter grayscale opacity-40" : ""}>
+        <div>
+          <h1 className="text-3xl font-bold text-primary">Products</h1>
+          <p className="mt-1 text-secondary">Browse fresh produce from our local suppliers</p>
+        </div>
 
       {/* Search & Filters */}
       <div className="mt-6 flex flex-col gap-4">
@@ -255,6 +352,8 @@ export default function ProductsPage() {
           })}
         </div>
       )}
+
+      </div>
 
       {/* Product Detail Modal */}
       {selectedProduct && (

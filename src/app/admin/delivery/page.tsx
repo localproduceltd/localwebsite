@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import {
   type DeliveryZone,
+  type ZoneStatus,
   getDeliveryZones,
   createDeliveryZone,
   updateDeliveryZone,
@@ -17,7 +18,22 @@ if (typeof window !== "undefined") {
   L = require("leaflet");
 }
 
-const ZONE_COLORS = ["#8E9F68", "#A30E4E", "#FF9310", "#3B82F6", "#8B5CF6", "#EC4899"];
+const ZONE_COLOR_LIVE = "#16a34a"; // green-600
+const ZONE_COLOR_LAUNCHING = "#22c55e"; // green-500 (lighter green for dated launches)
+const ZONE_COLOR_TBC = "#f59e0b"; // amber-500
+
+function getZoneColor(zone: DeliveryZone): string {
+  if (zone.zoneStatus === "live") return ZONE_COLOR_LIVE;
+  if (zone.launchDate) return ZONE_COLOR_LAUNCHING;
+  return ZONE_COLOR_TBC;
+}
+
+function formatLaunchDate(dateStr: string | null): { text: string; hasTBC: boolean } {
+  if (!dateStr) return { text: "Launching - Date TBC", hasTBC: true };
+  const date = new Date(dateStr + "T00:00:00");
+  const formatted = date.toLocaleDateString("en-GB", { day: "numeric", month: "long" });
+  return { text: `Launching ${formatted} 🚀`, hasTBC: false };
+}
 
 export default function AdminDeliveryPage() {
   const [zones, setZones] = useState<DeliveryZone[]>([]);
@@ -29,6 +45,8 @@ export default function AdminDeliveryPage() {
   const [formLat, setFormLat] = useState("");
   const [formLng, setFormLng] = useState("");
   const [formRadius, setFormRadius] = useState("5");
+  const [formStatus, setFormStatus] = useState<ZoneStatus>("live");
+  const [formLaunchDate, setFormLaunchDate] = useState("");
   const [formSaving, setFormSaving] = useState(false);
   const [showForm, setShowForm] = useState(false);
 
@@ -75,8 +93,8 @@ export default function AdminDeliveryPage() {
 
     const bounds = L.latLngBounds([]);
 
-    zones.forEach((zone, i) => {
-      const color = ZONE_COLORS[i % ZONE_COLORS.length];
+    zones.forEach((zone) => {
+      const color = getZoneColor(zone);
       const radiusMetres = zone.radiusMiles * 1609.34;
 
       const circle = L.circle([zone.centreLat, zone.centreLng], {
@@ -110,6 +128,8 @@ export default function AdminDeliveryPage() {
     setFormLat("");
     setFormLng("");
     setFormRadius("5");
+    setFormStatus("live");
+    setFormLaunchDate("");
     setShowForm(false);
   };
 
@@ -119,6 +139,8 @@ export default function AdminDeliveryPage() {
     setFormLat(zone.centreLat.toString());
     setFormLng(zone.centreLng.toString());
     setFormRadius(zone.radiusMiles.toString());
+    setFormStatus(zone.zoneStatus);
+    setFormLaunchDate(zone.launchDate ?? "");
     setShowForm(true);
   };
 
@@ -131,6 +153,8 @@ export default function AdminDeliveryPage() {
         centreLat: parseFloat(formLat),
         centreLng: parseFloat(formLng),
         radiusMiles: parseFloat(formRadius),
+        zoneStatus: formStatus,
+        launchDate: formStatus === "not_live" && formLaunchDate ? formLaunchDate : null,
       };
 
       if (editing) {
@@ -197,10 +221,21 @@ export default function AdminDeliveryPage() {
             <div className="flex items-center gap-3">
               <div
                 className="h-4 w-4 rounded-full border-2 border-white shadow-sm"
-                style={{ backgroundColor: ZONE_COLORS[i % ZONE_COLORS.length] }}
+                style={{ backgroundColor: getZoneColor(zone) }}
               />
               <div>
-                <p className="text-sm font-semibold text-primary">{zone.name}</p>
+                <div className="flex items-center gap-2">
+                  <p className="text-sm font-semibold text-primary">{zone.name}</p>
+                  <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                    zone.zoneStatus === "live" 
+                      ? "bg-green-600 text-white" 
+                      : formatLaunchDate(zone.launchDate).hasTBC
+                        ? "bg-amber-100 text-amber-700"
+                        : "bg-green-100 text-green-700"
+                  }`}>
+                    {zone.zoneStatus === "live" ? "Live" : formatLaunchDate(zone.launchDate).text}
+                  </span>
+                </div>
                 <p className="text-xs text-muted">
                   {zone.radiusMiles} mile radius · {zone.centreLat.toFixed(4)}, {zone.centreLng.toFixed(4)}
                 </p>
@@ -282,6 +317,45 @@ export default function AdminDeliveryPage() {
                 />
               </div>
             </div>
+            <div>
+              <label className="block text-sm font-medium text-primary">Status</label>
+              <div className="mt-1.5 flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => setFormStatus("live")}
+                  className={`flex-1 rounded-lg px-4 py-2.5 text-sm font-semibold transition ${
+                    formStatus === "live"
+                      ? "bg-green-600 text-white"
+                      : "bg-green-100 text-green-700 hover:bg-green-200"
+                  }`}
+                >
+                  Live
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFormStatus("not_live")}
+                  className={`flex-1 rounded-lg px-4 py-2.5 text-sm font-semibold transition ${
+                    formStatus === "not_live"
+                      ? "bg-amber-500 text-white"
+                      : "bg-amber-100 text-amber-700 hover:bg-amber-200"
+                  }`}
+                >
+                  Not Live
+                </button>
+              </div>
+            </div>
+            {formStatus === "not_live" && (
+              <div>
+                <label className="block text-sm font-medium text-primary">Launch Date</label>
+                <input
+                  type="date"
+                  value={formLaunchDate}
+                  onChange={(e) => setFormLaunchDate(e.target.value)}
+                  className="mt-1.5 w-full rounded-lg border border-primary/20 bg-white px-4 py-2.5 text-sm outline-none transition focus:border-secondary focus:ring-2 focus:ring-secondary/20"
+                />
+                <p className="mt-1 text-xs text-muted">When will deliveries start in this zone? Leave blank for TBC.</p>
+              </div>
+            )}
             <p className="text-xs text-muted">
               Right-click a location in Google Maps and copy the coordinates.
             </p>
