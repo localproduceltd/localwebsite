@@ -8,8 +8,8 @@ import { supabase } from "@/lib/supabase";
 import type { Product, Supplier, DeliveryDay } from "@/lib/data";
 import AboutJosie from "@/components/AboutJosie";
 import SupplierDistance from "@/components/SupplierDistance";
-import { useAdmin } from "@/lib/useAdmin";
 import { PRE_LAUNCH, LAUNCH_DATE } from "@/lib/pre-launch";
+import { useAuth } from "@clerk/nextjs";
 
 export default function Home() {
   const [products, setProducts] = useState<Product[]>([]);
@@ -21,8 +21,10 @@ export default function Home() {
   const [emailSubmitted, setEmailSubmitted] = useState(false);
   const [emailLoading, setEmailLoading] = useState(false);
   const [emailError, setEmailError] = useState("");
-  const isAdmin = useAdmin();
-  const showPreLaunch = PRE_LAUNCH && !isAdmin;
+  const { isSignedIn, isLoaded } = useAuth();
+  // Show pre-launch to signed-out users only; signed-in users see launch version
+  // Wait for auth to load before deciding
+  const showPreLaunch = PRE_LAUNCH && isLoaded && !isSignedIn;
 
   const handleEmailSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

@@ -6,15 +6,16 @@ import { getPreLaunchSuppliers, getLiveSuppliers } from "@/lib/data";
 import type { Supplier } from "@/lib/data";
 import { MapPin } from "lucide-react";
 import SupplierDistance from "@/components/SupplierDistance";
-import { SignedOut } from "@clerk/nextjs";
-import { useAdmin } from "@/lib/useAdmin";
+import { SignedOut, useAuth } from "@clerk/nextjs";
 import { PRE_LAUNCH } from "@/lib/pre-launch";
 
 export default function SuppliersPage() {
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
-  const isAdmin = useAdmin();
-  const showPreLaunch = PRE_LAUNCH && !isAdmin;
+  const { isSignedIn, isLoaded } = useAuth();
+  // Show pre-launch to signed-out users only; signed-in users see launch version
+  // Wait for auth to load before deciding
+  const showPreLaunch = PRE_LAUNCH && isLoaded && !isSignedIn;
 
   useEffect(() => {
     // Pre-launch: show development_live and development_coming_soon suppliers

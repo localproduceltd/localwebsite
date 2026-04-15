@@ -351,6 +351,20 @@ function SupplierForm({
             />
           </div>
           <div>
+            <label className="block text-xs font-medium text-muted mb-1">Status</label>
+            <select
+              value={form.status}
+              onChange={(e) => setForm({ ...form, status: e.target.value as SupplierStatus })}
+              className="w-full rounded-lg border border-primary/20 bg-surface px-3 py-2 text-sm outline-none focus:border-secondary"
+            >
+              <option value="launch_live">Live</option>
+              <option value="launch_not_live">Not Live</option>
+              <option value="development_live">Development Live</option>
+              <option value="development_coming_soon">Development Coming Soon</option>
+              <option value="archived">Archived</option>
+            </select>
+          </div>
+          <div>
             <label className="block text-xs font-medium text-muted mb-1">Location on Map</label>
             <button
               type="button"

@@ -8,9 +8,9 @@ import { LOCALITY_OPTIONS, getAverageRatings, getProductRatings } from "@/lib/da
 import type { Locality, Product } from "@/lib/data";
 import { LOCALITY_COLORS } from "@/lib/locality";
 import { PRODUCT_CATEGORIES } from "@/lib/categories";
-import { useAdmin } from "@/lib/useAdmin";
 import { PRE_LAUNCH } from "@/lib/pre-launch";
 import { supabase } from "@/lib/supabase";
+import { useAuth } from "@clerk/nextjs";
 
 export default function ProductsPage() {
   const [search, setSearch] = useState("");
@@ -26,8 +26,10 @@ export default function ProductsPage() {
   const [emailSubmitted, setEmailSubmitted] = useState(false);
   const [emailLoading, setEmailLoading] = useState(false);
   const [emailError, setEmailError] = useState("");
-  const isAdmin = useAdmin();
-  const showPreLaunch = PRE_LAUNCH && !isAdmin;
+  const { isSignedIn, isLoaded } = useAuth();
+  // Show pre-launch to signed-out users only; signed-in users see launch version
+  // Wait for auth to load before deciding
+  const showPreLaunch = PRE_LAUNCH && isLoaded && !isSignedIn;
 
   const handleEmailSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
