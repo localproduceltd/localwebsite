@@ -35,18 +35,20 @@ const isAlwaysAccessible = createRouteMatcher([
 const PRE_LAUNCH = true;
 
 export default clerkMiddleware(async (auth, req) => {
-  // Check if user is admin
-  const { sessionClaims } = await auth();
+  // Check if user is admin or signed in
+  const { sessionClaims, userId } = await auth();
   const role = (sessionClaims?.metadata as { role?: string })?.role;
   const isAdmin = role === "admin";
+  const isSignedIn = !!userId;
 
   // Pre-launch: redirect root (/) to /home for everyone
   if (PRE_LAUNCH && req.nextUrl.pathname === "/") {
     return NextResponse.redirect(new URL("/home", req.url));
   }
 
-  // Pre-launch: redirect non-admin users from products/cart to home
-  if (PRE_LAUNCH && isAdminOnlyPreLaunch(req) && !isAdmin) {
+  // Pre-launch: redirect non-signed-in users from cart to home
+  // Signed-in users (customers) can access cart
+  if (PRE_LAUNCH && isAdminOnlyPreLaunch(req) && !isSignedIn) {
     return NextResponse.redirect(new URL("/home", req.url));
   }
 
