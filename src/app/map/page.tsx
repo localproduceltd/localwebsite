@@ -4,10 +4,10 @@ import { useState, useEffect, useRef, useMemo } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useCart } from "@/lib/cart-context";
-import { type Supplier, type DeliveryZone, getActiveSuppliers, getCustomerProfile, getDeliveryZones, saveCustomerPostcode } from "@/lib/data";
+import { type Supplier, type DeliveryZone, getLiveSuppliers, getCustomerProfile, getDeliveryZones, saveCustomerPostcode } from "@/lib/data";
 import { LOCALITY_COLORS } from "@/lib/locality";
 import { MapPin, CheckCircle2, Clock, HelpCircle, Loader2, Search, Truck, Store, X } from "lucide-react";
-import { useUser } from "@clerk/nextjs";
+import { useAuth, useUser } from "@clerk/nextjs";
 import { PRE_LAUNCH } from "@/lib/pre-launch";
 
 // Dynamically import Leaflet to avoid SSR issues
@@ -67,9 +67,12 @@ export default function MapPage() {
   const zonesLayerRef = useRef<L.LayerGroup | null>(null);
   const markersLayerRef = useRef<L.LayerGroup | null>(null);
   const { user } = useUser();
+  const { isSignedIn, isLoaded } = useAuth();
+  // Show pre-launch to signed-out users only; signed-in users see launch version
+  const showPreLaunch = PRE_LAUNCH && isLoaded && !isSignedIn;
 
   useEffect(() => {
-    Promise.all([getActiveSuppliers(), getDeliveryZones()])
+    Promise.all([getLiveSuppliers(), getDeliveryZones()])
       .then(([s, z]) => {
         setSuppliers(s);
         setZones(z);
@@ -563,7 +566,7 @@ export default function MapPage() {
           </button>
           <button
             onClick={() => {
-              if (PRE_LAUNCH) {
+              if (showPreLaunch) {
                 setShowComingSoonModal(true);
               } else {
                 setMapView("suppliers");

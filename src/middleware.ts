@@ -1,5 +1,6 @@
 import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
+import { PRE_LAUNCH } from "@/lib/pre-launch";
 
 const isProtectedRoute = createRouteMatcher([
   "/orders(.*)",
@@ -15,13 +16,6 @@ const isAdminOnlyPreLaunch = createRouteMatcher([
   "/cart(.*)",
 ]);
 
-// Pre-launch: routes open to everyone (home, suppliers, map)
-const isPreLaunchPublic = createRouteMatcher([
-  "/home(.*)",
-  "/suppliers(.*)",
-  "/map(.*)",
-]);
-
 // Routes that should always be accessible
 const isAlwaysAccessible = createRouteMatcher([
   "/admin(.*)",
@@ -30,9 +24,6 @@ const isAlwaysAccessible = createRouteMatcher([
   "/sign-up(.*)",
   "/api(.*)",
 ]);
-
-// Pre-launch mode - set to false on May 8th to disable redirects
-const PRE_LAUNCH = true;
 
 export default clerkMiddleware(async (auth, req) => {
   // Check if user is admin or signed in
