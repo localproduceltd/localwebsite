@@ -390,6 +390,7 @@ function SupplierProductForm({
   const [showMapPicker, setShowMapPicker] = useState(false);
 
   return (
+    <>
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
       <div className="w-full max-w-lg rounded-xl bg-surface p-6 shadow-xl max-h-[90vh] flex flex-col">
         <div className="flex items-center justify-between">
@@ -523,14 +524,18 @@ function SupplierProductForm({
           </button>
         </div>
       </div>
-      {showMapPicker && (
-        <MapPicker
-          lat={form.lat}
-          lng={form.lng}
-          onLocationSelect={(lat, lng) => setForm({ ...form, lat, lng })}
-          onClose={() => setShowMapPicker(false)}
-        />
-      )}
     </div>
+    {showMapPicker && (
+      <MapPicker
+        lat={form.lat}
+        lng={form.lng}
+        onLocationSelect={(lat, lng) => {
+          setForm({ ...form, lat, lng });
+          setShowMapPicker(false);
+        }}
+        onClose={() => setShowMapPicker(false)}
+      />
+    )}
+    </>
   );
 }

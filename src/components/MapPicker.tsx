@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { MapPin, X } from "lucide-react";
+import { MapPin, X, Search } from "lucide-react";
 import "leaflet/dist/leaflet.css";
 
 interface MapPickerProps {
@@ -12,12 +12,13 @@ interface MapPickerProps {
 }
 
 export default function MapPicker({ lat, lng, onLocationSelect, onClose }: MapPickerProps) {
-  const [selectedLat, setSelectedLat] = useState(lat ?? 53.5108);
-  const [selectedLng, setSelectedLng] = useState(lng ?? -6.3978);
-  const [mounted, setMounted] = useState(false);
+  const [selectedLat, setSelectedLat] = useState(lat ?? 53.0356);
+  const [selectedLng, setSelectedLng] = useState(lng ?? -1.6847);
   const [searchAddress, setSearchAddress] = useState("");
   const [searching, setSearching] = useState(false);
-  const mapRef = useRef<any>(null);
+  
+  const mapContainerRef = useRef<HTMLDivElement>(null);
+  const mapInstanceRef = useRef<any>(null);
   const markerRef = useRef<any>(null);
 
   const handleAddressSearch = async () => {
@@ -41,8 +42,8 @@ export default function MapPicker({ lat, lng, onLocationSelect, onClose }: MapPi
         if (markerRef.current) {
           markerRef.current.setLatLng([latitude, longitude]);
         }
-        if (mapRef.current) {
-          mapRef.current.setView([latitude, longitude], 12);
+        if (mapInstanceRef.current) {
+          mapInstanceRef.current.setView([latitude, longitude], 12);
         }
       } else {
         alert("Address not found. Please try a different search.");
@@ -55,22 +56,20 @@ export default function MapPicker({ lat, lng, onLocationSelect, onClose }: MapPi
     }
   };
 
+  // Initialize map
   useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  useEffect(() => {
-    if (!mounted || typeof window === "undefined") return;
+    if (!mapContainerRef.current || mapInstanceRef.current) return;
 
     const initMap = async () => {
       const L = (await import("leaflet")).default;
+      
+      if (!mapContainerRef.current || mapInstanceRef.current) return;
 
-      const mapElement = document.getElementById("map-picker");
-      if (!mapElement || mapRef.current) return;
-
-      const initialLat = lat ?? 53.5108;
-      const initialLng = lng ?? -6.3978;
-      const map = L.map("map-picker").setView([initialLat, initialLng], 8);
+      const initialLat = lat ?? 53.0356;
+      const initialLng = lng ?? -1.6847;
+      
+      const map = L.map(mapContainerRef.current).setView([initialLat, initialLng], lat ? 12 : 9);
+      mapInstanceRef.current = map;
 
       L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
         attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
@@ -91,6 +90,7 @@ export default function MapPicker({ lat, lng, onLocationSelect, onClose }: MapPi
         icon: customIcon,
         draggable: true,
       }).addTo(map);
+      markerRef.current = marker;
 
       marker.on("dragend", () => {
         const pos = marker.getLatLng();
@@ -98,42 +98,49 @@ export default function MapPicker({ lat, lng, onLocationSelect, onClose }: MapPi
         setSelectedLng(pos.lng);
       });
 
-      map.on("click", (e: any) => {
+      map.on("click", (e) => {
         const { lat, lng } = e.latlng;
         setSelectedLat(lat);
         setSelectedLng(lng);
         marker.setLatLng([lat, lng]);
       });
 
-      mapRef.current = map;
-      markerRef.current = marker;
+      // Force map to recalculate size after modal is visible
+      setTimeout(() => {
+        map.invalidateSize();
+      }, 100);
     };
 
     initMap();
 
     return () => {
-      if (mapRef.current) {
-        mapRef.current.remove();
+      if (mapInstanceRef.current) {
+        mapInstanceRef.current.remove();
+        mapInstanceRef.current = null;
+        markerRef.current = null;
       }
     };
-  }, [mounted]);
+  }, []);
 
+  // Update marker position when coordinates change
   useEffect(() => {
     if (markerRef.current) {
       markerRef.current.setLatLng([selectedLat, selectedLng]);
     }
-    if (mapRef.current) {
-      mapRef.current.setView([selectedLat, selectedLng]);
+    if (mapInstanceRef.current) {
+      mapInstanceRef.current.setView([selectedLat, selectedLng]);
     }
   }, [selectedLat, selectedLng]);
 
-  if (!mounted) {
-    return null;
-  }
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="w-full max-w-3xl rounded-xl bg-surface p-6 shadow-xl">
+    <div 
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4"
+      onClick={(e) => e.stopPropagation()}
+    >
+      <div 
+        className="w-full max-w-3xl rounded-xl bg-surface p-6 shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-bold text-primary">Select Location on Map</h3>
           <button onClick={onClose} className="rounded p-1 text-muted hover:text-primary">
@@ -161,7 +168,7 @@ export default function MapPicker({ lat, lng, onLocationSelect, onClose }: MapPi
           </button>
         </div>
         
-        <div id="map-picker" className="w-full h-96 rounded-lg mb-4 bg-primary/5"></div>
+        <div ref={mapContainerRef} className="w-full rounded-lg mb-4 bg-primary/5" style={{ height: "384px", minHeight: "384px" }}></div>
         
         <div className="flex items-center gap-4 mb-4">
           <div className="flex-1">
