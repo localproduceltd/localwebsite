@@ -77,8 +77,12 @@ export default function YourPageView() {
   const handleSave = async () => {
     if (!form) return;
     setSaving(true);
-    await updateSupplier(form);
-    setSupplier(form);
+    // If supplier was launch_live, set to launch_not_live (requires admin re-approval)
+    const updatedForm = form.status === "launch_live" 
+      ? { ...form, status: "launch_not_live" as const }
+      : form;
+    await updateSupplier(updatedForm);
+    setSupplier(updatedForm);
     setSaving(false);
     setSaved(true);
     setEditing(false);
@@ -105,23 +109,30 @@ export default function YourPageView() {
   return (
     <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
       {/* Live Status Banner */}
-      <div className={`mb-6 rounded-lg px-4 py-3 ${supplier.active ? "bg-green-50 border-2 border-green-200" : "bg-red-50 border-2 border-red-200"}`}>
-        <div className="flex items-center justify-between">
-          <div>
-            <p className={`text-sm font-bold ${supplier.active ? "text-green-800" : "text-red-800"}`}>
-              {supplier.active ? "✓ Your page is LIVE" : "⚠ Your page is NOT LIVE"}
-            </p>
-            <p className={`mt-0.5 text-xs ${supplier.active ? "text-green-700" : "text-red-700"}`}>
-              {supplier.active 
-                ? "Customers can see your page and products" 
-                : "Your page is hidden from customers. Contact admin to go live."}
-            </p>
+      {(() => {
+        const isLive = supplier.status === "launch_live";
+        return (
+          <div className={`mb-6 rounded-lg px-4 py-3 ${isLive ? "bg-green-50 border-2 border-green-200" : "bg-red-50 border-2 border-red-200"}`}>
+            <div className="flex items-center justify-between">
+              <div>
+                <p className={`text-sm font-bold ${isLive ? "text-green-800" : "text-red-800"}`}>
+                  {isLive ? "✓ Your page is LIVE" : "⚠ Your page is NOT LIVE"}
+                </p>
+                <p className={`mt-0.5 text-xs ${isLive ? "text-green-700" : "text-red-700"}`}>
+                  {isLive 
+                    ? "Customers can see your page and products" 
+                    : supplier.status === "launch_not_live"
+                      ? "Your changes are pending admin approval."
+                      : "Your page is hidden from customers. Contact admin to go live."}
+                </p>
+              </div>
+              <span className={`rounded-full px-3 py-1.5 text-xs font-bold ${isLive ? "bg-green-600 text-white" : "bg-red-600 text-white"}`}>
+                {isLive ? "LIVE" : "NOT LIVE"}
+              </span>
+            </div>
           </div>
-          <span className={`rounded-full px-3 py-1.5 text-xs font-bold ${supplier.active ? "bg-green-600 text-white" : "bg-red-600 text-white"}`}>
-            {supplier.active ? "LIVE" : "NOT LIVE"}
-          </span>
-        </div>
-      </div>
+        );
+      })()}
 
       {!editing && (
         <div className="mb-4">

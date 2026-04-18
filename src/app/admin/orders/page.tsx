@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { type Order, getOrders, updateOrderStatus } from "@/lib/data";
-import { Package, Clock, CheckCircle, XCircle, Calendar, ChevronDown, ChevronRight } from "lucide-react";
+import { type Order, type SupplierOrderStatus, getOrders, updateOrderStatus } from "@/lib/data";
+import { Package, Clock, CheckCircle, XCircle, Calendar, ChevronDown, ChevronRight, ChefHat, Warehouse, Truck } from "lucide-react";
 
 const statusConfig = {
   pending: { label: "Pending", icon: Clock, color: "text-amber-600 bg-amber-50" },
@@ -12,6 +12,14 @@ const statusConfig = {
 };
 
 const statusOptions: Order["status"][] = ["pending", "confirmed", "delivered", "cancelled"];
+
+const supplierStatusConfig: Record<SupplierOrderStatus, { label: string; color: string }> = {
+  order_placed: { label: "Placed", color: "text-amber-600 bg-amber-50" },
+  prepping: { label: "Prepping", color: "text-blue-600 bg-blue-50" },
+  dropped_at_depot: { label: "At Depot", color: "text-purple-600 bg-purple-50" },
+  delivered: { label: "Delivered", color: "text-green-600 bg-green-50" },
+  cancelled: { label: "Cancelled", color: "text-red-600 bg-red-50" },
+};
 
 function formatDeliveryDate(dateStr: string) {
   if (!dateStr) return "No date";
@@ -38,9 +46,9 @@ export default function AdminOrdersPage() {
 
   const updateStatus = async (orderId: string, newStatus: Order["status"]) => {
     await updateOrderStatus(orderId, newStatus);
-    setOrderList((prev) =>
-      prev.map((o) => (o.id === orderId ? { ...o, status: newStatus } : o))
-    );
+    // Re-fetch orders to get updated supplier statuses from the cascade trigger
+    const updated = await getOrders();
+    setOrderList(updated);
   };
 
   const toggleCollapse = (key: string) => {
@@ -122,7 +130,7 @@ export default function AdminOrdersPage() {
                       <div className="flex flex-wrap items-center justify-between gap-4 border-b border-primary/5 px-6 py-4">
                         <div>
                           <p className="text-sm font-semibold text-primary">Order #{order.orderNumber}</p>
-                          <p className="text-xs text-muted">Customer: {order.userId.slice(0, 16)}... &middot; {order.createdAt}</p>
+                          <p className="text-xs text-muted">{order.customerEmail || `User: ${order.userId.slice(0, 12)}...`} &middot; {order.createdAt}</p>
                         </div>
                         <span className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-semibold ${status.color}`}>
                           <StatusIcon size={12} />
@@ -138,6 +146,7 @@ export default function AdminOrdersPage() {
                               <th className="pb-2 font-medium text-center">Qty</th>
                               <th className="pb-2 font-medium text-right">Price</th>
                               <th className="pb-2 font-medium text-right">Subtotal</th>
+                            <th className="pb-2 font-medium text-center">Supplier Status</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -148,6 +157,13 @@ export default function AdminOrdersPage() {
                                 <td className="py-2 text-right text-muted">£{item.price.toFixed(2)}</td>
                                 <td className="py-2 text-right font-medium text-primary">
                                   £{(item.quantity * item.price).toFixed(2)}
+                                </td>
+                                <td className="py-2 text-center">
+                                  {item.supplierStatus && (
+                                    <span className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold ${supplierStatusConfig[item.supplierStatus]?.color || "text-muted bg-muted/10"}`}>
+                                      {supplierStatusConfig[item.supplierStatus]?.label || item.supplierStatus}
+                                    </span>
+                                  )}
                                 </td>
                               </tr>
                             ))}

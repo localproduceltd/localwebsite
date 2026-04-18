@@ -33,6 +33,8 @@ export default function SupplierProductsPage() {
   const [showForm, setShowForm] = useState(false);
   const [avgRatings, setAvgRatings] = useState<Record<string, { avg: number; count: number }>>({});
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
+  const [statusFilters, setStatusFilters] = useState<Set<ProductStatus>>(new Set(["approved", "pending", "rejected"]));
+  const [stockFilters, setStockFilters] = useState<Set<"in_stock" | "out_of_stock">>(new Set(["in_stock", "out_of_stock"]));
 
   const fetchProducts = async (supplierId: string) => {
     const prods = await getProductsBySupplier(supplierId);
@@ -102,6 +104,8 @@ export default function SupplierProductsPage() {
   // Filter and sort products
   const filteredProducts = products
     .filter((p) => categoryFilter === "all" || p.category === categoryFilter)
+    .filter((p) => statusFilters.has(p.status))
+    .filter((p) => stockFilters.has(p.inStock ? "in_stock" : "out_of_stock"))
     .sort((a, b) => {
       // First sort by category
       if (a.category !== b.category) {
@@ -113,6 +117,9 @@ export default function SupplierProductsPage() {
 
   const pendingCount = products.filter((p) => p.status === "pending").length;
   const approvedCount = products.filter((p) => p.status === "approved").length;
+  const rejectedCount = products.filter((p) => p.status === "rejected").length;
+  const inStockCount = products.filter((p) => p.inStock).length;
+  const outOfStockCount = products.filter((p) => !p.inStock).length;
   const categoriesInUse = Array.from(new Set(products.map((p) => p.category))).sort();
 
   return (
@@ -120,12 +127,7 @@ export default function SupplierProductsPage() {
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-primary">Your Products</h1>
-          <p className="mt-1 text-sm text-muted">
-            {filteredProducts.length} of {products.length} products
-            {pendingCount > 0 && <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-bold text-amber-700">{pendingCount} pending</span>}
-            {approvedCount > 0 && <span className="ml-2 rounded-full bg-green-100 px-2 py-0.5 text-xs font-bold text-green-700">{approvedCount} approved</span>}
-          </p>
-        </div>
+                  </div>
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2">
             <Filter size={16} className="text-muted" />
@@ -147,6 +149,72 @@ export default function SupplierProductsPage() {
             <Plus size={16} /> Add Product
           </button>
         </div>
+      </div>
+
+      {/* Status filter buttons */}
+      <div className="mt-6 flex flex-wrap gap-2">
+        {(["approved", "pending", "rejected"] as const).map((status) => {
+          const count = status === "approved" ? approvedCount 
+            : status === "pending" ? pendingCount 
+            : rejectedCount;
+          const isSelected = statusFilters.has(status);
+          const toggleStatus = () => {
+            setStatusFilters((prev) => {
+              const next = new Set(prev);
+              if (next.has(status)) next.delete(status);
+              else next.add(status);
+              return next;
+            });
+          };
+          return (
+            <button
+              key={status}
+              onClick={toggleStatus}
+              className={`rounded-full px-3 py-1.5 text-xs font-semibold capitalize transition ${
+                isSelected
+                  ? status === "approved" ? "bg-green-600 text-white"
+                    : status === "pending" ? "bg-amber-500 text-white"
+                    : "bg-red-500 text-white"
+                  : status === "approved" ? "bg-green-100 text-green-700 hover:bg-green-200"
+                    : status === "pending" ? "bg-amber-100 text-amber-700 hover:bg-amber-200"
+                    : "bg-red-100 text-red-600 hover:bg-red-200"
+              }`}
+            >
+              {status} ({count})
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Stock filter buttons */}
+      <div className="mt-3 flex flex-wrap gap-2">
+        {([
+          { key: "in_stock" as const, label: "In Stock", count: inStockCount },
+          { key: "out_of_stock" as const, label: "Out of Stock", count: outOfStockCount },
+        ]).map(({ key, label, count }) => {
+          const isSelected = stockFilters.has(key);
+          const toggleStock = () => {
+            setStockFilters((prev) => {
+              const next = new Set(prev);
+              if (next.has(key)) next.delete(key);
+              else next.add(key);
+              return next;
+            });
+          };
+          return (
+            <button
+              key={key}
+              onClick={toggleStock}
+              className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
+                isSelected
+                  ? key === "in_stock" ? "bg-blue-600 text-white" : "bg-gray-600 text-white"
+                  : key === "in_stock" ? "bg-blue-100 text-blue-700 hover:bg-blue-200" : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+              }`}
+            >
+              {label} ({count})
+            </button>
+          );
+        })}
       </div>
 
       {showForm && (

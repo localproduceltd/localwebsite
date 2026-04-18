@@ -13,7 +13,6 @@ export interface Supplier {
   category: string;
   lat: number | null;
   lng: number | null;
-  active: boolean;
   status: SupplierStatus;
 }
 
@@ -61,6 +60,7 @@ export interface Order {
   id: string;
   orderNumber: number;
   userId: string;
+  customerEmail: string | null;
   items: OrderItem[];
   total: number;
   status: "pending" | "confirmed" | "delivered" | "cancelled";
@@ -92,7 +92,6 @@ export async function getSuppliers(): Promise<Supplier[]> {
     category: s.category,
     lat: s.lat ?? null,
     lng: s.lng ?? null,
-    active: s.active ?? true,
     status: s.status ?? "launch_live",
   }));
 }
@@ -122,7 +121,6 @@ export async function getPreLaunchSuppliers(): Promise<Supplier[]> {
     category: s.category,
     lat: s.lat ?? null,
     lng: s.lng ?? null,
-    active: s.active ?? true,
     status: s.status ?? "launch_live",
   }));
 }
@@ -144,7 +142,6 @@ export async function getLiveSuppliers(): Promise<Supplier[]> {
     category: s.category,
     lat: s.lat ?? null,
     lng: s.lng ?? null,
-    active: s.active ?? true,
     status: s.status ?? "launch_live",
   }));
 }
@@ -166,7 +163,6 @@ export async function getActiveSuppliers(): Promise<Supplier[]> {
     category: s.category,
     lat: s.lat ?? null,
     lng: s.lng ?? null,
-    active: true,
     status: "launch_live" as const,
   }));
 }
@@ -187,7 +183,6 @@ export async function getSupplier(id: string): Promise<Supplier | null> {
     category: data.category,
     lat: data.lat ?? null,
     lng: data.lng ?? null,
-    active: data.active ?? true,
     status: data.status ?? "launch_live",
   };
 }
@@ -305,6 +300,7 @@ export async function getOrders(userId?: string): Promise<Order[]> {
     id: o.id,
     orderNumber: o.order_number,
     userId: o.user_id,
+    customerEmail: o.customer_email ?? null,
     items: (o.order_items as Array<{ product_id: string; product_name: string; quantity: number; price: number; supplier_id?: string; supplier_status?: string }>).map((item) => ({
       productId: item.product_id,
       productName: item.product_name,
@@ -414,7 +410,7 @@ export async function createSupplier(supplier: Omit<Supplier, "id">): Promise<Su
     lng: supplier.lng,
   }).select().single();
   if (error) throw error;
-  return { id: data.id, name: data.name, description: data.description, image: data.image, location: data.location, category: data.category, lat: data.lat ?? null, lng: data.lng ?? null, active: data.active ?? true, status: data.status ?? "launch_live" };
+  return { id: data.id, name: data.name, description: data.description, image: data.image, location: data.location, category: data.category, lat: data.lat ?? null, lng: data.lng ?? null, status: data.status ?? "launch_live" };
 }
 
 export async function updateSupplier(supplier: Supplier): Promise<void> {
@@ -426,7 +422,6 @@ export async function updateSupplier(supplier: Supplier): Promise<void> {
     category: supplier.category,
     lat: supplier.lat,
     lng: supplier.lng,
-    active: supplier.active,
     status: supplier.status,
   }).eq("id", supplier.id);
   if (error) throw error;
@@ -492,10 +487,10 @@ export async function deleteDeliveryDay(id: string): Promise<void> {
   if (error) throw error;
 }
 
-export async function createOrder(userId: string, total: number, deliveryDay: string, items: OrderItem[]): Promise<Order> {
+export async function createOrder(userId: string, customerEmail: string, total: number, deliveryDay: string, items: OrderItem[]): Promise<Order> {
   const { data: order, error } = await supabase
     .from("orders")
-    .insert({ user_id: userId, total, status: "pending", delivery_day: deliveryDay })
+    .insert({ user_id: userId, customer_email: customerEmail, total, status: "pending", delivery_day: deliveryDay })
     .select()
     .single();
   if (error || !order) throw error ?? new Error("Failed to create order");
@@ -517,6 +512,7 @@ export async function createOrder(userId: string, total: number, deliveryDay: st
     id: order.id,
     orderNumber: order.order_number,
     userId: order.user_id,
+    customerEmail: order.customer_email ?? null,
     items,
     total: Number(order.total),
     status: order.status as Order["status"],
@@ -580,6 +576,7 @@ export async function updateProductStatus(productId: string, status: ProductStat
 export interface SupplierOrderItem {
   id: string;
   orderId: string;
+  orderNumber: number;
   productId: string;
   productName: string;
   quantity: number;
@@ -593,15 +590,16 @@ export interface SupplierOrderItem {
 export async function getSupplierOrders(supplierId: string): Promise<SupplierOrderItem[]> {
   const { data, error } = await supabase
     .from("order_items")
-    .select("*, orders(delivery_day, created_at, status)")
+    .select("*, orders(delivery_day, created_at, status, order_number)")
     .eq("supplier_id", supplierId)
     .order("created_at", { ascending: false, referencedTable: "orders" });
   if (error) throw error;
   return data.map((item) => {
-    const order = item.orders as { delivery_day: string; created_at: string; status: string };
+    const order = item.orders as { delivery_day: string; created_at: string; status: string; order_number: number };
     return {
       id: item.id,
       orderId: item.order_id,
+      orderNumber: order?.order_number ?? 0,
       productId: item.product_id,
       productName: item.product_name,
       quantity: item.quantity,

@@ -45,7 +45,8 @@ export default function CartPage() {
       .filter(Boolean) as OrderItem[];
 
     try {
-      await createOrder(user.id, totalPrice, selectedDay, orderItems);
+      const customerEmail = user.primaryEmailAddress?.emailAddress ?? "";
+      await createOrder(user.id, customerEmail, totalPrice, selectedDay, orderItems);
       clearCart();
       setOrderPlaced(true);
     } catch {

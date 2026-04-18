@@ -294,7 +294,6 @@ function SupplierForm({
       category: "",
       lat: null,
       lng: null,
-      active: false,
       status: "launch_not_live",
     }
   );
