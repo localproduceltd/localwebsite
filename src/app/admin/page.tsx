@@ -1,98 +1,176 @@
-import Link from "next/link";
-import { Package, Users, Calendar, ShoppingCart } from "lucide-react";
-import { getProducts, getSuppliers, getOrders, getDeliveryDays } from "@/lib/data";
+import { Calendar, ShoppingCart, TrendingUp, Package, Users } from "lucide-react";
+import { getOrders, getActiveDeliveryDays } from "@/lib/data";
+
+function formatDeliveryDate(dateStr: string) {
+  if (!dateStr) return "No date";
+  const d = new Date(dateStr + "T00:00:00");
+  if (isNaN(d.getTime())) return dateStr;
+  return d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
+}
 
 export default async function AdminDashboard() {
-  const [products, suppliers, orders, deliveryDays] = await Promise.all([
-    getProducts(),
-    getSuppliers(),
+  const [orders, upcomingDeliveryDays] = await Promise.all([
     getOrders(),
-    getDeliveryDays(),
+    getActiveDeliveryDays(),
   ]);
 
-  const stats = [
-    { label: "Products", value: products.length, icon: Package, href: "/admin/products", color: "bg-primary" },
-    { label: "Suppliers", value: suppliers.length, icon: Users, href: "/admin/suppliers", color: "bg-secondary" },
-    { label: "Orders", value: orders.length, icon: ShoppingCart, href: "/admin/orders", color: "bg-accent" },
-    { label: "Delivery Days", value: deliveryDays.length, icon: Calendar, href: "/admin/delivery-days", color: "bg-secondary" },
-  ];
+  // Calculate totals
+  const totalRevenue = orders.reduce((sum, o) => sum + o.total, 0);
+  const totalOrders = orders.length;
+
+  // Group orders by delivery day for upcoming days
+  const upcomingDeliveryStats = upcomingDeliveryDays.map((day) => {
+    const dayOrders = orders.filter((o) => o.deliveryDay === day.deliveryDate);
+    return {
+      date: day.deliveryDate,
+      orderCount: dayOrders.length,
+      revenue: dayOrders.reduce((sum, o) => sum + o.total, 0),
+    };
+  });
+
+  // Calculate most popular products (by quantity ordered)
+  const productCounts = new Map<string, { name: string; quantity: number; revenue: number }>();
+  for (const order of orders) {
+    for (const item of order.items) {
+      const existing = productCounts.get(item.productId) || { name: item.productName, quantity: 0, revenue: 0 };
+      existing.quantity += item.quantity;
+      existing.revenue += item.quantity * item.price;
+      productCounts.set(item.productId, existing);
+    }
+  }
+  const topProducts = Array.from(productCounts.values())
+    .sort((a, b) => b.quantity - a.quantity)
+    .slice(0, 5);
+
+  // Calculate most popular suppliers (by revenue)
+  const supplierStats = new Map<string, { name: string; orderCount: number; revenue: number }>();
+  for (const order of orders) {
+    for (const item of order.items) {
+      if (!item.supplierId || !item.supplierName) continue;
+      const existing = supplierStats.get(item.supplierId) || { name: item.supplierName, orderCount: 0, revenue: 0 };
+      existing.orderCount += 1;
+      existing.revenue += item.quantity * item.price;
+      supplierStats.set(item.supplierId, existing);
+    }
+  }
+  const topSuppliers = Array.from(supplierStats.values())
+    .sort((a, b) => b.revenue - a.revenue)
+    .slice(0, 5);
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
       <h1 className="text-3xl font-bold text-primary">Admin Dashboard</h1>
-      <p className="mt-1 text-muted">Manage your marketplace</p>
+      <p className="mt-1 text-muted">Overview of your marketplace</p>
 
-      <div className="mt-8 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
-        {stats.map((stat) => {
-          const Icon = stat.icon;
-          return (
-            <Link
-              key={stat.label}
-              href={stat.href}
-              className="group rounded-xl bg-surface p-6 shadow-sm transition hover:shadow-md"
-            >
-              <div className={`inline-flex h-10 w-10 items-center justify-center rounded-lg ${stat.color} text-background`}>
-                <Icon size={20} />
-              </div>
-              <p className="mt-4 text-3xl font-bold text-primary">{stat.value}</p>
-              <p className="mt-1 text-sm text-muted group-hover:text-secondary">{stat.label}</p>
-            </Link>
-          );
-        })}
+      {/* Top Stats */}
+      <div className="mt-8 grid gap-6 sm:grid-cols-2">
+        <div className="rounded-xl bg-surface p-6 shadow-sm">
+          <div className="flex items-center gap-3">
+            <div className="inline-flex h-12 w-12 items-center justify-center rounded-lg bg-green-100 text-green-600">
+              <TrendingUp size={24} />
+            </div>
+            <div>
+              <p className="text-sm text-muted">Total Revenue</p>
+              <p className="text-3xl font-bold text-primary">£{totalRevenue.toFixed(2)}</p>
+            </div>
+          </div>
+        </div>
+        <div className="rounded-xl bg-surface p-6 shadow-sm">
+          <div className="flex items-center gap-3">
+            <div className="inline-flex h-12 w-12 items-center justify-center rounded-lg bg-blue-100 text-blue-600">
+              <ShoppingCart size={24} />
+            </div>
+            <div>
+              <p className="text-sm text-muted">Total Orders</p>
+              <p className="text-3xl font-bold text-primary">{totalOrders}</p>
+            </div>
+          </div>
+        </div>
       </div>
 
-      <div className="mt-12 grid gap-6 lg:grid-cols-2">
-        {/* Recent Orders */}
-        <div className="rounded-xl bg-surface p-6 shadow-sm">
-          <h2 className="text-lg font-semibold text-primary">Recent Orders</h2>
-          <div className="mt-4 space-y-3">
-            {orders.slice(0, 5).map((order) => (
-              <div key={order.id} className="flex items-center justify-between rounded-lg bg-surface p-3">
-                <div>
-                  <p className="text-sm font-medium text-primary">Order #{order.orderNumber}</p>
-                  <p className="text-xs text-muted">{order.createdAt}</p>
+      {/* Upcoming Delivery Days */}
+      <div className="mt-8 rounded-xl bg-surface p-6 shadow-sm">
+        <div className="flex items-center gap-2 mb-4">
+          <Calendar size={20} className="text-secondary" />
+          <h2 className="text-lg font-semibold text-primary">Upcoming Delivery Days</h2>
+        </div>
+        {upcomingDeliveryStats.length === 0 ? (
+          <p className="text-sm text-muted">No upcoming delivery days</p>
+        ) : (
+          <div className="space-y-3">
+            {upcomingDeliveryStats.map((day) => (
+              <div key={day.date} className="flex items-center justify-between rounded-lg bg-primary/5 px-4 py-3">
+                <div className="flex items-center gap-3">
+                  <span className="font-medium text-primary">{formatDeliveryDate(day.date)}</span>
                 </div>
-                <div className="text-right">
-                  <p className="text-sm font-semibold text-primary">£{order.total.toFixed(2)}</p>
-                  <p className="text-xs capitalize text-muted">{order.status}</p>
+                <div className="flex items-center gap-6 text-sm">
+                  <span className="text-muted">
+                    <span className="font-semibold text-primary">{day.orderCount}</span> order{day.orderCount !== 1 ? "s" : ""}
+                  </span>
+                  <span className="font-semibold text-green-600">£{day.revenue.toFixed(2)}</span>
                 </div>
               </div>
             ))}
-            {orders.length === 0 && (
-              <p className="text-sm text-muted">No orders yet</p>
-            )}
           </div>
-          <Link href="/admin/orders" className="mt-4 block text-center text-sm font-medium text-secondary hover:underline">
-            View all orders &rarr;
-          </Link>
+        )}
+      </div>
+
+      {/* Most Popular Products & Suppliers */}
+      <div className="mt-8 grid gap-6 lg:grid-cols-2">
+        {/* Most Popular Products */}
+        <div className="rounded-xl bg-surface p-6 shadow-sm">
+          <div className="flex items-center gap-2 mb-4">
+            <Package size={20} className="text-secondary" />
+            <h2 className="text-lg font-semibold text-primary">Most Popular Products</h2>
+          </div>
+          {topProducts.length === 0 ? (
+            <p className="text-sm text-muted">No product data yet</p>
+          ) : (
+            <div className="space-y-3">
+              {topProducts.map((product, i) => (
+                <div key={i} className="flex items-center justify-between rounded-lg bg-primary/5 px-4 py-3">
+                  <div className="flex items-center gap-3">
+                    <span className="flex h-6 w-6 items-center justify-center rounded-full bg-secondary/20 text-xs font-bold text-primary">
+                      {i + 1}
+                    </span>
+                    <span className="font-medium text-primary">{product.name}</span>
+                  </div>
+                  <div className="text-right text-sm">
+                    <span className="text-muted">{product.quantity} sold</span>
+                    <span className="ml-3 font-semibold text-green-600">£{product.revenue.toFixed(2)}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
-        {/* Quick Links */}
+        {/* Most Popular Suppliers */}
         <div className="rounded-xl bg-surface p-6 shadow-sm">
-          <h2 className="text-lg font-semibold text-primary">Quick Actions</h2>
-          <div className="mt-4 space-y-3">
-            <Link href="/admin/products" className="flex items-center gap-3 rounded-lg bg-surface p-4 transition hover:bg-secondary/10">
-              <Package size={20} className="text-primary" />
-              <div>
-                <p className="font-medium text-primary">Manage Products</p>
-                <p className="text-xs text-muted">Add, edit or remove products</p>
-              </div>
-            </Link>
-            <Link href="/admin/suppliers" className="flex items-center gap-3 rounded-lg bg-surface p-4 transition hover:bg-secondary/10">
-              <Users size={20} className="text-primary" />
-              <div>
-                <p className="font-medium text-primary">Manage Suppliers</p>
-                <p className="text-xs text-muted">Add, edit or remove suppliers</p>
-              </div>
-            </Link>
-            <Link href="/admin/delivery-days" className="flex items-center gap-3 rounded-lg bg-surface p-4 transition hover:bg-secondary/10">
-              <Calendar size={20} className="text-primary" />
-              <div>
-                <p className="font-medium text-primary">Delivery Days</p>
-                <p className="text-xs text-muted">Set delivery schedules and cutoff times</p>
-              </div>
-            </Link>
+          <div className="flex items-center gap-2 mb-4">
+            <Users size={20} className="text-secondary" />
+            <h2 className="text-lg font-semibold text-primary">Most Popular Suppliers</h2>
           </div>
+          {topSuppliers.length === 0 ? (
+            <p className="text-sm text-muted">No supplier data yet</p>
+          ) : (
+            <div className="space-y-3">
+              {topSuppliers.map((supplier, i) => (
+                <div key={i} className="flex items-center justify-between rounded-lg bg-primary/5 px-4 py-3">
+                  <div className="flex items-center gap-3">
+                    <span className="flex h-6 w-6 items-center justify-center rounded-full bg-secondary/20 text-xs font-bold text-primary">
+                      {i + 1}
+                    </span>
+                    <span className="font-medium text-primary">{supplier.name}</span>
+                  </div>
+                  <div className="text-right text-sm">
+                    <span className="text-muted">{supplier.orderCount} items</span>
+                    <span className="ml-3 font-semibold text-green-600">£{supplier.revenue.toFixed(2)}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </div>

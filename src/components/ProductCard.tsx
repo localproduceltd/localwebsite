@@ -5,6 +5,7 @@ import { Check } from "lucide-react";
 import { useCart } from "@/lib/cart-context";
 import type { Product } from "@/lib/data";
 import { LOCALITY_COLORS } from "@/lib/locality";
+import { PRODUCT_TAGS } from "@/lib/categories";
 
 export default function ProductCard({ product }: { product: Product }) {
   const { addItem, items } = useCart();
@@ -42,18 +43,29 @@ export default function ProductCard({ product }: { product: Product }) {
         </div>
         <h3 className="mt-1 font-semibold text-primary">{product.name}</h3>
         <p className="mt-0.5 text-sm text-muted">{product.description}</p>
-        {product.locality && (
-          <span
-            className="mt-2 inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold"
-            style={{
-              background: (LOCALITY_COLORS[product.locality] ?? LOCALITY_COLORS["Local"]).bg,
-              color: (LOCALITY_COLORS[product.locality] ?? LOCALITY_COLORS["Local"]).text,
-              border: `1px solid ${(LOCALITY_COLORS[product.locality] ?? LOCALITY_COLORS["Local"]).border}`,
-            }}
-          >
-            {product.locality}
-          </span>
-        )}
+        <div className="mt-2 flex flex-wrap gap-1">
+          {product.locality && (
+            <span
+              className="rounded-full px-2 py-0.5 text-[10px] font-semibold"
+              style={{
+                background: (LOCALITY_COLORS[product.locality] ?? LOCALITY_COLORS["Local"]).bg,
+                color: (LOCALITY_COLORS[product.locality] ?? LOCALITY_COLORS["Local"]).text,
+                border: `1px solid ${(LOCALITY_COLORS[product.locality] ?? LOCALITY_COLORS["Local"]).border}`,
+              }}
+            >
+              {product.locality}
+            </span>
+          )}
+          {product.tags?.map((tagId) => {
+            const tag = PRODUCT_TAGS.find((t) => t.id === tagId);
+            if (!tag) return null;
+            return (
+              <span key={tagId} className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${tag.color}`}>
+                {tag.label}
+              </span>
+            );
+          })}
+        </div>
         <div className="mt-2 flex items-center justify-between">
           <span className="text-lg font-bold text-primary">£{product.price.toFixed(2)}</span>
           <span className="text-xs text-muted">{product.unit}</span>

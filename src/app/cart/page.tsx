@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { Trash2, Plus, Minus, ShoppingCart, CheckCircle, Calendar } from "lucide-react";
 import { useUser } from "@clerk/nextjs";
 import { useCart } from "@/lib/cart-context";
-import { type DeliveryDay, type OrderItem, getActiveDeliveryDays, createOrder } from "@/lib/data";
+import { type DeliveryDay, type OrderItem, getActiveDeliveryDays, createOrder, getSupplier } from "@/lib/data";
 
 export default function CartPage() {
   const { items, updateQuantity, removeItem, totalPrice, getProduct, clearCart } = useCart();
@@ -46,9 +46,70 @@ export default function CartPage() {
 
     try {
       const customerEmail = user.primaryEmailAddress?.emailAddress ?? "";
-      await createOrder(user.id, customerEmail, totalPrice, selectedDay, orderItems);
+      const customerName = user.fullName || user.firstName || "Customer";
+      const order = await createOrder(user.id, customerEmail, totalPrice, selectedDay, orderItems);
       clearCart();
       setOrderPlaced(true);
+
+      // Send order confirmation email to customer
+      if (customerEmail) {
+        fetch("/api/email", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            type: "order_confirmation",
+            data: {
+              customerEmail,
+              customerName,
+              orderNumber: order.orderNumber,
+              deliveryDay: new Date(selectedDay + "T00:00:00").toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" }),
+              items: orderItems.map((item) => ({
+                productName: item.productName,
+                quantity: item.quantity,
+                price: item.price,
+              })),
+              total: totalPrice,
+            },
+          }),
+        }).catch(console.error);
+      }
+
+      // Send new order emails to suppliers
+      const supplierItems = new Map<string, typeof orderItems>();
+      for (const item of orderItems) {
+        if (item.supplierId) {
+          const existing = supplierItems.get(item.supplierId) || [];
+          existing.push(item);
+          supplierItems.set(item.supplierId, existing);
+        }
+      }
+
+      for (const [supplierId, items] of supplierItems) {
+        getSupplier(supplierId).then((supplier) => {
+          if (supplier?.email) {
+            const subtotal = items.reduce((sum, i) => sum + i.price * i.quantity, 0);
+            fetch("/api/email", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                type: "supplier_new_order",
+                data: {
+                  supplierEmail: supplier.email,
+                  supplierName: supplier.name,
+                  orderNumber: order.orderNumber,
+                  deliveryDay: new Date(selectedDay + "T00:00:00").toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" }),
+                  items: items.map((item) => ({
+                    productName: item.productName,
+                    quantity: item.quantity,
+                    price: item.price,
+                  })),
+                  subtotal,
+                },
+              }),
+            }).catch(console.error);
+          }
+        }).catch(console.error);
+      }
     } catch {
       alert("Failed to place order. Please try again.");
     } finally {

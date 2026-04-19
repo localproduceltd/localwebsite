@@ -17,7 +17,7 @@ import {
   deleteProduct,
   getAverageRatings,
 } from "@/lib/data";
-import { PRODUCT_CATEGORIES } from "@/lib/categories";
+import { PRODUCT_CATEGORIES, ALLERGENS, PRODUCT_TAGS } from "@/lib/categories";
 import { LOCALITY_COLORS } from "@/lib/locality";
 import { Plus, Pencil, Trash2, X, Loader2, Star, Package, Filter, MapPin } from "lucide-react";
 import ImageUpload from "@/components/ImageUpload";
@@ -262,6 +262,11 @@ export default function SupplierProductsPage() {
                 </div>
               </div>
             </div>
+            {product.status === "rejected" && product.rejectionReason && (
+              <div className="mt-2 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-600">
+                <span className="font-semibold">Rejection reason:</span> {product.rejectionReason}
+              </div>
+            )}
             {avgRatings[product.id] && (
               <div className="mt-2 flex items-center gap-1">
                 <div className="flex items-center gap-0.5">
@@ -388,13 +393,20 @@ export default function SupplierProductsPage() {
                   )}
                 </td>
                 <td className="px-4 py-3 text-center">
-                  <span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-bold ${
-                    product.status === "approved" ? "bg-green-100 text-green-700" :
-                    product.status === "pending" ? "bg-amber-100 text-amber-700" :
-                    "bg-red-100 text-red-600"
-                  }`}>
-                    {product.status}
-                  </span>
+                  <div className="flex flex-col items-center gap-1">
+                    <span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-bold ${
+                      product.status === "approved" ? "bg-green-100 text-green-700" :
+                      product.status === "pending" ? "bg-amber-100 text-amber-700" :
+                      "bg-red-100 text-red-600"
+                    }`}>
+                      {product.status}
+                    </span>
+                    {product.status === "rejected" && product.rejectionReason && (
+                      <span className="max-w-[150px] truncate text-[10px] text-red-500" title={product.rejectionReason}>
+                        {product.rejectionReason}
+                      </span>
+                    )}
+                  </div>
                 </td>
                 <td className="px-4 py-3 text-right">
                   <button
@@ -453,6 +465,8 @@ function SupplierProductForm({
       lat: null,
       lng: null,
       status: "pending" as ProductStatus,
+      allergens: [],
+      tags: [],
     }
   );
   const [showMapPicker, setShowMapPicker] = useState(false);
@@ -577,6 +591,63 @@ function SupplierProductForm({
               >
                 Out of Stock
               </button>
+            </div>
+          </div>
+
+          {/* Tags */}
+          <div>
+            <label className="block text-xs font-medium text-muted mb-2">Tags</label>
+            <div className="flex flex-wrap gap-2">
+              {PRODUCT_TAGS.map((tag) => {
+                const isSelected = form.tags.includes(tag.id);
+                return (
+                  <button
+                    key={tag.id}
+                    type="button"
+                    onClick={() => {
+                      setForm({
+                        ...form,
+                        tags: isSelected
+                          ? form.tags.filter((t) => t !== tag.id)
+                          : [...form.tags, tag.id],
+                      });
+                    }}
+                    className={`rounded-full px-3 py-1 text-xs font-medium transition ${
+                      isSelected ? tag.color : "bg-gray-100 text-gray-500 hover:bg-gray-200"
+                    }`}
+                  >
+                    {tag.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Allergens */}
+          <div>
+            <label className="block text-xs font-medium text-muted mb-2">Allergens (contains)</label>
+            <div className="grid grid-cols-2 gap-1 max-h-32 overflow-y-auto rounded-lg border border-primary/10 p-2">
+              {ALLERGENS.map((allergen) => {
+                const isSelected = form.allergens.includes(allergen.id);
+                return (
+                  <label key={allergen.id} className="flex items-center gap-2 text-xs text-primary cursor-pointer hover:bg-primary/5 rounded px-1 py-0.5">
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      onChange={() => {
+                        setForm({
+                          ...form,
+                          allergens: isSelected
+                            ? form.allergens.filter((a) => a !== allergen.id)
+                            : [...form.allergens, allergen.id],
+                        });
+                      }}
+                      className="rounded text-amber-500"
+                    />
+                    {allergen.label}
+                  </label>
+                );
+              })}
             </div>
           </div>
         </div>

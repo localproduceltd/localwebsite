@@ -14,6 +14,7 @@ export interface Supplier {
   lat: number | null;
   lng: number | null;
   status: SupplierStatus;
+  email: string | null;
 }
 
 export interface SupplierUser {
@@ -43,6 +44,10 @@ export interface Product {
   lat: number | null;
   lng: number | null;
   status: ProductStatus;
+  rejectionReason?: string | null;
+  archivedAt?: string | null;
+  allergens: string[];
+  tags: string[];
 }
 
 export type SupplierOrderStatus = "order_placed" | "prepping" | "dropped_at_depot" | "delivered" | "cancelled";
@@ -53,6 +58,7 @@ export interface OrderItem {
   quantity: number;
   price: number;
   supplierId?: string;
+  supplierName?: string;
   supplierStatus?: SupplierOrderStatus;
 }
 
@@ -93,6 +99,7 @@ export async function getSuppliers(): Promise<Supplier[]> {
     lat: s.lat ?? null,
     lng: s.lng ?? null,
     status: s.status ?? "launch_live",
+    email: s.email ?? null,
   }));
 }
 
@@ -122,6 +129,7 @@ export async function getPreLaunchSuppliers(): Promise<Supplier[]> {
     lat: s.lat ?? null,
     lng: s.lng ?? null,
     status: s.status ?? "launch_live",
+    email: s.email ?? null,
   }));
 }
 
@@ -143,6 +151,7 @@ export async function getLiveSuppliers(): Promise<Supplier[]> {
     lat: s.lat ?? null,
     lng: s.lng ?? null,
     status: s.status ?? "launch_live",
+    email: s.email ?? null,
   }));
 }
 
@@ -164,6 +173,7 @@ export async function getActiveSuppliers(): Promise<Supplier[]> {
     lat: s.lat ?? null,
     lng: s.lng ?? null,
     status: "launch_live" as const,
+    email: s.email ?? null,
   }));
 }
 
@@ -184,6 +194,7 @@ export async function getSupplier(id: string): Promise<Supplier | null> {
     lat: data.lat ?? null,
     lng: data.lng ?? null,
     status: data.status ?? "launch_live",
+    email: data.email ?? null,
   };
 }
 
@@ -208,6 +219,10 @@ export async function getProducts(): Promise<Product[]> {
     lat: p.lat ?? null,
     lng: p.lng ?? null,
     status: (p.status as ProductStatus) ?? "approved",
+    rejectionReason: p.rejection_reason ?? null,
+    archivedAt: p.archived_at ?? null,
+    allergens: p.allergens ?? [],
+    tags: p.tags ?? [],
   }));
 }
 
@@ -235,6 +250,8 @@ export async function getApprovedProducts(): Promise<Product[]> {
     lat: p.lat ?? null,
     lng: p.lng ?? null,
     status: "approved" as ProductStatus,
+    allergens: p.allergens ?? [],
+    tags: p.tags ?? [],
   }));
 }
 
@@ -260,6 +277,10 @@ export async function getProductsBySupplier(supplierId: string): Promise<Product
     lat: p.lat ?? null,
     lng: p.lng ?? null,
     status: (p.status as ProductStatus) ?? "approved",
+    rejectionReason: p.rejection_reason ?? null,
+    archivedAt: p.archived_at ?? null,
+    allergens: p.allergens ?? [],
+    tags: p.tags ?? [],
   }));
 }
 
@@ -285,13 +306,17 @@ export async function getProduct(id: string): Promise<Product | null> {
     lat: data.lat ?? null,
     lng: data.lng ?? null,
     status: (data.status as ProductStatus) ?? "approved",
+    rejectionReason: data.rejection_reason ?? null,
+    archivedAt: data.archived_at ?? null,
+    allergens: data.allergens ?? [],
+    tags: data.tags ?? [],
   };
 }
 
 export async function getOrders(userId?: string): Promise<Order[]> {
   let query = supabase
     .from("orders")
-    .select("*, order_items(*)")
+    .select("*, order_items(*, suppliers(name))")
     .order("created_at", { ascending: false });
   if (userId) query = query.eq("user_id", userId);
   const { data, error } = await query;
@@ -301,12 +326,13 @@ export async function getOrders(userId?: string): Promise<Order[]> {
     orderNumber: o.order_number,
     userId: o.user_id,
     customerEmail: o.customer_email ?? null,
-    items: (o.order_items as Array<{ product_id: string; product_name: string; quantity: number; price: number; supplier_id?: string; supplier_status?: string }>).map((item) => ({
+    items: (o.order_items as Array<{ product_id: string; product_name: string; quantity: number; price: number; supplier_id?: string; supplier_status?: string; suppliers?: { name: string } | null }>).map((item) => ({
       productId: item.product_id,
       productName: item.product_name,
       quantity: item.quantity,
       price: Number(item.price),
       supplierId: item.supplier_id ?? undefined,
+      supplierName: item.suppliers?.name ?? undefined,
       supplierStatus: (item.supplier_status as SupplierOrderStatus) ?? "order_placed",
     })),
     total: Number(o.total),
@@ -372,6 +398,8 @@ export async function createProduct(product: Omit<Product, "id" | "supplierName"
     lat: product.lat,
     lng: product.lng,
     status: product.status ?? "approved",
+    allergens: product.allergens ?? [],
+    tags: product.tags ?? [],
   });
   if (error) throw error;
 }
@@ -390,11 +418,24 @@ export async function updateProduct(product: Product): Promise<void> {
     lat: product.lat,
     lng: product.lng,
     status: product.status,
+    allergens: product.allergens ?? [],
+    tags: product.tags ?? [],
   }).eq("id", product.id);
   if (error) throw error;
 }
 
 export async function deleteProduct(id: string): Promise<void> {
+  // Soft delete - set archived_at timestamp
+  const { error } = await supabase.from("products").update({ archived_at: new Date().toISOString() }).eq("id", id);
+  if (error) throw error;
+}
+
+export async function restoreProduct(id: string): Promise<void> {
+  const { error } = await supabase.from("products").update({ archived_at: null }).eq("id", id);
+  if (error) throw error;
+}
+
+export async function permanentlyDeleteProduct(id: string): Promise<void> {
   const { error } = await supabase.from("products").delete().eq("id", id);
   if (error) throw error;
 }
@@ -410,7 +451,7 @@ export async function createSupplier(supplier: Omit<Supplier, "id">): Promise<Su
     lng: supplier.lng,
   }).select().single();
   if (error) throw error;
-  return { id: data.id, name: data.name, description: data.description, image: data.image, location: data.location, category: data.category, lat: data.lat ?? null, lng: data.lng ?? null, status: data.status ?? "launch_live" };
+  return { id: data.id, name: data.name, description: data.description, image: data.image, location: data.location, category: data.category, lat: data.lat ?? null, lng: data.lng ?? null, status: data.status ?? "launch_live", email: data.email ?? null };
 }
 
 export async function updateSupplier(supplier: Supplier): Promise<void> {
@@ -423,8 +464,31 @@ export async function updateSupplier(supplier: Supplier): Promise<void> {
     lat: supplier.lat,
     lng: supplier.lng,
     status: supplier.status,
+    email: supplier.email,
   }).eq("id", supplier.id);
   if (error) throw error;
+}
+
+export async function getSupplierByProductId(productId: string): Promise<Supplier | null> {
+  const { data, error } = await supabase
+    .from("products")
+    .select("supplier_id, suppliers(*)")
+    .eq("id", productId)
+    .single();
+  if (error || !data?.suppliers) return null;
+  const s = data.suppliers as unknown as { id: string; name: string; description: string; image: string; location: string; category: string; lat: number | null; lng: number | null; status: string; email: string | null };
+  return {
+    id: s.id,
+    name: s.name,
+    description: s.description,
+    image: s.image,
+    location: s.location,
+    category: s.category,
+    lat: s.lat ?? null,
+    lng: s.lng ?? null,
+    status: (s.status as SupplierStatus) ?? "launch_live",
+    email: s.email ?? null,
+  };
 }
 
 export async function deleteSupplier(id: string): Promise<void> {
@@ -566,8 +630,14 @@ export async function deleteSupplierUser(id: string): Promise<void> {
 
 // ─── Product status functions ───────────────────────────────────────────────
 
-export async function updateProductStatus(productId: string, status: ProductStatus): Promise<void> {
-  const { error } = await supabase.from("products").update({ status }).eq("id", productId);
+export async function updateProductStatus(productId: string, status: ProductStatus, rejectionReason?: string): Promise<void> {
+  const update: { status: ProductStatus; rejection_reason?: string | null } = { status };
+  if (status === "rejected" && rejectionReason) {
+    update.rejection_reason = rejectionReason;
+  } else if (status !== "rejected") {
+    update.rejection_reason = null; // Clear rejection reason when approving
+  }
+  const { error } = await supabase.from("products").update(update).eq("id", productId);
   if (error) throw error;
 }
 
@@ -645,33 +715,47 @@ export async function getFeedback(): Promise<{ id: string; name: string | null; 
 
 // ─── Ratings ──────────────────────────────────────────────────────────────────
 
-export async function submitRating(userId: string, productId: string, orderId: string, stars: number): Promise<void> {
+export async function submitRating(userId: string, productId: string, orderId: string, stars: number, comment?: string): Promise<void> {
   const { error } = await supabase
     .from("ratings")
-    .upsert({ user_id: userId, product_id: productId, order_id: orderId, stars }, { onConflict: "user_id,product_id,order_id" });
+    .upsert({ user_id: userId, product_id: productId, order_id: orderId, stars, comment: comment || null }, { onConflict: "user_id,product_id,order_id" });
   if (error) throw error;
 }
 
-export async function getRatingsByOrder(userId: string, orderId: string): Promise<Record<string, number>> {
+export async function submitOrderRatings(userId: string, orderId: string, ratings: Array<{ productId: string; stars: number; comment?: string }>): Promise<void> {
+  const records = ratings.map((r) => ({
+    user_id: userId,
+    product_id: r.productId,
+    order_id: orderId,
+    stars: r.stars,
+    comment: r.comment || null,
+  }));
+  const { error } = await supabase
+    .from("ratings")
+    .upsert(records, { onConflict: "user_id,product_id,order_id" });
+  if (error) throw error;
+}
+
+export async function getRatingsByOrder(userId: string, orderId: string): Promise<Record<string, { stars: number; comment?: string }>> {
   const { data, error } = await supabase
     .from("ratings")
-    .select("product_id, stars")
+    .select("product_id, stars, comment")
     .eq("user_id", userId)
     .eq("order_id", orderId);
   if (error) throw error;
-  const map: Record<string, number> = {};
-  for (const r of data ?? []) map[r.product_id] = r.stars;
+  const map: Record<string, { stars: number; comment?: string }> = {};
+  for (const r of data ?? []) map[r.product_id] = { stars: r.stars, comment: r.comment ?? undefined };
   return map;
 }
 
-export async function getProductRatings(productId: string): Promise<Array<{ stars: number; createdAt: string }>> {
+export async function getProductRatings(productId: string): Promise<Array<{ stars: number; comment?: string; createdAt: string }>> {
   const { data, error } = await supabase
     .from("ratings")
-    .select("stars, created_at")
+    .select("stars, comment, created_at")
     .eq("product_id", productId)
     .order("created_at", { ascending: false });
   if (error) throw error;
-  return (data ?? []).map((r) => ({ stars: r.stars, createdAt: r.created_at }));
+  return (data ?? []).map((r) => ({ stars: r.stars, comment: r.comment ?? undefined, createdAt: r.created_at }));
 }
 
 // ─── Customer Profiles ──────────────────────────────────────────────────────

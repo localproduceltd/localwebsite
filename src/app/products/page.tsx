@@ -7,7 +7,7 @@ import { useCart } from "@/lib/cart-context";
 import { LOCALITY_OPTIONS, getAverageRatings, getProductRatings } from "@/lib/data";
 import type { Locality, Product } from "@/lib/data";
 import { LOCALITY_COLORS } from "@/lib/locality";
-import { PRODUCT_CATEGORIES } from "@/lib/categories";
+import { PRODUCT_CATEGORIES, PRODUCT_TAGS, ALLERGENS } from "@/lib/categories";
 import { PRE_LAUNCH } from "@/lib/pre-launch";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@clerk/nextjs";
@@ -16,11 +16,12 @@ export default function ProductsPage() {
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("All");
   const [selectedLocalities, setSelectedLocalities] = useState<Set<Locality>>(new Set());
+  const [selectedTags, setSelectedTags] = useState<Set<string>>(new Set());
   const { addItem, updateQuantity, items, products } = useCart();
   const [justAdded, setJustAdded] = useState<string | null>(null);
   const [avgRatings, setAvgRatings] = useState<Record<string, { avg: number; count: number }>>({});
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
-  const [productReviews, setProductReviews] = useState<Array<{ stars: number; createdAt: string }>>([]);
+  const [productReviews, setProductReviews] = useState<Array<{ stars: number; comment?: string; createdAt: string }>>([]);
   const [showAllReviews, setShowAllReviews] = useState(false);
   const [email, setEmail] = useState("");
   const [emailSubmitted, setEmailSubmitted] = useState(false);
@@ -75,7 +76,8 @@ export default function ProductsPage() {
       p.description.toLowerCase().includes(search.toLowerCase());
     const matchesCategory = category === "All" || p.category === category;
     const matchesLocality = selectedLocalities.size === 0 || selectedLocalities.has(p.locality);
-    return matchesSearch && matchesCategory && matchesLocality;
+    const matchesTags = selectedTags.size === 0 || Array.from(selectedTags).every((tag) => p.tags?.includes(tag));
+    return matchesSearch && matchesCategory && matchesLocality && matchesTags;
   }).sort((a, b) => (localityOrder[a.locality] ?? 9) - (localityOrder[b.locality] ?? 9));
 
   return (
@@ -224,6 +226,33 @@ export default function ProductsPage() {
             );
           })}
         </div>
+
+        {/* Tags Filter */}
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs font-semibold text-muted uppercase tracking-wide mr-1">Dietary:</span>
+          {PRODUCT_TAGS.map((tag) => {
+            const isActive = selectedTags.has(tag.id);
+            return (
+              <button
+                key={tag.id}
+                onClick={() => {
+                  const newSet = new Set(selectedTags);
+                  if (isActive) {
+                    newSet.delete(tag.id);
+                  } else {
+                    newSet.add(tag.id);
+                  }
+                  setSelectedTags(newSet);
+                }}
+                className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
+                  isActive ? tag.color : "bg-gray-100 text-gray-500 hover:bg-gray-200"
+                }`}
+              >
+                {tag.label}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {filtered.length === 0 ? (
@@ -297,6 +326,20 @@ export default function ProductsPage() {
                   >
                     {product.description}
                   </p>
+                  {/* Tags on card */}
+                  {product.tags && product.tags.length > 0 && (
+                    <div className="mt-1.5 flex flex-wrap gap-1">
+                      {product.tags.slice(0, 3).map((tagId) => {
+                        const tag = PRODUCT_TAGS.find((t) => t.id === tagId);
+                        if (!tag) return null;
+                        return (
+                          <span key={tagId} className={`rounded-full px-1.5 py-0.5 text-[9px] font-semibold ${tag.color}`}>
+                            {tag.label}
+                          </span>
+                        );
+                      })}
+                    </div>
+                  )}
                   <div className="mt-1.5 flex items-center justify-between sm:mt-2">
                     <span className="text-sm font-bold text-primary sm:text-lg">£{product.price.toFixed(2)}</span>
                     <span className="text-[10px] text-muted sm:text-xs">{product.unit}</span>
@@ -406,6 +449,39 @@ export default function ProductsPage() {
               <p className="text-sm font-medium text-secondary">{selectedProduct.supplierName}</p>
               <h2 className="mt-1 text-2xl font-bold text-primary">{selectedProduct.name}</h2>
               <p className="mt-2 text-sm text-muted leading-relaxed">{selectedProduct.description}</p>
+
+              {/* Tags */}
+              {selectedProduct.tags && selectedProduct.tags.length > 0 && (
+                <div className="mt-3 flex flex-wrap gap-1.5">
+                  {selectedProduct.tags.map((tagId) => {
+                    const tag = PRODUCT_TAGS.find((t) => t.id === tagId);
+                    if (!tag) return null;
+                    return (
+                      <span key={tagId} className={`rounded-full px-2.5 py-1 text-xs font-semibold ${tag.color}`}>
+                        {tag.label}
+                      </span>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Allergens */}
+              {selectedProduct.allergens && selectedProduct.allergens.length > 0 && (
+                <div className="mt-4 rounded-lg bg-amber-50 border border-amber-200 p-3">
+                  <p className="text-xs font-semibold text-amber-800 mb-1.5">⚠️ Contains allergens:</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {selectedProduct.allergens.map((allergenId) => {
+                      const allergen = ALLERGENS.find((a) => a.id === allergenId);
+                      if (!allergen) return null;
+                      return (
+                        <span key={allergenId} className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">
+                          {allergen.label}
+                        </span>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
               
               <div className="mt-4 flex items-center justify-between border-t border-primary/10 pt-4">
                 <div>
@@ -505,6 +581,9 @@ export default function ProductsPage() {
                             {new Date(review.createdAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
                           </span>
                         </div>
+                        {review.comment && (
+                          <p className="mt-2 text-sm text-primary/80 italic">"{review.comment}"</p>
+                        )}
                       </div>
                     ))}
                   </div>

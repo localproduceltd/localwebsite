@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
-import { type Order, type SupplierOrderStatus, getOrders, updateOrderStatus } from "@/lib/data";
+import { useState, useEffect, useMemo, useCallback } from "react";
+import { type Order, type OrderItem, type SupplierOrderStatus, getOrders, updateOrderStatus } from "@/lib/data";
 import { Package, Clock, CheckCircle, XCircle, Calendar, ChevronDown, ChevronRight, ChefHat, Warehouse, Truck } from "lucide-react";
 
 const statusConfig = {
@@ -36,9 +36,36 @@ function isUpcoming(dateStr: string) {
   return d >= today;
 }
 
+// Helper to group items by supplier
+function groupItemsBySupplier(items: OrderItem[]): Array<{ supplierId: string; supplierName: string; items: OrderItem[]; status: SupplierOrderStatus }> {
+  const groups = new Map<string, { supplierName: string; items: OrderItem[]; status: SupplierOrderStatus }>();
+  for (const item of items) {
+    const supplierId = item.supplierId || "unknown";
+    if (!groups.has(supplierId)) {
+      const supplierName = item.supplierName || (supplierId === "unknown" ? "Unknown Supplier" : "Supplier");
+      groups.set(supplierId, { supplierName, items: [], status: item.supplierStatus || "order_placed" });
+    }
+    groups.get(supplierId)!.items.push(item);
+  }
+  // Sort by supplier name
+  return Array.from(groups.entries())
+    .map(([supplierId, data]) => ({ supplierId, ...data }))
+    .sort((a, b) => a.supplierName.localeCompare(b.supplierName));
+}
+
 export default function AdminOrdersPage() {
   const [orderList, setOrderList] = useState<Order[]>([]);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const [expandedSuppliers, setExpandedSuppliers] = useState<Set<string>>(new Set());
+
+  const toggleSupplierExpand = useCallback((key: string) => {
+    setExpandedSuppliers((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
 
   useEffect(() => {
     getOrders().then(setOrderList).catch(console.error);
@@ -138,37 +165,64 @@ export default function AdminOrdersPage() {
                         </span>
                       </div>
 
-                      <div className="px-6 py-4">
-                        <table className="w-full text-sm">
-                          <thead>
-                            <tr className="text-left text-xs text-muted">
-                              <th className="pb-2 font-medium">Item</th>
-                              <th className="pb-2 font-medium text-center">Qty</th>
-                              <th className="pb-2 font-medium text-right">Price</th>
-                              <th className="pb-2 font-medium text-right">Subtotal</th>
-                            <th className="pb-2 font-medium text-center">Supplier Status</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {order.items.map((item, i) => (
-                              <tr key={i} className="border-t border-primary/5">
-                                <td className="py-2 text-primary">{item.productName}</td>
-                                <td className="py-2 text-center text-muted">{item.quantity}</td>
-                                <td className="py-2 text-right text-muted">£{item.price.toFixed(2)}</td>
-                                <td className="py-2 text-right font-medium text-primary">
-                                  £{(item.quantity * item.price).toFixed(2)}
-                                </td>
-                                <td className="py-2 text-center">
-                                  {item.supplierStatus && (
-                                    <span className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold ${supplierStatusConfig[item.supplierStatus]?.color || "text-muted bg-muted/10"}`}>
-                                      {supplierStatusConfig[item.supplierStatus]?.label || item.supplierStatus}
-                                    </span>
+                      <div className="px-6 py-4 space-y-2">
+                        {groupItemsBySupplier(order.items).map((supplierGroup) => {
+                          const supplierKey = `${order.id}-${supplierGroup.supplierId}`;
+                          const isExpanded = expandedSuppliers.has(supplierKey);
+                          const supplierTotal = supplierGroup.items.reduce((sum, item) => sum + item.quantity * item.price, 0);
+                          const statusCfg = supplierStatusConfig[supplierGroup.status] || supplierStatusConfig.order_placed;
+                          
+                          return (
+                            <div key={supplierGroup.supplierId} className="rounded-lg border border-primary/10 overflow-hidden">
+                              {/* Supplier header */}
+                              <button
+                                onClick={() => toggleSupplierExpand(supplierKey)}
+                                className="flex w-full items-center justify-between bg-primary/5 px-4 py-2.5 text-left hover:bg-primary/10 transition"
+                              >
+                                <div className="flex items-center gap-3">
+                                  {isExpanded ? (
+                                    <ChevronDown size={16} className="text-muted" />
+                                  ) : (
+                                    <ChevronRight size={16} className="text-muted" />
                                   )}
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
+                                  <span className="font-medium text-primary">{supplierGroup.supplierName}</span>
+                                  <span className="text-xs text-muted">
+                                    {supplierGroup.items.length} item{supplierGroup.items.length !== 1 ? "s" : ""} · £{supplierTotal.toFixed(2)}
+                                  </span>
+                                </div>
+                                <span className={`inline-block rounded-full px-2.5 py-0.5 text-[10px] font-semibold ${statusCfg.color}`}>
+                                  {statusCfg.label}
+                                </span>
+                              </button>
+
+                              {/* Items table - shown when expanded */}
+                              {isExpanded && (
+                                <table className="w-full text-sm">
+                                  <thead>
+                                    <tr className="text-left text-xs text-muted border-t border-primary/5">
+                                      <th className="px-4 py-2 font-medium">Item</th>
+                                      <th className="px-4 py-2 font-medium text-center">Qty</th>
+                                      <th className="px-4 py-2 font-medium text-right">Price</th>
+                                      <th className="px-4 py-2 font-medium text-right">Subtotal</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {supplierGroup.items.map((item, i) => (
+                                      <tr key={i} className="border-t border-primary/5">
+                                        <td className="px-4 py-2 text-primary">{item.productName}</td>
+                                        <td className="px-4 py-2 text-center text-muted">{item.quantity}</td>
+                                        <td className="px-4 py-2 text-right text-muted">£{item.price.toFixed(2)}</td>
+                                        <td className="px-4 py-2 text-right font-medium text-primary">
+                                          £{(item.quantity * item.price).toFixed(2)}
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              )}
+                            </div>
+                          );
+                        })}
                       </div>
 
                       <div className="flex flex-wrap items-center justify-between gap-4 border-t border-primary/5 bg-secondary/5 px-6 py-3">
