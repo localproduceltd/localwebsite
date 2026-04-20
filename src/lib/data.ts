@@ -62,6 +62,8 @@ export interface OrderItem {
   supplierStatus?: SupplierOrderStatus;
 }
 
+export type DeliveryWindow = "morning" | "afternoon";
+
 export interface Order {
   id: string;
   orderNumber: number;
@@ -72,6 +74,10 @@ export interface Order {
   status: "pending" | "confirmed" | "delivered" | "cancelled";
   createdAt: string;
   deliveryDay: string;
+  deliveryWindow: DeliveryWindow | null;
+  willBeIn: boolean;
+  safePlace: string | null;
+  boxDepositPaid: boolean;
 }
 
 export interface DeliveryDay {
@@ -339,6 +345,10 @@ export async function getOrders(userId?: string): Promise<Order[]> {
     status: o.status as Order["status"],
     createdAt: new Date(o.created_at).toISOString().split("T")[0],
     deliveryDay: o.delivery_day,
+    deliveryWindow: o.delivery_window as DeliveryWindow | null,
+    willBeIn: o.will_be_in ?? true,
+    safePlace: o.safe_place ?? null,
+    boxDepositPaid: o.box_deposit_paid ?? false,
   }));
 }
 
@@ -551,16 +561,38 @@ export async function deleteDeliveryDay(id: string): Promise<void> {
   if (error) throw error;
 }
 
-export async function createOrder(userId: string, customerEmail: string, total: number, deliveryDay: string, items: OrderItem[]): Promise<Order> {
+export interface CreateOrderOptions {
+  userId: string;
+  customerEmail: string;
+  total: number;
+  deliveryDay: string;
+  items: OrderItem[];
+  deliveryWindow: DeliveryWindow;
+  willBeIn: boolean;
+  safePlace?: string;
+  boxDepositPaid: boolean;
+}
+
+export async function createOrder(options: CreateOrderOptions): Promise<Order> {
   const { data: order, error } = await supabase
     .from("orders")
-    .insert({ user_id: userId, customer_email: customerEmail, total, status: "pending", delivery_day: deliveryDay })
+    .insert({
+      user_id: options.userId,
+      customer_email: options.customerEmail,
+      total: options.total,
+      status: "pending",
+      delivery_day: options.deliveryDay,
+      delivery_window: options.deliveryWindow,
+      will_be_in: options.willBeIn,
+      safe_place: options.safePlace ?? null,
+      box_deposit_paid: options.boxDepositPaid,
+    })
     .select()
     .single();
   if (error || !order) throw error ?? new Error("Failed to create order");
 
   const { error: itemsError } = await supabase.from("order_items").insert(
-    items.map((item) => ({
+    options.items.map((item) => ({
       order_id: order.id,
       product_id: item.productId,
       product_name: item.productName,
@@ -577,11 +609,15 @@ export async function createOrder(userId: string, customerEmail: string, total: 
     orderNumber: order.order_number,
     userId: order.user_id,
     customerEmail: order.customer_email ?? null,
-    items,
+    items: options.items,
     total: Number(order.total),
     status: order.status as Order["status"],
     createdAt: new Date(order.created_at).toISOString().split("T")[0],
     deliveryDay: order.delivery_day,
+    deliveryWindow: order.delivery_window as DeliveryWindow,
+    willBeIn: order.will_be_in ?? true,
+    safePlace: order.safe_place ?? null,
+    boxDepositPaid: order.box_deposit_paid ?? false,
   };
 }
 
@@ -846,6 +882,7 @@ export interface CustomerProfile {
   postcode: string | null;
   lat: number | null;
   lng: number | null;
+  hasOutstandingBox: boolean;
 }
 
 export async function getCustomerProfile(clerkUserId: string): Promise<CustomerProfile | null> {
@@ -864,6 +901,7 @@ export async function getCustomerProfile(clerkUserId: string): Promise<CustomerP
     postcode: data.postcode ?? null,
     lat: data.lat ?? null,
     lng: data.lng ?? null,
+    hasOutstandingBox: data.has_outstanding_box ?? false,
   };
 }
 
@@ -907,6 +945,42 @@ export async function clearCustomerAddress(clerkUserId: string): Promise<void> {
       },
       { onConflict: "clerk_user_id" }
     );
+  if (error) throw error;
+}
+
+export async function setCustomerOutstandingBox(clerkUserId: string, hasBox: boolean): Promise<void> {
+  const { error } = await supabase
+    .from("customer_profiles")
+    .upsert(
+      {
+        clerk_user_id: clerkUserId,
+        has_outstanding_box: hasBox,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "clerk_user_id" }
+    );
+  if (error) throw error;
+}
+
+export async function toggleBoxReturned(orderId: string, returned: boolean): Promise<void> {
+  // Get the order to find the user
+  const { data: order, error: orderError } = await supabase
+    .from("orders")
+    .select("user_id, box_deposit_paid")
+    .eq("id", orderId)
+    .single();
+  
+  if (orderError || !order) throw orderError ?? new Error("Order not found");
+  if (!order.box_deposit_paid) return; // No deposit to track
+  
+  // Toggle customer's outstanding box status
+  // returned = true means box is back, so hasOutstandingBox = false
+  // returned = false means box is still out, so hasOutstandingBox = true
+  const { error } = await supabase
+    .from("customer_profiles")
+    .update({ has_outstanding_box: !returned, updated_at: new Date().toISOString() })
+    .eq("clerk_user_id", order.user_id);
+  
   if (error) throw error;
 }
 

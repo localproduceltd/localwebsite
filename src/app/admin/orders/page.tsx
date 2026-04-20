@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useEffect, useMemo, useCallback } from "react";
-import { type Order, type OrderItem, type SupplierOrderStatus, getOrders, updateOrderStatus } from "@/lib/data";
-import { Package, Clock, CheckCircle, XCircle, Calendar, ChevronDown, ChevronRight, ChefHat, Warehouse, Truck } from "lucide-react";
+import { type Order, type OrderItem, type SupplierOrderStatus, getOrders, updateOrderStatus, toggleBoxReturned } from "@/lib/data";
+import { Package, Clock, CheckCircle, XCircle, Calendar, ChevronDown, ChevronRight, ChefHat, Warehouse, Truck, Home, MapPin } from "lucide-react";
 
 const statusConfig = {
   pending: { label: "Pending", icon: Clock, color: "text-amber-600 bg-amber-50" },
@@ -57,6 +57,7 @@ export default function AdminOrdersPage() {
   const [orderList, setOrderList] = useState<Order[]>([]);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [expandedSuppliers, setExpandedSuppliers] = useState<Set<string>>(new Set());
+  const [boxReturned, setBoxReturned] = useState<Set<string>>(new Set());
 
   const toggleSupplierExpand = useCallback((key: string) => {
     setExpandedSuppliers((prev) => {
@@ -179,6 +180,30 @@ export default function AdminOrdersPage() {
                         <div>
                           <p className="text-sm font-semibold text-primary">Order #{order.orderNumber}</p>
                           <p className="text-xs text-muted">{order.customerEmail || `User: ${order.userId.slice(0, 12)}...`} &middot; {order.createdAt}</p>
+                          <div className="flex flex-wrap items-center gap-3 mt-1">
+                            {order.deliveryWindow && (
+                              <span className="inline-flex items-center gap-1 text-xs text-muted">
+                                <Clock size={12} />
+                                {order.deliveryWindow === "morning" ? "9am–1pm" : "1pm–5pm"}
+                              </span>
+                            )}
+                            <span className="inline-flex items-center gap-1 text-xs text-muted">
+                              <Home size={12} />
+                              {order.willBeIn ? "Customer in" : "Leave safe"}
+                            </span>
+                            {!order.willBeIn && order.safePlace && (
+                              <span className="inline-flex items-center gap-1 text-xs text-secondary" title={order.safePlace}>
+                                <MapPin size={12} />
+                                {order.safePlace.length > 30 ? order.safePlace.slice(0, 30) + "..." : order.safePlace}
+                              </span>
+                            )}
+                            {order.boxDepositPaid && (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
+                                <Package size={10} />
+                                Box deposit
+                              </span>
+                            )}
+                          </div>
                         </div>
                         <span className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-semibold ${status.color}`}>
                           <StatusIcon size={12} />
@@ -247,19 +272,52 @@ export default function AdminOrdersPage() {
                       </div>
 
                       <div className="flex flex-wrap items-center justify-between gap-4 border-t border-primary/5 bg-secondary/5 px-6 py-3">
-                        <div className="flex items-center gap-2">
-                          <label className="text-xs font-medium text-muted">Update status:</label>
-                          <select
-                            value={order.status}
-                            onChange={(e) => updateStatus(order.id, e.target.value as Order["status"])}
-                            className="rounded-lg border border-primary/20 bg-surface px-2 py-1 text-sm outline-none focus:border-secondary"
-                          >
-                            {statusOptions.map((s) => (
-                              <option key={s} value={s}>
-                                {s.charAt(0).toUpperCase() + s.slice(1)}
-                              </option>
-                            ))}
-                          </select>
+                        <div className="flex items-center gap-4">
+                          <div className="flex items-center gap-2">
+                            <label className="text-xs font-medium text-muted">Update status:</label>
+                            <select
+                              value={order.status}
+                              onChange={(e) => updateStatus(order.id, e.target.value as Order["status"])}
+                              className="rounded-lg border border-primary/20 bg-surface px-2 py-1 text-sm outline-none focus:border-secondary"
+                            >
+                              {statusOptions.map((s) => (
+                                <option key={s} value={s}>
+                                  {s.charAt(0).toUpperCase() + s.slice(1)}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          {order.boxDepositPaid && order.status === "delivered" && (
+                            <button
+                              onClick={async () => {
+                                const isReturned = boxReturned.has(order.id);
+                                await toggleBoxReturned(order.id, !isReturned);
+                                setBoxReturned((prev) => {
+                                  const next = new Set(prev);
+                                  if (isReturned) next.delete(order.id);
+                                  else next.add(order.id);
+                                  return next;
+                                });
+                              }}
+                              className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+                                boxReturned.has(order.id)
+                                  ? "bg-green-600 text-white hover:bg-green-700"
+                                  : "bg-green-100 text-green-700 hover:bg-green-200"
+                              }`}
+                            >
+                              {boxReturned.has(order.id) ? (
+                                <>
+                                  <CheckCircle size={12} />
+                                  Box Returned ✓
+                                </>
+                              ) : (
+                                <>
+                                  <Package size={12} />
+                                  Mark Box Returned
+                                </>
+                              )}
+                            </button>
+                          )}
                         </div>
                         <p className="text-sm font-bold text-primary">
                           Total: £{order.total.toFixed(2)}
