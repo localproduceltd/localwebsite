@@ -184,6 +184,7 @@ export default function AccountPage() {
         postcode: result.postcode,
         lat: result.lat,
         lng: result.lng,
+        hasOutstandingBox: profile?.hasOutstandingBox ?? false,
       });
       setEditingAddress(false);
     } catch {

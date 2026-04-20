@@ -464,6 +464,7 @@ function SupplierProductForm({
       locality: "Local" as Locality,
       lat: null,
       lng: null,
+      variableLocation: false,
       status: "pending" as ProductStatus,
       allergens: [],
       tags: [],
@@ -556,15 +557,44 @@ function SupplierProductForm({
             </p>
           </div>
           <div>
-            <label className="block text-xs font-medium text-muted mb-1">Location (optional)</label>
-            <button
-              type="button"
-              onClick={() => setShowMapPicker(true)}
-              className="inline-flex items-center gap-2 rounded-lg border border-primary/20 bg-surface px-3 py-2 text-sm font-medium text-primary transition hover:bg-secondary/10"
-            >
-              <MapPin size={16} />
-              {form.lat && form.lng ? `${form.lat.toFixed(4)}, ${form.lng.toFixed(4)}` : "Set location on map"}
-            </button>
+            <label className="block text-xs font-medium text-muted mb-1">Product Location</label>
+            <div className="flex gap-3 mb-2">
+              <button
+                type="button"
+                onClick={() => setForm({ ...form, variableLocation: false })}
+                className={`flex-1 rounded-lg border-2 px-3 py-2 text-sm font-semibold transition ${
+                  !form.variableLocation
+                    ? "border-secondary bg-secondary/10 text-secondary"
+                    : "border-primary/20 bg-surface text-muted hover:border-primary/40"
+                }`}
+              >
+                Fixed Location
+              </button>
+              <button
+                type="button"
+                onClick={() => setForm({ ...form, variableLocation: true, lat: null, lng: null })}
+                className={`flex-1 rounded-lg border-2 px-3 py-2 text-sm font-semibold transition ${
+                  form.variableLocation
+                    ? "border-secondary bg-secondary/10 text-secondary"
+                    : "border-primary/20 bg-surface text-muted hover:border-primary/40"
+                }`}
+              >
+                Variable Location
+              </button>
+            </div>
+            {!form.variableLocation && (
+              <button
+                type="button"
+                onClick={() => setShowMapPicker(true)}
+                className="inline-flex items-center gap-2 rounded-lg border border-primary/20 bg-surface px-3 py-2 text-sm font-medium text-primary transition hover:bg-secondary/10"
+              >
+                <MapPin size={16} />
+                {form.lat && form.lng ? `${form.lat.toFixed(4)}, ${form.lng.toFixed(4)}` : "Set location on map"}
+              </button>
+            )}
+            {form.variableLocation && (
+              <p className="text-xs text-muted italic">This product&apos;s origin varies (e.g. sourced from different farms)</p>
+            )}
           </div>
           <div>
             <label className="block text-sm font-medium text-primary mb-2">Stock Status</label>
@@ -657,11 +687,15 @@ function SupplierProductForm({
           </button>
           <button
             onClick={() => onSave(form)}
-            className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary/90"
+            disabled={!form.variableLocation && (!form.lat || !form.lng)}
+            className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {product ? "Save & Submit for Approval" : "Add Product"}
           </button>
         </div>
+        {!form.variableLocation && (!form.lat || !form.lng) && (
+          <p className="mt-2 text-xs text-red-500 text-right">Please set a location on the map or select Variable Location</p>
+        )}
       </div>
     </div>
     {showMapPicker && (

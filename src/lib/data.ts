@@ -43,6 +43,7 @@ export interface Product {
   locality: Locality;
   lat: number | null;
   lng: number | null;
+  variableLocation: boolean;
   status: ProductStatus;
   rejectionReason?: string | null;
   archivedAt?: string | null;
@@ -224,6 +225,7 @@ export async function getProducts(): Promise<Product[]> {
     locality: (p.locality as Locality) ?? "Local",
     lat: p.lat ?? null,
     lng: p.lng ?? null,
+    variableLocation: p.variable_location ?? false,
     status: (p.status as ProductStatus) ?? "approved",
     rejectionReason: p.rejection_reason ?? null,
     archivedAt: p.archived_at ?? null,
@@ -255,6 +257,7 @@ export async function getApprovedProducts(): Promise<Product[]> {
     locality: (p.locality as Locality) ?? "Local",
     lat: p.lat ?? null,
     lng: p.lng ?? null,
+    variableLocation: p.variable_location ?? false,
     status: "approved" as ProductStatus,
     allergens: p.allergens ?? [],
     tags: p.tags ?? [],
@@ -282,6 +285,7 @@ export async function getProductsBySupplier(supplierId: string): Promise<Product
     locality: (p.locality as Locality) ?? "Local",
     lat: p.lat ?? null,
     lng: p.lng ?? null,
+    variableLocation: p.variable_location ?? false,
     status: (p.status as ProductStatus) ?? "approved",
     rejectionReason: p.rejection_reason ?? null,
     archivedAt: p.archived_at ?? null,
@@ -311,6 +315,7 @@ export async function getProduct(id: string): Promise<Product | null> {
     locality: (data.locality as Locality) ?? "Local",
     lat: data.lat ?? null,
     lng: data.lng ?? null,
+    variableLocation: data.variable_location ?? false,
     status: (data.status as ProductStatus) ?? "approved",
     rejectionReason: data.rejection_reason ?? null,
     archivedAt: data.archived_at ?? null,
@@ -407,6 +412,7 @@ export async function createProduct(product: Omit<Product, "id" | "supplierName"
     locality: product.locality,
     lat: product.lat,
     lng: product.lng,
+    variable_location: product.variableLocation,
     status: product.status ?? "approved",
     allergens: product.allergens ?? [],
     tags: product.tags ?? [],
@@ -427,6 +433,7 @@ export async function updateProduct(product: Product): Promise<void> {
     locality: product.locality,
     lat: product.lat,
     lng: product.lng,
+    variable_location: product.variableLocation,
     status: product.status,
     allergens: product.allergens ?? [],
     tags: product.tags ?? [],

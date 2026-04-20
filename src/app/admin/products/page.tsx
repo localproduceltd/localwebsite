@@ -497,6 +497,7 @@ function ProductForm({
       locality: "Local" as Locality,
       lat: null,
       lng: null,
+      variableLocation: false,
       status: "approved" as ProductStatus,
       allergens: [],
       tags: [],
@@ -590,39 +591,71 @@ function ProductForm({
             ))}
           </select>
           <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <label className="block text-xs font-medium text-muted">Location (optional)</label>
+            <label className="block text-xs font-medium text-muted">Product Location</label>
+            <div className="flex gap-3 mb-2">
               <button
                 type="button"
-                onClick={() => setShowMapPicker(true)}
-                className="inline-flex items-center gap-1 text-xs font-medium text-secondary hover:underline"
+                onClick={() => setForm({ ...form, variableLocation: false })}
+                className={`flex-1 rounded-lg border-2 px-3 py-2 text-sm font-semibold transition ${
+                  !form.variableLocation
+                    ? "border-secondary bg-secondary/10 text-secondary"
+                    : "border-primary/20 bg-surface text-muted hover:border-primary/40"
+                }`}
               >
-                <MapPin size={12} />
-                Pick on map
+                Fixed Location
+              </button>
+              <button
+                type="button"
+                onClick={() => setForm({ ...form, variableLocation: true, lat: null, lng: null })}
+                className={`flex-1 rounded-lg border-2 px-3 py-2 text-sm font-semibold transition ${
+                  form.variableLocation
+                    ? "border-secondary bg-secondary/10 text-secondary"
+                    : "border-primary/20 bg-surface text-muted hover:border-primary/40"
+                }`}
+              >
+                Variable Location
               </button>
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-[10px] text-muted mb-1">Latitude</label>
-                <input
-                  type="number"
-                  step="any"
-                  value={form.lat ?? ""}
-                  onChange={(e) => setForm({ ...form, lat: e.target.value ? parseFloat(e.target.value) : null })}
-                  className="w-full rounded-lg border border-primary/20 bg-surface px-3 py-2 text-sm outline-none focus:border-secondary"
-                />
-              </div>
-              <div>
-                <label className="block text-[10px] text-muted mb-1">Longitude</label>
-                <input
-                  type="number"
-                  step="any"
-                  value={form.lng ?? ""}
-                  onChange={(e) => setForm({ ...form, lng: e.target.value ? parseFloat(e.target.value) : null })}
-                  className="w-full rounded-lg border border-primary/20 bg-surface px-3 py-2 text-sm outline-none focus:border-secondary"
-                />
-              </div>
-            </div>
+            {!form.variableLocation && (
+              <>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-muted">Set coordinates</span>
+                  <button
+                    type="button"
+                    onClick={() => setShowMapPicker(true)}
+                    className="inline-flex items-center gap-1 text-xs font-medium text-secondary hover:underline"
+                  >
+                    <MapPin size={12} />
+                    Pick on map
+                  </button>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[10px] text-muted mb-1">Latitude</label>
+                    <input
+                      type="number"
+                      step="any"
+                      value={form.lat ?? ""}
+                      onChange={(e) => setForm({ ...form, lat: e.target.value ? parseFloat(e.target.value) : null })}
+                      className="w-full rounded-lg border border-primary/20 bg-surface px-3 py-2 text-sm outline-none focus:border-secondary"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] text-muted mb-1">Longitude</label>
+                    <input
+                      type="number"
+                      step="any"
+                      value={form.lng ?? ""}
+                      onChange={(e) => setForm({ ...form, lng: e.target.value ? parseFloat(e.target.value) : null })}
+                      className="w-full rounded-lg border border-primary/20 bg-surface px-3 py-2 text-sm outline-none focus:border-secondary"
+                    />
+                  </div>
+                </div>
+              </>
+            )}
+            {form.variableLocation && (
+              <p className="text-xs text-muted italic">This product&apos;s origin varies</p>
+            )}
           </div>
           {showMapPicker && (
             <MapPicker
@@ -705,11 +738,15 @@ function ProductForm({
           </button>
           <button
             onClick={() => onSave(form)}
-            className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-background hover:bg-secondary"
+            disabled={!form.variableLocation && (!form.lat || !form.lng)}
+            className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-background hover:bg-secondary disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {product ? "Save Changes" : "Add Product"}
           </button>
         </div>
+        {!form.variableLocation && (!form.lat || !form.lng) && (
+          <p className="mt-2 text-xs text-red-500 text-right">Please set a location or select Variable Location</p>
+        )}
       </div>
     </div>
   );
