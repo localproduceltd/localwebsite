@@ -585,6 +585,83 @@ export async function createOrder(userId: string, customerEmail: string, total: 
   };
 }
 
+export async function canModifyOrder(orderId: string): Promise<boolean> {
+  // Get the order's delivery day
+  const { data: order, error: orderError } = await supabase
+    .from("orders")
+    .select("delivery_day, status")
+    .eq("id", orderId)
+    .single();
+  
+  if (orderError || !order) return false;
+  
+  // Can't modify if already delivered or cancelled
+  if (order.status === "delivered" || order.status === "cancelled") return false;
+  
+  // Get the cutoff for this delivery day
+  const { data: deliveryDay, error: ddError } = await supabase
+    .from("delivery_days")
+    .select("cutoff_date, cutoff_time")
+    .eq("delivery_date", order.delivery_day)
+    .single();
+  
+  if (ddError || !deliveryDay) return false;
+  
+  // Check if we're before the cutoff
+  const now = new Date();
+  const today = now.toISOString().split("T")[0];
+  const currentTime = now.toTimeString().slice(0, 5);
+  
+  if (deliveryDay.cutoff_date > today) return true;
+  if (deliveryDay.cutoff_date === today && deliveryDay.cutoff_time > currentTime) return true;
+  
+  return false;
+}
+
+export async function cancelOrder(orderId: string): Promise<void> {
+  const canModify = await canModifyOrder(orderId);
+  if (!canModify) throw new Error("Order cannot be cancelled after cutoff");
+  
+  const { error } = await supabase
+    .from("orders")
+    .update({ status: "cancelled" })
+    .eq("id", orderId);
+  
+  if (error) throw error;
+}
+
+export async function updateOrderItems(orderId: string, items: OrderItem[]): Promise<void> {
+  const canModify = await canModifyOrder(orderId);
+  if (!canModify) throw new Error("Order cannot be modified after cutoff");
+  
+  // Delete existing items
+  await supabase.from("order_items").delete().eq("order_id", orderId);
+  
+  // Insert new items
+  if (items.length > 0) {
+    const { error: itemsError } = await supabase.from("order_items").insert(
+      items.map((item) => ({
+        order_id: orderId,
+        product_id: item.productId,
+        product_name: item.productName,
+        quantity: item.quantity,
+        price: item.price,
+        supplier_id: item.supplierId,
+      }))
+    );
+    if (itemsError) throw itemsError;
+  }
+  
+  // Update order total
+  const newTotal = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
+  const { error: totalError } = await supabase
+    .from("orders")
+    .update({ total: newTotal })
+    .eq("id", orderId);
+  
+  if (totalError) throw totalError;
+}
+
 // ─── Supplier User functions ────────────────────────────────────────────────
 
 export async function getSupplierUser(clerkUserId: string): Promise<SupplierUser | null> {

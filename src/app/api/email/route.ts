@@ -4,6 +4,7 @@ import {
   sendProductApproved,
   sendProductRejected,
   sendSupplierNewOrder,
+  sendOrderStatusUpdate,
 } from "@/lib/email";
 
 export async function POST(request: NextRequest) {
@@ -23,6 +24,9 @@ export async function POST(request: NextRequest) {
         break;
       case "supplier_new_order":
         await sendSupplierNewOrder(data);
+        break;
+      case "order_status_update":
+        await sendOrderStatusUpdate(data);
         break;
       default:
         return NextResponse.json({ error: "Unknown email type" }, { status: 400 });

@@ -182,3 +182,74 @@ export async function sendSupplierNewOrder(data: NewOrderData) {
     throw error;
   }
 }
+
+// ─── Order Status Update Emails ──────────────────────────────────────────────
+
+interface OrderStatusUpdateData {
+  customerEmail: string;
+  customerName: string;
+  orderNumber: number;
+  status: "confirmed" | "delivered" | "cancelled";
+  deliveryDay: string;
+}
+
+const statusMessages = {
+  confirmed: {
+    subject: "Order Confirmed",
+    emoji: "✓",
+    color: "#3b82f6",
+    heading: "Your order is confirmed!",
+    message: "We're preparing your order and it will be delivered on your selected delivery day.",
+  },
+  delivered: {
+    subject: "Order Delivered",
+    emoji: "🎉",
+    color: "#22c55e",
+    heading: "Your order has been delivered!",
+    message: "We hope you enjoy your local produce. Don't forget to leave a review!",
+  },
+  cancelled: {
+    subject: "Order Cancelled",
+    emoji: "✕",
+    color: "#ef4444",
+    heading: "Your order has been cancelled",
+    message: "If you didn't request this cancellation, please contact us.",
+  },
+};
+
+export async function sendOrderStatusUpdate(data: OrderStatusUpdateData) {
+  const config = statusMessages[data.status];
+  
+  const { error } = await resend.emails.send({
+    from: FROM_EMAIL,
+    to: data.customerEmail,
+    subject: `${config.subject} - Order #${data.orderNumber}`,
+    html: `
+      <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
+        <h1 style="color: ${config.color};">${config.emoji} ${config.heading}</h1>
+        <p>Hi ${data.customerName},</p>
+        <p>${config.message}</p>
+        
+        <div style="background: #f9f9f9; padding: 20px; border-radius: 8px; margin: 20px 0;">
+          <p style="margin: 0;"><strong>Order:</strong> #${data.orderNumber}</p>
+          <p style="margin: 8px 0 0 0;"><strong>Delivery Day:</strong> ${data.deliveryDay}</p>
+        </div>
+        
+        <p>
+          <a href="https://localproduce.ltd/account" style="display: inline-block; background: #A30E4E; color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: bold;">
+            View Order
+          </a>
+        </p>
+        
+        <p style="color: #666; font-size: 14px; margin-top: 30px;">
+          — The Local Produce Team
+        </p>
+      </div>
+    `,
+  });
+
+  if (error) {
+    console.error("Failed to send order status update email:", error);
+    throw error;
+  }
+}

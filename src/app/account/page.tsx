@@ -2,9 +2,10 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { useUser } from "@clerk/nextjs";
+import { useUser, useClerk } from "@clerk/nextjs";
 import {
   type Order,
+  type OrderItem,
   type CustomerProfile,
   getOrders,
   getRatingsByOrder,
@@ -12,6 +13,9 @@ import {
   getCustomerProfile,
   saveCustomerAddress,
   clearCustomerAddress,
+  canModifyOrder,
+  cancelOrder,
+  updateOrderItems,
 } from "@/lib/data";
 import { lookupPostcode } from "@/lib/postcode";
 import {
@@ -29,6 +33,10 @@ import {
   Save,
   MessageSquare,
   RefreshCw,
+  X,
+  Plus,
+  Minus,
+  AlertTriangle,
 } from "lucide-react";
 import { useCart } from "@/lib/cart-context";
 
@@ -74,6 +82,7 @@ interface DraftRating {
 
 export default function AccountPage() {
   const { user } = useUser();
+  const { openUserProfile } = useClerk();
   const { addItems, products } = useCart();
 
   // Profile state
@@ -101,6 +110,13 @@ export default function AccountPage() {
   // Submitting state
   const [submittingReview, setSubmittingReview] = useState(false);
 
+  // Order modification state
+  const [modifiableOrders, setModifiableOrders] = useState<Set<string>>(new Set());
+  const [editingOrder, setEditingOrder] = useState<string | null>(null);
+  const [editingItems, setEditingItems] = useState<OrderItem[]>([]);
+  const [cancellingOrder, setCancellingOrder] = useState<string | null>(null);
+  const [modifyingOrder, setModifyingOrder] = useState(false);
+
   // Load data
   useEffect(() => {
     if (!user) return;
@@ -115,6 +131,16 @@ export default function AccountPage() {
         ratingMap[order.id] = await getRatingsByOrder(user.id, order.id);
       }
       setSubmittedRatings(ratingMap);
+
+      // Check which orders can be modified
+      const modifiable = new Set<string>();
+      for (const order of orders) {
+        if (order.status !== "delivered" && order.status !== "cancelled") {
+          const canModify = await canModifyOrder(order.id);
+          if (canModify) modifiable.add(order.id);
+        }
+      }
+      setModifiableOrders(modifiable);
     }).catch(console.error);
   }, [user]);
 
@@ -256,6 +282,92 @@ export default function AccountPage() {
 
   const [reorderedId, setReorderedId] = useState<string | null>(null);
 
+  // Order modification handlers
+  const handleCancelOrder = async (orderId: string) => {
+    setModifyingOrder(true);
+    try {
+      const order = orders.find((o) => o.id === orderId);
+      await cancelOrder(orderId);
+      setOrders((prev) => prev.map((o) => o.id === orderId ? { ...o, status: "cancelled" as const } : o));
+      setModifiableOrders((prev) => {
+        const next = new Set(prev);
+        next.delete(orderId);
+        return next;
+      });
+      setCancellingOrder(null);
+
+      // Send cancellation email
+      if (order?.customerEmail) {
+        fetch("/api/email", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            type: "order_status_update",
+            data: {
+              customerEmail: order.customerEmail,
+              customerName: user?.fullName || user?.firstName || "Customer",
+              orderNumber: order.orderNumber,
+              status: "cancelled",
+              deliveryDay: new Date(order.deliveryDay + "T00:00:00").toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" }),
+            },
+          }),
+        }).catch(console.error);
+      }
+    } catch (error) {
+      console.error("Failed to cancel order:", error);
+      alert("Failed to cancel order. The cutoff time may have passed.");
+    } finally {
+      setModifyingOrder(false);
+    }
+  };
+
+  const startEditOrder = (order: Order) => {
+    setEditingOrder(order.id);
+    setEditingItems([...order.items]);
+  };
+
+  const updateEditingItemQuantity = (productId: string, delta: number) => {
+    setEditingItems((prev) => {
+      const updated = prev.map((item) => {
+        if (item.productId === productId) {
+          const newQty = Math.max(0, item.quantity + delta);
+          return { ...item, quantity: newQty };
+        }
+        return item;
+      }).filter((item) => item.quantity > 0);
+      return updated;
+    });
+  };
+
+  const removeEditingItem = (productId: string) => {
+    setEditingItems((prev) => prev.filter((item) => item.productId !== productId));
+  };
+
+  const handleSaveOrderChanges = async () => {
+    if (!editingOrder || editingItems.length === 0) return;
+    setModifyingOrder(true);
+    try {
+      await updateOrderItems(editingOrder, editingItems);
+      // Update local state
+      const newTotal = editingItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
+      setOrders((prev) => prev.map((o) => 
+        o.id === editingOrder ? { ...o, items: editingItems, total: newTotal } : o
+      ));
+      setEditingOrder(null);
+      setEditingItems([]);
+    } catch (error) {
+      console.error("Failed to update order:", error);
+      alert("Failed to update order. The cutoff time may have passed.");
+    } finally {
+      setModifyingOrder(false);
+    }
+  };
+
+  const cancelEditOrder = () => {
+    setEditingOrder(null);
+    setEditingItems([]);
+  };
+
   const handleReorder = (order: Order) => {
     // Only add items that are still available (in stock and in products list)
     const itemsToAdd = order.items
@@ -299,6 +411,13 @@ export default function AccountPage() {
             <div className="flex items-center gap-2">
               <Mail size={14} className="text-muted" />
               <p className="text-sm font-medium text-primary">{user?.primaryEmailAddress?.emailAddress || "—"}</p>
+              <button
+                onClick={() => openUserProfile()}
+                className="ml-2 text-xs text-secondary hover:text-secondary/80 transition flex items-center gap-1"
+              >
+                <Pencil size={12} />
+                Change
+              </button>
             </div>
           </div>
         </div>
@@ -441,6 +560,9 @@ export default function AccountPage() {
               const draft = draftRatings[order.id] ?? {};
               const hasAllRatings = order.items.every((item) => orderSubmittedRatings[item.productId]?.stars > 0);
               const draftHasAnyStars = Object.values(draft).some((r) => r.stars > 0);
+              const canModify = modifiableOrders.has(order.id);
+              const isEditing = editingOrder === order.id;
+              const isCancelling = cancellingOrder === order.id;
 
               return (
                 <div key={order.id} className="overflow-hidden rounded-xl bg-surface shadow-sm">
@@ -451,6 +573,27 @@ export default function AccountPage() {
                       <p className="text-xs text-muted">Placed on {order.createdAt}</p>
                     </div>
                     <div className="flex items-center gap-3">
+                      {canModify && !isEditing && (
+                        <>
+                          <button
+                            onClick={() => startEditOrder(order)}
+                            className="inline-flex items-center gap-1.5 rounded-lg bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700 transition hover:bg-blue-100"
+                          >
+                            <Pencil size={12} />
+                            Amend
+                          </button>
+                          <button
+                            onClick={() => setCancellingOrder(order.id)}
+                            className="inline-flex items-center gap-1.5 rounded-lg bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-700 transition hover:bg-red-100"
+                          >
+                            <X size={12} />
+                            Cancel
+                          </button>
+                        </>
+                      )}
+                      {!canModify && order.status !== "delivered" && order.status !== "cancelled" && (
+                        <span className="text-xs text-muted italic">Cutoff passed</span>
+                      )}
                       <button
                         onClick={() => handleReorder(order)}
                         disabled={reorderedId === order.id}
@@ -473,8 +616,106 @@ export default function AccountPage() {
                     </div>
                   </div>
 
+                  {/* Cancel confirmation dialog */}
+                  {isCancelling && (
+                    <div className="bg-red-50 border-b border-red-100 px-6 py-4">
+                      <div className="flex items-start gap-3">
+                        <AlertTriangle size={20} className="text-red-600 mt-0.5" />
+                        <div className="flex-1">
+                          <p className="text-sm font-semibold text-red-800">Cancel this order?</p>
+                          <p className="text-xs text-red-600 mt-1">This action cannot be undone.</p>
+                          <div className="flex gap-2 mt-3">
+                            <button
+                              onClick={() => handleCancelOrder(order.id)}
+                              disabled={modifyingOrder}
+                              className="inline-flex items-center gap-1.5 rounded-lg bg-red-600 px-4 py-2 text-xs font-semibold text-white transition hover:bg-red-700 disabled:opacity-50"
+                            >
+                              {modifyingOrder ? <Loader2 size={12} className="animate-spin" /> : <X size={12} />}
+                              Yes, Cancel Order
+                            </button>
+                            <button
+                              onClick={() => setCancellingOrder(null)}
+                              disabled={modifyingOrder}
+                              className="inline-flex items-center gap-1.5 rounded-lg bg-white px-4 py-2 text-xs font-semibold text-gray-700 transition hover:bg-gray-50 border border-gray-200"
+                            >
+                              Keep Order
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Edit mode UI */}
+                  {isEditing && (
+                    <div className="bg-blue-50 border-b border-blue-100 px-6 py-4">
+                      <div className="flex items-center justify-between mb-3">
+                        <p className="text-sm font-semibold text-blue-800">Editing Order</p>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={handleSaveOrderChanges}
+                            disabled={modifyingOrder || editingItems.length === 0}
+                            className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-xs font-semibold text-white transition hover:bg-blue-700 disabled:opacity-50"
+                          >
+                            {modifyingOrder ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />}
+                            Save Changes
+                          </button>
+                          <button
+                            onClick={cancelEditOrder}
+                            disabled={modifyingOrder}
+                            className="inline-flex items-center gap-1.5 rounded-lg bg-white px-4 py-2 text-xs font-semibold text-gray-700 transition hover:bg-gray-50 border border-gray-200"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                      <div className="space-y-2">
+                        {editingItems.map((item) => (
+                          <div key={item.productId} className="flex items-center justify-between bg-white rounded-lg px-4 py-2">
+                            <span className="text-sm text-primary">{item.productName}</span>
+                            <div className="flex items-center gap-3">
+                              <span className="text-xs text-muted">£{item.price.toFixed(2)} each</span>
+                              <div className="flex items-center gap-1">
+                                <button
+                                  onClick={() => updateEditingItemQuantity(item.productId, -1)}
+                                  className="p-1 rounded bg-gray-100 hover:bg-gray-200 transition"
+                                >
+                                  <Minus size={14} />
+                                </button>
+                                <span className="w-8 text-center text-sm font-medium">{item.quantity}</span>
+                                <button
+                                  onClick={() => updateEditingItemQuantity(item.productId, 1)}
+                                  className="p-1 rounded bg-gray-100 hover:bg-gray-200 transition"
+                                >
+                                  <Plus size={14} />
+                                </button>
+                              </div>
+                              <span className="text-sm font-medium text-primary w-16 text-right">
+                                £{(item.quantity * item.price).toFixed(2)}
+                              </span>
+                              <button
+                                onClick={() => removeEditingItem(item.productId)}
+                                className="p-1 rounded text-red-500 hover:bg-red-50 transition"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                        {editingItems.length === 0 && (
+                          <p className="text-xs text-red-600 text-center py-2">No items remaining. Add items or cancel to keep the order.</p>
+                        )}
+                        <div className="flex justify-end pt-2 border-t border-blue-100">
+                          <span className="text-sm font-semibold text-blue-800">
+                            New Total: £{editingItems.reduce((sum, item) => sum + item.price * item.quantity, 0).toFixed(2)}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
                   {/* Order items grouped by supplier */}
-                  <div className="px-6 py-4">
+                  <div className={`px-6 py-4 ${isEditing ? "opacity-50 pointer-events-none" : ""}`}>
                     {(() => {
                       // Group items by supplier
                       const supplierGroups = order.items.reduce((acc, item) => {

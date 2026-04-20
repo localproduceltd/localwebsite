@@ -72,10 +72,31 @@ export default function AdminOrdersPage() {
   }, []);
 
   const updateStatus = async (orderId: string, newStatus: Order["status"]) => {
+    const order = orderList.find((o) => o.id === orderId);
     await updateOrderStatus(orderId, newStatus);
     // Re-fetch orders to get updated supplier statuses from the cascade trigger
     const updated = await getOrders();
     setOrderList(updated);
+
+    // Send email notification to customer for status changes
+    if (order && order.customerEmail && ["confirmed", "delivered", "cancelled"].includes(newStatus)) {
+      fetch("/api/email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: "order_status_update",
+          data: {
+            customerEmail: order.customerEmail,
+            customerName: order.customerEmail.split("@")[0], // Fallback name from email
+            orderNumber: order.orderNumber,
+            status: newStatus,
+            deliveryDay: order.deliveryDay
+              ? new Date(order.deliveryDay + "T00:00:00").toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })
+              : "Not set",
+          },
+        }),
+      }).catch(console.error);
+    }
   };
 
   const toggleCollapse = (key: string) => {
