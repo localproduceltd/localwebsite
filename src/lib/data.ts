@@ -466,6 +466,8 @@ export async function createSupplier(supplier: Omit<Supplier, "id">): Promise<Su
     category: supplier.category,
     lat: supplier.lat,
     lng: supplier.lng,
+    status: supplier.status,
+    email: supplier.email,
   }).select().single();
   if (error) throw error;
   return { id: data.id, name: data.name, description: data.description, image: data.image, location: data.location, category: data.category, lat: data.lat ?? null, lng: data.lng ?? null, status: data.status ?? "launch_live", email: data.email ?? null };

@@ -81,15 +81,20 @@ export default function AdminSuppliersPage() {
   };
 
   const handleSave = async (supplier: Supplier) => {
-    if (editing) {
-      await updateSupplier(supplier);
-      setSupplierList((prev) => prev.map((s) => (s.id === supplier.id ? supplier : s)));
-    } else {
-      const created = await createSupplier(supplier);
-      setSupplierList((prev) => [...prev, created]);
+    try {
+      if (editing) {
+        await updateSupplier(supplier);
+        setSupplierList((prev) => prev.map((s) => (s.id === supplier.id ? supplier : s)));
+      } else {
+        const created = await createSupplier(supplier);
+        setSupplierList((prev) => [...prev, created]);
+      }
+      setEditing(null);
+      setShowForm(false);
+    } catch (error) {
+      console.error("Failed to save supplier:", error);
+      alert("Failed to save supplier. Please check all required fields are filled in.");
     }
-    setEditing(null);
-    setShowForm(false);
   };
 
   const handleStatusChange = async (supplier: Supplier, newStatus: SupplierStatus) => {
