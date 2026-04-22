@@ -9,6 +9,7 @@ import { useCart } from "@/lib/cart-context";
 import { type DeliveryDay, type DeliveryWindow, type OrderItem, getActiveDeliveryDays, createOrder, getSupplier, getCustomerProfile, setCustomerOutstandingBox } from "@/lib/data";
 
 const BOX_DEPOSIT = 10;
+const MINIMUM_ORDER = 30;
 
 export default function CartPage() {
   const { items, updateQuantity, removeItem, totalPrice, getProduct, clearCart } = useCart();
@@ -43,6 +44,10 @@ export default function CartPage() {
   const needsBoxDeposit = willBeIn === false && !hasOutstandingBox;
   const boxDeposit = needsBoxDeposit ? BOX_DEPOSIT : 0;
   const finalTotal = totalPrice + boxDeposit;
+  
+  // Check minimum order
+  const belowMinimum = totalPrice < MINIMUM_ORDER;
+  const amountToMinimum = MINIMUM_ORDER - totalPrice;
 
   const handlePlaceOrder = async () => {
     if (!isSignedIn || !user) {
@@ -433,12 +438,25 @@ export default function CartPage() {
           <span className="text-lg font-bold text-primary">Total</span>
           <span className="text-lg font-bold text-primary">£{finalTotal.toFixed(2)}</span>
         </div>
+        
+        {/* Minimum order warning */}
+        {belowMinimum && (
+          <div className="mt-4 rounded-lg bg-amber-50 border border-amber-200 px-4 py-3">
+            <p className="text-sm font-medium text-amber-800">
+              Minimum order is £{MINIMUM_ORDER.toFixed(2)}
+            </p>
+            <p className="text-sm text-amber-700 mt-0.5">
+              Add £{amountToMinimum.toFixed(2)} more to checkout
+            </p>
+          </div>
+        )}
+        
         <button
-          disabled={!selectedDay || !deliveryWindow || willBeIn === null || (willBeIn === false && !safePlace.trim()) || placing}
+          disabled={belowMinimum || !selectedDay || !deliveryWindow || willBeIn === null || (willBeIn === false && !safePlace.trim()) || placing}
           onClick={handlePlaceOrder}
           className="mt-6 w-full rounded-lg bg-accent py-3 text-center font-semibold text-primary transition hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {placing ? "Placing Order..." : !isSignedIn ? "Sign In to Place Order" : !selectedDay ? "Select a Delivery Day" : !deliveryWindow ? "Select Delivery Window" : willBeIn === null ? "Select Attendance" : (willBeIn === false && !safePlace.trim()) ? "Enter Safe Place" : "Place Order"}
+          {placing ? "Placing Order..." : belowMinimum ? `Minimum order £${MINIMUM_ORDER}` : !isSignedIn ? "Sign In to Place Order" : !selectedDay ? "Select a Delivery Day" : !deliveryWindow ? "Select Delivery Window" : willBeIn === null ? "Select Attendance" : (willBeIn === false && !safePlace.trim()) ? "Enter Safe Place" : "Place Order"}
         </button>
         {!isSignedIn && (
           <p className="mt-2 text-center text-xs text-muted">

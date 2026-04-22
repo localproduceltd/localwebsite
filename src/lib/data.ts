@@ -819,20 +819,27 @@ export async function updateSupplierOrderItemStatus(
 
 // ─── Feedback ─────────────────────────────────────────────────────────────────
 
-export async function submitFeedback(name: string, message: string): Promise<void> {
+export async function submitFeedback(name: string, message: string, source: "carrie" | "order_review" = "carrie", orderNumber?: number): Promise<void> {
   const { error } = await supabase
     .from("feedback")
-    .insert({ name: name || null, message });
+    .insert({ name: name || null, message, source, order_number: orderNumber ?? null });
   if (error) throw error;
 }
 
-export async function getFeedback(): Promise<{ id: string; name: string | null; message: string; created_at: string }[]> {
+export async function getFeedback(): Promise<{ id: string; name: string | null; message: string; created_at: string; source: string; orderNumber: number | null }[]> {
   const { data, error } = await supabase
     .from("feedback")
     .select("*")
     .order("created_at", { ascending: false });
   if (error) throw error;
-  return data ?? [];
+  return (data ?? []).map((f) => ({
+    id: f.id,
+    name: f.name,
+    message: f.message,
+    created_at: f.created_at,
+    source: f.source ?? "carrie",
+    orderNumber: f.order_number ?? null,
+  }));
 }
 
 // ─── Ratings ──────────────────────────────────────────────────────────────────
@@ -878,6 +885,24 @@ export async function getProductRatings(productId: string): Promise<Array<{ star
     .order("created_at", { ascending: false });
   if (error) throw error;
   return (data ?? []).map((r) => ({ stars: r.stars, comment: r.comment ?? undefined, createdAt: r.created_at }));
+}
+
+export async function getSupplierReviews(supplierId: string): Promise<Array<{ productId: string; productName: string; stars: number; comment: string; createdAt: string }>> {
+  const { data, error } = await supabase
+    .from("ratings")
+    .select("product_id, stars, comment, created_at, products!inner(name, supplier_id)")
+    .eq("products.supplier_id", supplierId)
+    .not("comment", "is", null)
+    .neq("comment", "")
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  return (data ?? []).map((r) => ({
+    productId: r.product_id,
+    productName: (r.products as any).name,
+    stars: r.stars,
+    comment: r.comment!,
+    createdAt: r.created_at,
+  }));
 }
 
 // ─── Customer Profiles ──────────────────────────────────────────────────────

@@ -11,8 +11,9 @@ import {
   getSupplierOrders,
   getProductsBySupplier,
   getAverageRatings,
+  getSupplierReviews,
 } from "@/lib/data";
-import { Loader2, TrendingUp, Package, Truck, PoundSterling, ShoppingCart, BarChart3, Star } from "lucide-react";
+import { Loader2, TrendingUp, Package, Truck, PoundSterling, ShoppingCart, BarChart3, Star, MessageSquare } from "lucide-react";
 
 function formatDeliveryDate(dateStr: string) {
   if (!dateStr) return "No date";
@@ -31,6 +32,7 @@ export default function SupplierDashboardPage() {
   const [overallRating, setOverallRating] = useState<{ avg: number; count: number }>({ avg: 0, count: 0 });
   const [topProducts, setTopProducts] = useState<{ name: string; quantity: number; avgRating: number; ratingCount: number }[]>([]);
   const [topProductsSort, setTopProductsSort] = useState<"quantity" | "rating">("quantity");
+  const [reviews, setReviews] = useState<{ productId: string; productName: string; stars: number; comment: string; createdAt: string }[]>([]);
 
   useEffect(() => {
     if (!isLoaded || !user) return;
@@ -71,6 +73,10 @@ export default function SupplierDashboardPage() {
             const totalCount = prodRatings.reduce((acc, r) => acc + r.ratingCount, 0);
             setOverallRating({ avg: totalStars / totalCount, count: totalCount });
           }
+          
+          // Fetch customer reviews with comments
+          const supplierReviews = await getSupplierReviews(s.id);
+          setReviews(supplierReviews);
         }
       }
       setLoading(false);
@@ -352,6 +358,40 @@ export default function SupplierDashboardPage() {
                 ))}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* Customer Reviews */}
+      {reviews.length > 0 && (
+        <div className="mt-8 overflow-hidden rounded-xl bg-surface p-6 shadow-sm">
+          <div className="flex items-center gap-2 mb-4">
+            <MessageSquare size={18} className="text-secondary" />
+            <h2 className="text-sm font-bold text-primary">Customer Reviews</h2>
+            <span className="rounded-full bg-secondary/10 px-2 py-0.5 text-xs font-medium text-secondary">{reviews.length}</span>
+          </div>
+          <div className="space-y-4">
+            {reviews.slice(0, 10).map((review, i) => (
+              <div key={i} className="border-b border-primary/5 pb-4 last:border-0 last:pb-0">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium text-primary">{review.productName}</span>
+                  <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-0.5">
+                      {[1, 2, 3, 4, 5].map((s) => (
+                        <Star key={s} size={12} className={review.stars >= s ? "fill-accent text-accent" : "text-primary/15"} />
+                      ))}
+                    </div>
+                    <span className="text-[10px] text-muted">
+                      {new Date(review.createdAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}
+                    </span>
+                  </div>
+                </div>
+                <p className="mt-1 text-sm text-muted italic">"{review.comment}"</p>
+              </div>
+            ))}
+          </div>
+          {reviews.length > 10 && (
+            <p className="mt-4 text-xs text-muted text-center">Showing 10 of {reviews.length} reviews</p>
+          )}
         </div>
       )}
     </div>

@@ -1,5 +1,6 @@
 import { Calendar, ShoppingCart, TrendingUp, Package, Users } from "lucide-react";
 import { getOrders, getActiveDeliveryDays } from "@/lib/data";
+import AdminCharts from "@/components/AdminCharts";
 
 function formatDeliveryDate(dateStr: string) {
   if (!dateStr) return "No date";
@@ -57,6 +58,28 @@ export default async function AdminDashboard() {
     .sort((a, b) => b.revenue - a.revenue)
     .slice(0, 5);
 
+  // Calculate weekly data for charts (last 8 weeks)
+  const weeklyData: { week: string; revenue: number; orders: number }[] = [];
+  const now = new Date();
+  for (let i = 7; i >= 0; i--) {
+    const weekStart = new Date(now);
+    weekStart.setDate(now.getDate() - (i * 7) - now.getDay() + 1); // Monday of that week
+    const weekEnd = new Date(weekStart);
+    weekEnd.setDate(weekStart.getDate() + 6); // Sunday
+    
+    const weekOrders = orders.filter((o) => {
+      const orderDate = new Date(o.createdAt);
+      return orderDate >= weekStart && orderDate <= weekEnd;
+    });
+    
+    const weekLabel = weekStart.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+    weeklyData.push({
+      week: weekLabel,
+      revenue: weekOrders.reduce((sum, o) => sum + o.total, 0),
+      orders: weekOrders.length,
+    });
+  }
+
   return (
     <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
       <h1 className="text-3xl font-bold text-primary">Admin Dashboard</h1>
@@ -86,6 +109,11 @@ export default async function AdminDashboard() {
             </div>
           </div>
         </div>
+      </div>
+
+      {/* Weekly Charts */}
+      <div className="mt-8">
+        <AdminCharts weeklyData={weeklyData} />
       </div>
 
       {/* Upcoming Delivery Days */}

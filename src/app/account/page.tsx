@@ -16,6 +16,7 @@ import {
   canModifyOrder,
   cancelOrder,
   updateOrderItems,
+  submitFeedback,
 } from "@/lib/data";
 import { lookupPostcode } from "@/lib/postcode";
 import {
@@ -109,6 +110,10 @@ export default function AccountPage() {
   const [expandedComments, setExpandedComments] = useState<Set<string>>(new Set());
   // Submitting state
   const [submittingReview, setSubmittingReview] = useState(false);
+  
+  // Overall review for Local
+  const [overallReview, setOverallReview] = useState<Record<string, string>>({});
+  const [submittedOverallReview, setSubmittedOverallReview] = useState<Set<string>>(new Set());
 
   // Order modification state
   const [modifiableOrders, setModifiableOrders] = useState<Set<string>>(new Set());
@@ -267,6 +272,16 @@ export default function AccountPage() {
         ...prev,
         [orderId]: { ...prev[orderId], ...newSubmitted },
       }));
+      
+      // Submit overall review if provided
+      const overall = overallReview[orderId]?.trim();
+      if (overall) {
+        const order = orders.find((o) => o.id === orderId);
+        const customerName = user.fullName || user.firstName || "Customer";
+        await submitFeedback(customerName, overall, "order_review", order?.orderNumber);
+        setSubmittedOverallReview((prev) => new Set(prev).add(orderId));
+      }
+      
       setReviewingOrder(null);
       setExpandedComments(new Set());
     } catch (error) {
@@ -809,6 +824,30 @@ export default function AccountPage() {
                       ));
                     })()}
                   </div>
+
+                  {/* Overall review for Local */}
+                  {isDelivered && isReviewing && (
+                    <div className="mx-6 mb-4 rounded-lg bg-secondary/10 p-4">
+                      <label className="block text-sm font-semibold text-primary mb-2">
+                        Overall feedback for Local
+                      </label>
+                      <textarea
+                        value={overallReview[order.id] ?? ""}
+                        onChange={(e) => setOverallReview((prev) => ({ ...prev, [order.id]: e.target.value }))}
+                        placeholder="How was your overall experience with Local? Any suggestions or comments? (optional)"
+                        className="w-full rounded-lg border border-primary/20 bg-white px-3 py-2 text-sm outline-none focus:border-secondary"
+                        rows={3}
+                      />
+                      <p className="mt-1 text-xs text-muted">This feedback will be shared with the Local team</p>
+                    </div>
+                  )}
+                  
+                  {/* Show submitted overall review */}
+                  {isDelivered && !isReviewing && submittedOverallReview.has(order.id) && (
+                    <div className="mx-6 mb-4 rounded-lg bg-green-50 border border-green-200 p-3">
+                      <p className="text-xs font-medium text-green-700">✓ Overall feedback submitted</p>
+                    </div>
+                  )}
 
                   {/* Order footer */}
                   <div className="flex items-center justify-between border-t border-primary/5 bg-secondary/5 px-6 py-3">
