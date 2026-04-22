@@ -47,6 +47,10 @@ BEGIN
   (supplier_uuid, 'Donker Rye (Uncut)', 'Deep in colour and rich in flavour, our Donker Malted Rye Bread is crafted with rye flour and malted grains for a robust, earthy character. Slowly baked to develop its distinctive taste and satisfying texture, it''s the kind of bread that pairs beautifully with strong cheeses, cured meats or simply a spread of butter.', 2.57, '400g loaf', 'Bread', 'Own Produce', 53.0456, -1.3892, ARRAY['gluten'], ARRAY[]::text[], true, 'approved'),
   
   (supplier_uuid, 'Donker Rye (Sliced)', 'Deep in colour and rich in flavour, our Donker Malted Rye is a loaf with real character. Slowly baked to bring out its malty, earthy notes, it''s robust, satisfying and perfectly balanced. Pre-sliced for ease, it''s the kind of bread that pairs beautifully with strong cheeses, smoked fish or a simple spread of butter.', 2.78, '400g loaf', 'Bread', 'Own Produce', 53.0456, -1.3892, ARRAY['gluten'], ARRAY[]::text[], true, 'approved'),
+  
+  (supplier_uuid, 'White Farmhouse Ovals', 'These oval rolls take their cue from the farmhouse loaves we''ve baked for generations. With their soft, tender crumb and light crust, they''re a versatile choice, perfect for soups, cheese boards and ploughman''s lunches.', 1.84, '', 'Bread', 'Own Produce', 53.0456, -1.3892, ARRAY['gluten'], ARRAY[]::text[], true, 'approved'),
+  
+  (supplier_uuid, 'White Sliced Farmhouse', '', 1.84, '400g loaf', 'Bread', 'Own Produce', 53.0456, -1.3892, ARRAY['gluten'], ARRAY[]::text[], true, 'approved'),
 
   -- PASTRIES & CAKES
   (supplier_uuid, 'Sausage Roll', 'Our Jumbo Sausage Roll is everything a savoury treat should be — hearty, generous and full of flavour. Golden layers of flaky pastry enclose seasoned sausage meat, baked with the same care and patience as all our craft. Whether eaten warm or cold, it''s a true Derbyshire staple — simple food, done properly.', 1.65, 'each', 'Pastries & Cakes', 'Own Produce', 53.0456, -1.3892, ARRAY['gluten', 'milk', 'eggs', 'sulphites'], ARRAY[]::text[], true, 'approved'),
