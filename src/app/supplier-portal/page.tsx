@@ -147,7 +147,7 @@ export default function YourPageView() {
       
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-primary">Your Customer Page</h1>
-        <p className="mt-1 text-sm text-muted">This is how customers see your page</p>
+        <p className="mt-1 text-sm text-muted">This is how customers see your page, click &quot;Edit Your Details&quot; to make changes</p>
       </div>
 
       {saved && (

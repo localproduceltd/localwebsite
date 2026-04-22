@@ -531,7 +531,11 @@ function SupplierProductForm({
               </button>
               <button
                 type="button"
-                onClick={() => setForm({ ...form, variableLocation: true, lat: null, lng: null })}
+                onClick={() => {
+                  if (!form.variableLocation && window.confirm("Are you sure? Some customers prefer to only buy products they can see on the map.")) {
+                    setForm({ ...form, variableLocation: true, lat: null, lng: null });
+                  }
+                }}
                 className={`flex-1 rounded-lg border-2 px-3 py-2 text-sm font-semibold transition ${
                   form.variableLocation
                     ? "border-secondary bg-secondary/10 text-secondary"
