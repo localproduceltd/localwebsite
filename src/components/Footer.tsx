@@ -19,7 +19,7 @@ export default function Footer() {
         <div className="grid gap-10 sm:grid-cols-2 lg:grid-cols-4">
           {/* Brand */}
           <div>
-            <Link href="/" className="flex items-center gap-2 text-xl font-bold text-white">
+            <Link href="/home" className="flex items-center gap-2 text-xl font-bold text-white">
               <img src="/logo-carrot.png" alt="Logo" className="h-8 w-8 object-contain" />
               <span className="tracking-widest">Local</span>
             </Link>

@@ -73,6 +73,8 @@ export default function SupplierProductsPage() {
 
   const handleDelete = async (id: string) => {
     if (!supplier) return;
+    const product = products.find((p) => p.id === id);
+    if (!confirm(`Are you sure you want to delete "${product?.name}"? This cannot be undone.`)) return;
     await deleteProduct(id);
     setProducts((prev) => prev.filter((p) => p.id !== id));
   };
@@ -115,11 +117,6 @@ export default function SupplierProductsPage() {
       return a.name.localeCompare(b.name);
     });
 
-  const pendingCount = products.filter((p) => p.status === "pending").length;
-  const approvedCount = products.filter((p) => p.status === "approved").length;
-  const rejectedCount = products.filter((p) => p.status === "rejected").length;
-  const inStockCount = products.filter((p) => p.inStock).length;
-  const outOfStockCount = products.filter((p) => !p.inStock).length;
   const categoriesInUse = Array.from(new Set(products.map((p) => p.category))).sort();
 
   return (
@@ -151,71 +148,6 @@ export default function SupplierProductsPage() {
         </div>
       </div>
 
-      {/* Status filter buttons */}
-      <div className="mt-6 flex flex-wrap gap-2">
-        {(["approved", "pending", "rejected"] as const).map((status) => {
-          const count = status === "approved" ? approvedCount 
-            : status === "pending" ? pendingCount 
-            : rejectedCount;
-          const isSelected = statusFilters.has(status);
-          const toggleStatus = () => {
-            setStatusFilters((prev) => {
-              const next = new Set(prev);
-              if (next.has(status)) next.delete(status);
-              else next.add(status);
-              return next;
-            });
-          };
-          return (
-            <button
-              key={status}
-              onClick={toggleStatus}
-              className={`rounded-full px-3 py-1.5 text-xs font-semibold capitalize transition ${
-                isSelected
-                  ? status === "approved" ? "bg-green-600 text-white"
-                    : status === "pending" ? "bg-amber-500 text-white"
-                    : "bg-red-500 text-white"
-                  : status === "approved" ? "bg-green-100 text-green-700 hover:bg-green-200"
-                    : status === "pending" ? "bg-amber-100 text-amber-700 hover:bg-amber-200"
-                    : "bg-red-100 text-red-600 hover:bg-red-200"
-              }`}
-            >
-              {status} ({count})
-            </button>
-          );
-        })}
-      </div>
-
-      {/* Stock filter buttons */}
-      <div className="mt-3 flex flex-wrap gap-2">
-        {([
-          { key: "in_stock" as const, label: "In Stock", count: inStockCount },
-          { key: "out_of_stock" as const, label: "Out of Stock", count: outOfStockCount },
-        ]).map(({ key, label, count }) => {
-          const isSelected = stockFilters.has(key);
-          const toggleStock = () => {
-            setStockFilters((prev) => {
-              const next = new Set(prev);
-              if (next.has(key)) next.delete(key);
-              else next.add(key);
-              return next;
-            });
-          };
-          return (
-            <button
-              key={key}
-              onClick={toggleStock}
-              className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
-                isSelected
-                  ? key === "in_stock" ? "bg-blue-600 text-white" : "bg-gray-600 text-white"
-                  : key === "in_stock" ? "bg-blue-100 text-blue-700 hover:bg-blue-200" : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-              }`}
-            >
-              {label} ({count})
-            </button>
-          );
-        })}
-      </div>
 
       {showForm && (
         <SupplierProductForm
@@ -320,9 +252,36 @@ export default function SupplierProductsPage() {
               <th className="px-4 py-3 font-semibold text-primary">Category</th>
               <th className="px-4 py-3 font-semibold text-primary">Locality</th>
               <th className="px-4 py-3 font-semibold text-primary text-right">Price</th>
-              <th className="px-4 py-3 font-semibold text-primary text-center">Stock</th>
+              <th className="px-4 py-3 font-semibold text-primary text-center">
+                <select
+                  value={stockFilters.size === 2 ? "all" : stockFilters.has("in_stock") ? "in_stock" : "out_of_stock"}
+                  onChange={(e) => {
+                    if (e.target.value === "all") setStockFilters(new Set(["in_stock", "out_of_stock"]));
+                    else setStockFilters(new Set([e.target.value as "in_stock" | "out_of_stock"]));
+                  }}
+                  className="rounded border border-primary/20 bg-transparent px-1 py-0.5 text-xs font-semibold outline-none focus:border-secondary"
+                >
+                  <option value="all">All Stock</option>
+                  <option value="in_stock">In Stock</option>
+                  <option value="out_of_stock">Out of Stock</option>
+                </select>
+              </th>
               <th className="px-4 py-3 font-semibold text-primary text-center">Rating</th>
-              <th className="px-4 py-3 font-semibold text-primary text-center">Status</th>
+              <th className="px-4 py-3 font-semibold text-primary text-center">
+                <select
+                  value={statusFilters.size === 3 ? "all" : statusFilters.size === 1 ? Array.from(statusFilters)[0] : "all"}
+                  onChange={(e) => {
+                    if (e.target.value === "all") setStatusFilters(new Set(["approved", "pending", "rejected"]));
+                    else setStatusFilters(new Set([e.target.value as ProductStatus]));
+                  }}
+                  className="rounded border border-primary/20 bg-transparent px-1 py-0.5 text-xs font-semibold outline-none focus:border-secondary"
+                >
+                  <option value="all">All Statuses</option>
+                  <option value="approved">Approved</option>
+                  <option value="pending">Pending</option>
+                  <option value="rejected">Rejected</option>
+                </select>
+              </th>
               <th className="px-4 py-3 font-semibold text-primary text-right">Actions</th>
             </tr>
           </thead>

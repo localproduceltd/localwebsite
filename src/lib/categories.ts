@@ -21,7 +21,7 @@ export type ProductCategory = typeof PRODUCT_CATEGORIES[number];
 // UK 14 major allergens
 export const ALLERGENS = [
   { id: "celery", label: "Celery" },
-  { id: "gluten", label: "Cereals containing gluten" },
+  { id: "gluten", label: "Gluten" },
   { id: "crustaceans", label: "Crustaceans" },
   { id: "eggs", label: "Eggs" },
   { id: "fish", label: "Fish" },

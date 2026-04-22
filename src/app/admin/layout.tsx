@@ -25,8 +25,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       <header className="sticky top-0 z-50 bg-secondary text-white shadow-md">
         <div className="mx-auto flex h-14 max-w-full items-center justify-between px-4 sm:px-6 lg:px-8">
           <div className="flex items-center gap-6">
-            <Link href="/" className="flex items-center gap-2 text-sm font-medium text-white/70 hover:text-white">
-              <ArrowLeft size={16} /> Back to site
+            <Link href="/admin" className="flex items-center gap-2 text-sm font-medium text-white/70 hover:text-white">
+              <ArrowLeft size={16} /> Dashboard
             </Link>
             <span className="text-lg font-bold">Admin Panel</span>
           </div>

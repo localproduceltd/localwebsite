@@ -134,11 +134,11 @@ export default function MapPicker({ lat, lng, onLocationSelect, onClose }: MapPi
 
   return (
     <div 
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4"
-      onClick={(e) => e.stopPropagation()}
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4 overflow-y-auto"
+      onClick={onClose}
     >
       <div 
-        className="w-full max-w-3xl rounded-xl bg-surface p-6 shadow-xl"
+        className="w-full max-w-3xl rounded-xl bg-surface p-6 shadow-xl my-auto"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between mb-4">
@@ -168,7 +168,7 @@ export default function MapPicker({ lat, lng, onLocationSelect, onClose }: MapPi
           </button>
         </div>
         
-        <div ref={mapContainerRef} className="w-full rounded-lg mb-4 bg-primary/5" style={{ height: "384px", minHeight: "384px" }}></div>
+        <div ref={mapContainerRef} className="w-full rounded-lg mb-4 bg-primary/5" style={{ height: "350px" }}></div>
         
         <div className="flex items-center gap-4 mb-4">
           <div className="flex-1">

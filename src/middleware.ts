@@ -16,15 +16,6 @@ const isAdminOnlyPreLaunch = createRouteMatcher([
   "/cart(.*)",
 ]);
 
-// Routes that should always be accessible
-const isAlwaysAccessible = createRouteMatcher([
-  "/admin(.*)",
-  "/supplier-portal(.*)",
-  "/sign-in(.*)",
-  "/sign-up(.*)",
-  "/api(.*)",
-]);
-
 export default clerkMiddleware(async (auth, req) => {
   // Check if user is admin or signed in
   const { sessionClaims, userId } = await auth();
@@ -49,7 +40,7 @@ export default clerkMiddleware(async (auth, req) => {
 
   if (isAdminRoute(req)) {
     if (!isAdmin) {
-      return Response.redirect(new URL("/", req.url));
+      return NextResponse.redirect(new URL("/home", req.url));
     }
   }
 });

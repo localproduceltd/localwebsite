@@ -177,6 +177,17 @@ export default function YourPageView() {
                 />
               </div>
               <div>
+                <label className="block text-xs font-medium text-muted mb-1">Notification Email</label>
+                <input
+                  type="email"
+                  value={form.email || ""}
+                  onChange={(e) => setForm({ ...form, email: e.target.value || null })}
+                  placeholder="Email for order notifications"
+                  className="w-full rounded-lg border border-primary/20 bg-surface px-3 py-2 text-sm outline-none focus:border-secondary"
+                />
+                <p className="mt-1 text-xs text-muted">We'll send order notifications and product approval updates to this email</p>
+              </div>
+              <div>
                 <label className="block text-xs font-medium text-muted mb-1">Description</label>
                 <textarea
                   value={form.description}
@@ -287,15 +298,16 @@ export default function YourPageView() {
       </div>
 
       {/* Products */}
-      <h2 className="mt-10 text-xl font-bold text-primary">
-        Your Products
-      </h2>
+      <div className="mt-10 flex items-baseline gap-3">
+        <h2 className="text-xl font-bold text-primary">Your Products</h2>
+        <p className="text-xs text-muted">Approved products only · includes out of stock</p>
+      </div>
 
-      {products.length === 0 ? (
-        <p className="mt-4 text-muted">No products listed yet.</p>
+      {products.filter((p) => p.status === "approved").length === 0 ? (
+        <p className="mt-4 text-muted">No approved products to display yet.</p>
       ) : (
         <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-4 xl:grid-cols-5">
-          {products.map((product) => {
+          {products.filter((p) => p.status === "approved").map((product) => {
             const colors = LOCALITY_COLORS[product.locality] ?? LOCALITY_COLORS["Local"];
             return (
               <div

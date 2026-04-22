@@ -530,7 +530,7 @@ export default function MapPage() {
                 <p className="font-bold text-gray-800">Not in our delivery area yet</p>
                 <p className="text-sm text-gray-600">
                   {customerLocation?.postcode} isn't covered yet, but we're expanding! 
-                  <Link href="/" className="ml-1 font-semibold text-secondary hover:underline">
+                  <Link href="/home" className="ml-1 font-semibold text-secondary hover:underline">
                     Leave a message with Carrie on the homepage
                   </Link>
                   {" "}to request delivery to your postcode.

@@ -74,7 +74,7 @@ export default function SuppliersPage() {
       {showPreLaunch ? (
         <div className="mt-3 text-sm text-muted space-y-1">
           <p>Meet the suppliers joining Local... and some that are thinking about it! 🤞</p>
-          <p>Tap Carrie the Carrot on the <Link href="/" className="font-medium text-secondary hover:underline">homepage</Link> to let us know any favourites you&apos;d love to get delivered 🥕</p>
+          <p>Tap Carrie the Carrot on the <Link href="/home" className="font-medium text-secondary hover:underline">homepage</Link> to let us know any favourites you&apos;d love to get delivered 🥕</p>
         </div>
       ) : (
         <SignedOut>

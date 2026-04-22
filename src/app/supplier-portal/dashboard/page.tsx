@@ -28,8 +28,9 @@ export default function SupplierDashboardPage() {
   const [orderItems, setOrderItems] = useState<SupplierOrderItem[]>([]);
   const [productCount, setProductCount] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [ratingData, setRatingData] = useState<{ name: string; avg: number; count: number }[]>([]);
   const [overallRating, setOverallRating] = useState<{ avg: number; count: number }>({ avg: 0, count: 0 });
+  const [topProducts, setTopProducts] = useState<{ name: string; quantity: number; avgRating: number; ratingCount: number }[]>([]);
+  const [topProductsSort, setTopProductsSort] = useState<"quantity" | "rating">("quantity");
 
   useEffect(() => {
     if (!isLoaded || !user) return;
@@ -41,18 +42,33 @@ export default function SupplierDashboardPage() {
         setSupplier(s);
         const items = await getSupplierOrders(su.supplierId);
         setOrderItems(items);
+        
         if (s) {
           const prods = await getProductsBySupplier(s.id);
           setProductCount(prods.length);
           const allRatings = await getAverageRatings();
-          const prodRatings = prods
-            .filter((p) => allRatings[p.id])
-            .map((p) => ({ name: p.name, avg: allRatings[p.id].avg, count: allRatings[p.id].count }))
-            .sort((a, b) => b.avg - a.avg);
-          setRatingData(prodRatings);
+          
+          // Calculate quantities per product
+          const productQuantities = new Map<string, number>();
+          for (const item of items) {
+            const current = productQuantities.get(item.productName) || 0;
+            productQuantities.set(item.productName, current + item.quantity);
+          }
+          
+          // Combine products with quantities and ratings
+          const combinedProducts = prods.map((p) => ({
+            name: p.name,
+            quantity: productQuantities.get(p.name) || 0,
+            avgRating: allRatings[p.id]?.avg || 0,
+            ratingCount: allRatings[p.id]?.count || 0,
+          }));
+          setTopProducts(combinedProducts);
+          
+          // Calculate overall rating
+          const prodRatings = combinedProducts.filter((p) => p.ratingCount > 0);
           if (prodRatings.length > 0) {
-            const totalStars = prodRatings.reduce((acc, r) => acc + r.avg * r.count, 0);
-            const totalCount = prodRatings.reduce((acc, r) => acc + r.count, 0);
+            const totalStars = prodRatings.reduce((acc, r) => acc + r.avgRating * r.ratingCount, 0);
+            const totalCount = prodRatings.reduce((acc, r) => acc + r.ratingCount, 0);
             setOverallRating({ avg: totalStars / totalCount, count: totalCount });
           }
         }
@@ -266,27 +282,76 @@ export default function SupplierDashboardPage() {
         </div>
       )}
 
-      {/* Top rated products */}
-      {ratingData.length > 0 && (
+      {/* Top products table */}
+      {topProducts.length > 0 && (
         <div className="mt-8 overflow-hidden rounded-xl bg-surface p-6 shadow-sm">
-          <div className="flex items-center gap-2 mb-4">
-            <Star size={18} className="text-accent" />
-            <h2 className="text-sm font-bold text-primary">Product Ratings</h2>
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <Package size={18} className="text-secondary" />
+              <h2 className="text-sm font-bold text-primary">Top Products</h2>
+            </div>
+            <div className="flex items-center gap-1">
+              <span className="text-xs text-muted mr-2">Sort by:</span>
+              <button
+                onClick={() => setTopProductsSort("quantity")}
+                className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
+                  topProductsSort === "quantity" ? "bg-secondary text-white" : "bg-secondary/10 text-secondary hover:bg-secondary/20"
+                }`}
+              >
+                Most Ordered
+              </button>
+              <button
+                onClick={() => setTopProductsSort("rating")}
+                className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
+                  topProductsSort === "rating" ? "bg-accent text-white" : "bg-accent/10 text-accent hover:bg-accent/20"
+                }`}
+              >
+                Highest Rated
+              </button>
+            </div>
           </div>
-          <div className="space-y-3">
-            {ratingData.map((r) => (
-              <div key={r.name} className="flex items-center gap-3">
-                <span className="w-40 text-sm font-medium text-primary truncate shrink-0">{r.name}</span>
-                <div className="flex items-center gap-0.5">
-                  {[1, 2, 3, 4, 5].map((s) => (
-                    <Star key={s} size={14} className={r.avg >= s ? "fill-accent text-accent" : "text-primary/15"} />
-                  ))}
-                </div>
-                <span className="text-sm font-bold text-primary">{r.avg.toFixed(1)}</span>
-                <span className="text-xs text-muted">({r.count} rating{r.count !== 1 ? "s" : ""})</span>
-              </div>
-            ))}
-          </div>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-primary/10 text-left">
+                <th className="pb-2 font-semibold text-primary">Product</th>
+                <th className="pb-2 font-semibold text-primary text-center">Ordered</th>
+                <th className="pb-2 font-semibold text-primary text-center">Rating</th>
+              </tr>
+            </thead>
+            <tbody>
+              {[...topProducts]
+                .sort((a, b) => topProductsSort === "quantity" 
+                  ? b.quantity - a.quantity 
+                  : b.avgRating - a.avgRating || b.ratingCount - a.ratingCount
+                )
+                .slice(0, 10)
+                .map((p) => (
+                  <tr key={p.name} className="border-b border-primary/5 last:border-0">
+                    <td className="py-2 font-medium text-primary">{p.name}</td>
+                    <td className="py-2 text-center">
+                      <span className="font-bold text-secondary">{p.quantity}</span>
+                    </td>
+                    <td className="py-2">
+                      <div className="flex items-center justify-center gap-1">
+                        {p.ratingCount > 0 ? (
+                          <>
+                            <div className="flex items-center gap-0.5">
+                              {[1, 2, 3, 4, 5].map((s) => (
+                                <Star key={s} size={12} className={p.avgRating >= s ? "fill-accent text-accent" : "text-primary/15"} />
+                              ))}
+                            </div>
+                            <span className="text-xs font-bold text-primary">{p.avgRating.toFixed(1)}</span>
+                            <span className="text-[10px] text-muted">({p.ratingCount})</span>
+                          </>
+                        ) : (
+                          <span className="text-xs text-muted">—</span>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+            </tbody>
+          </table>
         </div>
       )}
     </div>

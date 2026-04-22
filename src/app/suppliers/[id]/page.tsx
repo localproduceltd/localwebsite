@@ -33,7 +33,7 @@ export default function SupplierDetailPage({ params }: { params: Promise<{ id: s
       }
       setSupplier(sup);
       const prods = await getProductsBySupplier(id);
-      setProducts(prods);
+      setProducts(prods.filter((p) => p.status === "approved"));
       const ratings = await getAverageRatings();
       setAvgRatings(ratings);
       setLoading(false);

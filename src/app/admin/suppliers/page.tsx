@@ -106,6 +106,21 @@ export default function AdminSuppliersPage() {
   const handleLinkUser = async () => {
     if (!linkingSupplierId || !linkClerkId.trim()) return;
     try {
+      // First, fetch the Clerk user's email
+      const res = await fetch(`/api/clerk-user?userId=${encodeURIComponent(linkClerkId.trim())}`);
+      if (res.ok) {
+        const clerkUser = await res.json();
+        if (clerkUser.email) {
+          // Auto-populate supplier email if not already set
+          const supplier = supplierList.find((s) => s.id === linkingSupplierId);
+          if (supplier && !supplier.email) {
+            const updated = { ...supplier, email: clerkUser.email };
+            await updateSupplier(updated);
+            setSupplierList((prev) => prev.map((s) => (s.id === linkingSupplierId ? updated : s)));
+          }
+        }
+      }
+      
       await createSupplierUser(linkClerkId.trim(), linkingSupplierId);
       setLinkClerkId("");
       setLinkingSupplierId(null);

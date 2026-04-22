@@ -50,7 +50,7 @@ export default function UserAvatar({ size = "h-9 w-9", bg = "bg-secondary" }: { 
             Manage Account
           </button>
           <button
-            onClick={() => signOut({ redirectUrl: "/" })}
+            onClick={() => signOut({ redirectUrl: "/home" })}
             className="w-full px-4 py-2.5 text-left text-sm font-medium text-red-600 hover:bg-surface transition"
           >
             Sign Out
