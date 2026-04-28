@@ -23,9 +23,11 @@ export interface SupplierUser {
   supplierId: string;
 }
 
-export type Locality = "Own Produce" | "Local" | "Regional" | "UK" | "International";
+export type Locality = "Own Produce" | "Local" | "Regional" | "UK" | "International" | "TBC";
 
 export const LOCALITY_OPTIONS: Locality[] = ["Own Produce", "Local", "Regional", "UK", "International"];
+
+export const ALL_LOCALITIES: Locality[] = ["Own Produce", "Local", "Regional", "UK", "International", "TBC"];
 
 export type ProductStatus = "pending" | "approved" | "rejected";
 

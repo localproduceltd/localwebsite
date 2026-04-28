@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { type Product, type Supplier, type Locality, type ProductStatus, LOCALITY_OPTIONS, getProducts, getLiveSuppliers, createProduct, updateProduct, deleteProduct, restoreProduct, permanentlyDeleteProduct, updateProductStatus, getSupplierByProductId } from "@/lib/data";
+import { type Product, type Supplier, type Locality, type ProductStatus, ALL_LOCALITIES, getProducts, getLiveSuppliers, createProduct, updateProduct, deleteProduct, restoreProduct, permanentlyDeleteProduct, updateProductStatus, getSupplierByProductId } from "@/lib/data";
 import { PRODUCT_CATEGORIES, ALLERGENS, PRODUCT_TAGS } from "@/lib/categories";
 import { Plus, Pencil, Trash2, X, Check, XCircle, Search, ChevronDown, ChevronRight, MapPin, RotateCcw, Archive } from "lucide-react";
 import MapPicker from "@/components/MapPicker";
@@ -586,7 +586,7 @@ function ProductForm({
             onChange={(e) => setForm({ ...form, locality: e.target.value as Locality })}
             className="w-full rounded-lg border border-primary/20 bg-surface px-3 py-2 text-sm outline-none focus:border-secondary"
           >
-            {LOCALITY_OPTIONS.map((opt) => (
+            {ALL_LOCALITIES.map((opt) => (
               <option key={opt} value={opt}>{opt}</option>
             ))}
           </select>

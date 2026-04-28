@@ -57,7 +57,7 @@ export default function ProductsPage() {
 
   const localityOptions: ("All" | Locality)[] = ["All", ...LOCALITY_OPTIONS];
 
-  const localityOrder: Record<string, number> = { "Own Produce": 0, "Local": 1, "Regional": 2, "UK": 3, "International": 4 };
+  const localityOrder: Record<string, number> = { "Own Produce": 0, "Local": 1, "Regional": 2, "UK": 3, "International": 4, "TBC": 5 };
 
   const filtered = products.filter((p) => {
     const matchesSearch =
