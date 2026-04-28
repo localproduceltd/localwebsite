@@ -5,6 +5,7 @@ import { type Product, type Supplier, type Locality, type ProductStatus, ALL_LOC
 import { PRODUCT_CATEGORIES, ALLERGENS, PRODUCT_TAGS } from "@/lib/categories";
 import { Plus, Pencil, Trash2, X, Check, XCircle, Search, ChevronDown, ChevronRight, MapPin, RotateCcw, Archive } from "lucide-react";
 import MapPicker from "@/components/MapPicker";
+import ImageUpload from "@/components/ImageUpload";
 
 export default function AdminProductsPage() {
   const [productList, setProductList] = useState<Product[]>([]);
@@ -575,11 +576,9 @@ function ProductForm({
               <option key={cat} value={cat}>{cat}</option>
             ))}
           </select>
-          <input
-            placeholder="Image URL"
-            value={form.image}
-            onChange={(e) => setForm({ ...form, image: e.target.value })}
-            className="w-full rounded-lg border border-primary/20 bg-surface px-3 py-2 text-sm outline-none focus:border-secondary"
+          <ImageUpload
+            currentImage={form.image}
+            onImageChange={(url) => setForm({ ...form, image: url })}
           />
           <select
             value={form.locality}
@@ -722,15 +721,33 @@ function ProductForm({
             </div>
           </div>
 
-          <label className="flex items-center gap-2 text-sm text-primary">
-            <input
-              type="checkbox"
-              checked={form.inStock}
-              onChange={(e) => setForm({ ...form, inStock: e.target.checked })}
-              className="rounded"
-            />
-            In Stock
-          </label>
+          <div>
+            <label className="block text-sm font-medium text-primary mb-2">Stock Status</label>
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => setForm({ ...form, inStock: true })}
+                className={`flex-1 rounded-lg border-2 px-4 py-3 text-sm font-bold transition ${
+                  form.inStock
+                    ? "border-green-500 bg-green-50 text-green-700"
+                    : "border-primary/20 bg-surface text-muted hover:border-primary/40"
+                }`}
+              >
+                In Stock
+              </button>
+              <button
+                type="button"
+                onClick={() => setForm({ ...form, inStock: false })}
+                className={`flex-1 rounded-lg border-2 px-4 py-3 text-sm font-bold transition ${
+                  !form.inStock
+                    ? "border-red-500 bg-red-50 text-red-700"
+                    : "border-primary/20 bg-surface text-muted hover:border-primary/40"
+                }`}
+              >
+                Out of Stock
+              </button>
+            </div>
+          </div>
         </div>
         <div className="mt-6 flex justify-end gap-3">
           <button onClick={onCancel} className="rounded-lg border border-primary/20 px-4 py-2 text-sm font-medium text-muted hover:bg-surface">

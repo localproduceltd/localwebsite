@@ -380,13 +380,11 @@ function SupplierForm({
               ))}
             </select>
           </div>
-          <div>
-            <label className="block text-xs font-medium text-muted mb-1">Supplier Image</label>
-            <ImageUpload
-              currentImage={form.image}
-              onImageChange={(url) => setForm({ ...form, image: url })}
-            />
-          </div>
+          <ImageUpload
+            currentImage={form.image}
+            onImageChange={(url) => setForm({ ...form, image: url })}
+            label="Supplier Image"
+          />
           <div>
             <label className="block text-xs font-medium text-muted mb-1">Status</label>
             <select

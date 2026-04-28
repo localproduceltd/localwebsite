@@ -7,9 +7,10 @@ import { uploadProductImage } from "@/lib/storage";
 interface ImageUploadProps {
   currentImage: string;
   onImageChange: (url: string) => void;
+  label?: string;
 }
 
-export default function ImageUpload({ currentImage, onImageChange }: ImageUploadProps) {
+export default function ImageUpload({ currentImage, onImageChange, label = "Product Image" }: ImageUploadProps) {
   const [uploading, setUploading] = useState(false);
   const [preview, setPreview] = useState(currentImage);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -55,7 +56,7 @@ export default function ImageUpload({ currentImage, onImageChange }: ImageUpload
 
   return (
     <div className="space-y-3">
-      <label className="block text-sm font-medium text-primary">Product Image</label>
+      <label className="block text-sm font-medium text-primary">{label}</label>
       
       {preview ? (
         <div className="relative">
