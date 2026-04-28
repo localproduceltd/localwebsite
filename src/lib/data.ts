@@ -15,6 +15,7 @@ export interface Supplier {
   lng: number | null;
   status: SupplierStatus;
   email: string | null;
+  instagram: string | null;
 }
 
 export interface SupplierUser {
@@ -109,6 +110,7 @@ export async function getSuppliers(): Promise<Supplier[]> {
     lng: s.lng ?? null,
     status: s.status ?? "launch_live",
     email: s.email ?? null,
+    instagram: s.instagram ?? null,
   }));
 }
 
@@ -139,6 +141,7 @@ export async function getPreLaunchSuppliers(): Promise<Supplier[]> {
     lng: s.lng ?? null,
     status: s.status ?? "launch_live",
     email: s.email ?? null,
+    instagram: s.instagram ?? null,
   }));
 }
 
@@ -161,6 +164,7 @@ export async function getLiveSuppliers(): Promise<Supplier[]> {
     lng: s.lng ?? null,
     status: s.status ?? "launch_live",
     email: s.email ?? null,
+    instagram: s.instagram ?? null,
   }));
 }
 
@@ -183,6 +187,7 @@ export async function getActiveSuppliers(): Promise<Supplier[]> {
     lng: s.lng ?? null,
     status: "launch_live" as const,
     email: s.email ?? null,
+    instagram: s.instagram ?? null,
   }));
 }
 
@@ -204,6 +209,7 @@ export async function getSupplier(id: string): Promise<Supplier | null> {
     lng: data.lng ?? null,
     status: data.status ?? "launch_live",
     email: data.email ?? null,
+    instagram: data.instagram ?? null,
   };
 }
 
@@ -470,9 +476,10 @@ export async function createSupplier(supplier: Omit<Supplier, "id">): Promise<Su
     lng: supplier.lng,
     status: supplier.status,
     email: supplier.email,
+    instagram: supplier.instagram,
   }).select().single();
   if (error) throw error;
-  return { id: data.id, name: data.name, description: data.description, image: data.image, location: data.location, category: data.category, lat: data.lat ?? null, lng: data.lng ?? null, status: data.status ?? "launch_live", email: data.email ?? null };
+  return { id: data.id, name: data.name, description: data.description, image: data.image, location: data.location, category: data.category, lat: data.lat ?? null, lng: data.lng ?? null, status: data.status ?? "launch_live", email: data.email ?? null, instagram: data.instagram ?? null };
 }
 
 export async function updateSupplier(supplier: Supplier): Promise<void> {
@@ -486,6 +493,7 @@ export async function updateSupplier(supplier: Supplier): Promise<void> {
     lng: supplier.lng,
     status: supplier.status,
     email: supplier.email,
+    instagram: supplier.instagram,
   }).eq("id", supplier.id);
   if (error) throw error;
 }
@@ -497,7 +505,7 @@ export async function getSupplierByProductId(productId: string): Promise<Supplie
     .eq("id", productId)
     .single();
   if (error || !data?.suppliers) return null;
-  const s = data.suppliers as unknown as { id: string; name: string; description: string; image: string; location: string; category: string; lat: number | null; lng: number | null; status: string; email: string | null };
+  const s = data.suppliers as unknown as { id: string; name: string; description: string; image: string; location: string; category: string; lat: number | null; lng: number | null; status: string; email: string | null; instagram: string | null };
   return {
     id: s.id,
     name: s.name,
@@ -509,6 +517,7 @@ export async function getSupplierByProductId(productId: string): Promise<Supplie
     lng: s.lng ?? null,
     status: (s.status as SupplierStatus) ?? "launch_live",
     email: s.email ?? null,
+    instagram: s.instagram ?? null,
   };
 }
 

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { getSupplier, getProductsBySupplier, getAverageRatings } from "@/lib/data";
-import { MapPin, ArrowLeft, Check, Plus, Minus, Star } from "lucide-react";
+import { MapPin, ArrowLeft, Check, Plus, Minus, Star, Instagram } from "lucide-react";
 import { notFound } from "next/navigation";
 import SupplierDistance from "@/components/SupplierDistance";
 import { LOCALITY_COLORS } from "@/lib/locality";
@@ -68,9 +68,22 @@ export default function SupplierDetailPage({ params }: { params: Promise<{ id: s
             <h1 className="mt-2 text-2xl font-bold text-primary sm:text-3xl">{supplier.name}</h1>
             <p className="mt-2 text-muted">{supplier.description}</p>
             <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex items-center justify-center gap-1 text-sm text-secondary sm:justify-start">
-                <MapPin size={14} />
-                <span>{supplier.location}</span>
+              <div className="flex items-center justify-center gap-3 sm:justify-start">
+                <div className="flex items-center gap-1 text-sm text-secondary">
+                  <MapPin size={14} />
+                  <span>{supplier.location}</span>
+                </div>
+                {supplier.instagram && (
+                  <a
+                    href={`https://instagram.com/${supplier.instagram}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1 text-sm text-secondary hover:text-primary transition"
+                  >
+                    <Instagram size={14} />
+                    <span>@{supplier.instagram}</span>
+                  </a>
+                )}
               </div>
               <SupplierDistance supplierLat={supplier.lat} supplierLng={supplier.lng} />
             </div>
