@@ -12,7 +12,7 @@ import {
   getAverageRatings,
   updateSupplier,
 } from "@/lib/data";
-import { MapPin, Loader2, Pencil, Save, X } from "lucide-react";
+import { MapPin, Loader2, Pencil, Save, X, Instagram } from "lucide-react";
 import SupplierDistance from "@/components/SupplierDistance";
 import { LOCALITY_COLORS } from "@/lib/locality";
 import { Star } from "lucide-react";
@@ -287,9 +287,22 @@ export default function YourPageView() {
             <h2 className="mt-2 text-2xl font-bold text-primary sm:text-3xl">{supplier.name}</h2>
             <p className="mt-2 text-muted">{supplier.description}</p>
             <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex items-center justify-center gap-1 text-sm text-secondary sm:justify-start">
-                <MapPin size={14} />
-                <span>{supplier.location}</span>
+              <div className="flex items-center justify-center gap-3 sm:justify-start">
+                <div className="flex items-center gap-1 text-sm text-secondary">
+                  <MapPin size={14} />
+                  <span>{supplier.location}</span>
+                </div>
+                {supplier.instagram && (
+                  <a
+                    href={`https://instagram.com/${supplier.instagram}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1 text-sm text-secondary hover:text-primary transition"
+                  >
+                    <Instagram size={14} />
+                    <span>@{supplier.instagram}</span>
+                  </a>
+                )}
               </div>
               <SupplierDistance supplierLat={supplier.lat} supplierLng={supplier.lng} />
             </div>
