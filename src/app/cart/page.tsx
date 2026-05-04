@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { Trash2, Plus, Minus, ShoppingCart, CheckCircle, Calendar, Clock, Home, Package, MapPin } from "lucide-react";
 import { useUser } from "@clerk/nextjs";
 import { useCart } from "@/lib/cart-context";
-import { type DeliveryDay, type DeliveryWindow, type OrderItem, getActiveDeliveryDays, createOrder, getSupplier, getCustomerProfile, setCustomerOutstandingBox } from "@/lib/data";
+import { type DeliveryDay, type DeliveryWindow, getActiveDeliveryDays, getCustomerProfile } from "@/lib/data";
 
 const BOX_DEPOSIT = 10;
 const MINIMUM_ORDER = 30;
@@ -59,7 +59,7 @@ export default function CartPage() {
 
     setPlacing(true);
 
-    const orderItems: OrderItem[] = items
+    const orderItems = items
       .map((item) => {
         const product = getProduct(item.productId);
         if (!product) return null;
@@ -68,91 +68,49 @@ export default function CartPage() {
           productName: product.name,
           quantity: item.quantity,
           price: product.price,
+          unit: product.unit,
+          supplierName: product.supplierName,
           supplierId: product.supplierId,
         };
       })
-      .filter(Boolean) as OrderItem[];
+      .filter(Boolean) as Array<{
+        productId: string;
+        productName: string;
+        quantity: number;
+        price: number;
+        unit: string;
+        supplierName: string;
+        supplierId: string;
+      }>;
 
     try {
       const customerEmail = user.primaryEmailAddress?.emailAddress ?? "";
-      const customerName = user.fullName || user.firstName || "Customer";
-      const order = await createOrder({
-        userId: user.id,
-        customerEmail,
-        total: finalTotal,
-        deliveryDay: selectedDay,
-        items: orderItems,
-        deliveryWindow,
-        willBeIn,
-        safePlace: willBeIn ? undefined : safePlace,
-        boxDepositPaid: needsBoxDeposit,
+      
+      // Create Stripe checkout session
+      const response = await fetch("/api/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          items: orderItems,
+          deliveryDay: selectedDay,
+          deliveryWindow,
+          willBeIn,
+          safePlace: willBeIn ? undefined : safePlace,
+          customerEmail,
+          boxDepositPaid: needsBoxDeposit,
+          total: finalTotal,
+        }),
       });
 
-      // If box deposit was paid, update customer profile
-      if (needsBoxDeposit) {
-        await setCustomerOutstandingBox(user.id, true);
-      }
-      clearCart();
-      setOrderPlaced(true);
-
-      // Send order confirmation email to customer
-      if (customerEmail) {
-        fetch("/api/email", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            type: "order_confirmation",
-            data: {
-              customerEmail,
-              customerName,
-              orderNumber: order.orderNumber,
-              deliveryDay: new Date(selectedDay + "T00:00:00").toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" }),
-              items: orderItems.map((item) => ({
-                productName: item.productName,
-                quantity: item.quantity,
-                price: item.price,
-              })),
-              total: finalTotal,
-            },
-          }),
-        }).catch(console.error);
-      }
-
-      // Send new order emails to suppliers
-      const supplierItems = new Map<string, typeof orderItems>();
-      for (const item of orderItems) {
-        if (item.supplierId) {
-          const existing = supplierItems.get(item.supplierId) || [];
-          existing.push(item);
-          supplierItems.set(item.supplierId, existing);
-        }
-      }
-
-      for (const [supplierId, items] of supplierItems) {
-        getSupplier(supplierId).then((supplier) => {
-          if (supplier?.email) {
-            const subtotal = items.reduce((sum, i) => sum + i.price * i.quantity, 0);
-            fetch("/api/email", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                type: "supplier_new_order",
-                data: {
-                  supplierEmail: supplier.email,
-                  supplierName: supplier.name,
-                  orderNumber: order.orderNumber,
-                  deliveryDay: new Date(selectedDay + "T00:00:00").toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" }),
-                  items: items.map((item) => ({
-                    productName: item.productName,
-                    quantity: item.quantity,
-                    price: item.price,
-                  })),
-                  subtotal,
-                },
-              }),
-            }).catch(console.error);
-          }
-        }).catch(console.error);
+      const data = await response.json();
+      
+      if (data.url) {
+        // Store cart in session storage so we can clear it after successful payment
+        sessionStorage.setItem("pendingCheckout", "true");
+        // Redirect to Stripe Checkout
+        window.location.href = data.url;
+      } else {
+        throw new Error(data.error || "Failed to create checkout session");
       }
     } catch {
       alert("Failed to place order. Please try again.");
