@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { getLiveSuppliers } from "@/lib/data";
 import type { Supplier } from "@/lib/data";
 import { MapPin } from "lucide-react";
@@ -21,11 +22,13 @@ function SupplierCard({ supplier }: { supplier: Supplier }) {
           </div>
         </div>
       )}
-      <div className={`aspect-[3/2] overflow-hidden ${!isLive ? "grayscale-[30%] opacity-70" : ""}`}>
-        <img
+      <div className={`relative aspect-[3/2] overflow-hidden ${!isLive ? "grayscale-[30%] opacity-70" : ""}`}>
+        <Image
           src={supplier.image || "/images/Holding Image - Supplier.png"}
           alt={supplier.name}
-          className={`h-full w-full object-cover ${isLive ? "transition-transform group-hover:scale-105" : ""}`}
+          fill
+          sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
+          className={`object-cover ${isLive ? "transition-transform group-hover:scale-105" : ""}`}
         />
       </div>
       <div className={`p-4 ${!isLive ? "opacity-80" : ""}`}>

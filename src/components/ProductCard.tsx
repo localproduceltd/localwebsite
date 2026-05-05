@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Image from "next/image";
 import { Check, Plus, Minus } from "lucide-react";
 import { useCart } from "@/lib/cart-context";
 import type { Product } from "@/lib/data";
@@ -21,12 +22,14 @@ export default function ProductCard({ product }: { product: Product }) {
 
   return (
     <div className="group overflow-hidden rounded-xl bg-surface shadow-sm transition hover:shadow-md">
-      <div className="aspect-[4/3] overflow-hidden bg-secondary/10">
+      <div className="relative aspect-[4/3] overflow-hidden bg-secondary/10">
         {product.image ? (
-          <img
+          <Image
             src={product.image}
             alt={product.name}
-            className="h-full w-full object-cover transition-transform group-hover:scale-105"
+            fill
+            sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
+            className="object-cover transition-transform group-hover:scale-105"
           />
         ) : (
           <div className="flex h-full w-full items-center justify-center text-muted text-sm">No image</div>

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import Image from "next/image";
 import { Search, Check, Plus, Minus, Star, HelpCircle, X } from "lucide-react";
 import { useCart } from "@/lib/cart-context";
 import { LOCALITY_OPTIONS, getAverageRatings } from "@/lib/data";
@@ -204,10 +205,12 @@ export default function ProductsPage() {
                   onClick={() => setSelectedProduct(product)}
                 >
                   {product.image ? (
-                    <img
+                    <Image
                       src={product.image}
                       alt={product.name}
-                      className="h-full w-full object-cover transition-transform group-hover:scale-105"
+                      fill
+                      sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
+                      className="object-cover transition-transform group-hover:scale-105"
                     />
                   ) : (
                     <div className="flex h-full w-full items-center justify-center text-muted text-sm">No image</div>

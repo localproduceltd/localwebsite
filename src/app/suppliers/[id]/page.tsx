@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { getSupplier, getProductsBySupplier, getAverageRatings } from "@/lib/data";
 import { MapPin, ArrowLeft, Check, Plus, Minus, Star, Instagram } from "lucide-react";
 import { notFound } from "next/navigation";
@@ -56,8 +57,8 @@ export default function SupplierDetailPage({ params }: { params: Promise<{ id: s
       <div className="mt-6 overflow-hidden rounded-xl bg-surface shadow-sm">
         <div className="flex flex-col items-center gap-6 p-6 sm:flex-row sm:items-start">
           {/* Supplier Image - smaller and centered/left-aligned */}
-          <div className="w-48 flex-shrink-0 overflow-hidden rounded-xl">
-            <img src={supplier.image || "/images/Holding Image - Supplier.png"} alt={supplier.name} className="aspect-square w-full object-cover" />
+          <div className="relative w-48 aspect-square flex-shrink-0 overflow-hidden rounded-xl">
+            <Image src={supplier.image || "/images/Holding Image - Supplier.png"} alt={supplier.name} fill sizes="192px" className="object-cover" />
           </div>
           
           {/* Supplier Info */}

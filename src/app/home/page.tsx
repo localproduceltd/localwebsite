@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { ArrowRight, Star, MapPinned, Loader2, CheckCircle } from "lucide-react";
 import { getApprovedProducts, getActiveSuppliers, getAverageRatings, getActiveDeliveryDays, submitEmailSignup } from "@/lib/data";
 import type { Product, Supplier, DeliveryDay } from "@/lib/data";
@@ -177,11 +178,13 @@ export default function Home() {
                 href={`/suppliers/${supplier.id}`}
                 className="group overflow-hidden rounded-xl bg-surface shadow-sm transition hover:shadow-md"
               >
-                <div className="aspect-[3/2] overflow-hidden">
-                  <img
+                <div className="relative aspect-[3/2] overflow-hidden">
+                  <Image
                     src={supplier.image}
                     alt={supplier.name}
-                    className="h-full w-full object-cover transition-transform group-hover:scale-105"
+                    fill
+                    sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
+                    className="object-cover transition-transform group-hover:scale-105"
                   />
                 </div>
                 <div className="p-4">
