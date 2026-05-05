@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { stripe } from "@/lib/stripe";
-import { createOrder, type DeliveryWindow, type OrderItem, getSupplier, setCustomerOutstandingBox } from "@/lib/data";
+import { createOrder, type DeliveryWindow, type OrderItem, getSupplier, getProduct, setCustomerOutstandingBox } from "@/lib/data";
 import { auth } from "@clerk/nextjs/server";
 
 export async function POST(request: NextRequest) {
@@ -28,14 +28,32 @@ export async function POST(request: NextRequest) {
     }
 
     // Parse the items from metadata
+    // Items are stored as compact arrays: [productId, quantity, price, supplierId]
     const itemsData = JSON.parse(metadata.items || "[]");
-    const items: OrderItem[] = itemsData.map((item: { productId: string; productName: string; quantity: number; price: number; supplierId: string }) => ({
-      productId: item.productId,
-      productName: item.productName,
-      quantity: item.quantity,
-      price: item.price,
-      supplierId: item.supplierId,
-    }));
+    const items: OrderItem[] = await Promise.all(
+      itemsData.map(async (item: [string, number, number, string] | { productId: string; productName: string; quantity: number; price: number; supplierId: string }) => {
+        // Handle both old format (object) and new format (array)
+        if (Array.isArray(item)) {
+          const [productId, quantity, price, supplierId] = item;
+          const product = await getProduct(productId);
+          return {
+            productId,
+            productName: product?.name || "Unknown Product",
+            quantity,
+            price,
+            supplierId,
+          };
+        } else {
+          return {
+            productId: item.productId,
+            productName: item.productName,
+            quantity: item.quantity,
+            price: item.price,
+            supplierId: item.supplierId,
+          };
+        }
+      })
+    );
 
     const total = parseFloat(metadata.total);
     const boxDepositPaid = metadata.boxDepositPaid === "true";

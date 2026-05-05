@@ -95,13 +95,9 @@ export async function POST(request: NextRequest) {
         safePlace: safePlace || "",
         boxDepositPaid: boxDepositPaid ? "true" : "false",
         total: total.toString(),
-        items: JSON.stringify(items.map(i => ({ 
-          productId: i.productId, 
-          productName: i.productName,
-          quantity: i.quantity, 
-          price: i.price,
-          supplierId: i.supplierId,
-        }))),
+        itemCount: items.length.toString(),
+        // Store items as compact format: productId:qty:price:supplierId, truncated if needed
+        items: JSON.stringify(items.map(i => [i.productId, i.quantity, i.price, i.supplierId])).slice(0, 500),
       },
     });
 
