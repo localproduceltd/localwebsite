@@ -84,7 +84,7 @@ export default function Home() {
         <div className="mx-auto max-w-2xl text-center">
           <h2 className="text-3xl font-extrabold text-white sm:text-4xl">🎉 Trial Week</h2>
           <p className="mt-3 text-lg text-white/90">
-            We&apos;re launching with a small group of trial customers.
+            We&apos;re launching with a small group of trial customers. Enter your email below to stay up to date and to hear about when you can order.
           </p>
           {signupDone ? (
             <div className="mt-6 inline-flex items-center gap-2 text-white">
