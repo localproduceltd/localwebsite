@@ -1,14 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { Check } from "lucide-react";
+import { Check, Plus, Minus } from "lucide-react";
 import { useCart } from "@/lib/cart-context";
 import type { Product } from "@/lib/data";
 import { LOCALITY_COLORS } from "@/lib/locality";
 import { PRODUCT_TAGS } from "@/lib/categories";
 
 export default function ProductCard({ product }: { product: Product }) {
-  const { addItem, items } = useCart();
+  const { addItem, items, updateQuantity } = useCart();
   const [justAdded, setJustAdded] = useState(false);
 
   const cartItem = items.find((i) => i.productId === product.id);
@@ -70,19 +70,38 @@ export default function ProductCard({ product }: { product: Product }) {
           <span className="text-lg font-bold text-primary">£{product.price.toFixed(2)}</span>
           <span className="text-xs text-muted">{product.unit}</span>
         </div>
-        <button
-          disabled={!product.inStock}
-          onClick={handleAdd}
-          className={`mt-3 w-full rounded-lg py-2 text-sm font-semibold text-background transition disabled:cursor-not-allowed disabled:opacity-50 ${
-            justAdded ? "bg-secondary" : "bg-primary hover:bg-secondary"
-          }`}
-        >
-          {!product.inStock ? "Unavailable" : justAdded ? (
-            <span className="inline-flex items-center gap-1"><Check size={14} /> Added!</span>
-          ) : (
-            `Add to Cart${cartItem ? ` (${cartItem.quantity})` : ""}`
-          )}
-        </button>
+        {!product.inStock ? (
+          <div className="mt-3 flex w-full items-center justify-center rounded-lg border-2 border-muted/30 bg-muted/10 py-2 text-sm font-semibold text-muted">
+            Out of Stock
+          </div>
+        ) : cartItem && !justAdded ? (
+          <div className="mt-3 flex items-center justify-between rounded-lg bg-primary/10 px-3 py-1.5">
+            <button
+              onClick={() => updateQuantity(product.id, -1)}
+              className="flex h-8 w-8 items-center justify-center rounded-full bg-secondary/20 text-primary transition hover:bg-secondary/40"
+            >
+              <Minus size={14} />
+            </button>
+            <span className="text-sm font-semibold text-primary">{cartItem.quantity}</span>
+            <button
+              onClick={() => updateQuantity(product.id, 1)}
+              className="flex h-8 w-8 items-center justify-center rounded-full bg-secondary/20 text-primary transition hover:bg-secondary/40"
+            >
+              <Plus size={14} />
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={handleAdd}
+            className={`mt-3 w-full rounded-lg py-2 text-sm font-semibold text-background transition ${
+              justAdded ? "bg-secondary" : "bg-primary hover:bg-secondary"
+            }`}
+          >
+            {justAdded ? (
+              <span className="inline-flex items-center gap-1"><Check size={14} /> Added!</span>
+            ) : "Add to Cart"}
+          </button>
+        )}
       </div>
     </div>
   );

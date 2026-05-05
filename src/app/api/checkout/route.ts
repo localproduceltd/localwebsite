@@ -51,6 +51,19 @@ export async function POST(request: NextRequest) {
       quantity: item.quantity,
     }));
 
+    // Add delivery fee
+    lineItems.push({
+      price_data: {
+        currency: "gbp",
+        product_data: {
+          name: "Delivery Fee",
+          description: "Home delivery",
+        },
+        unit_amount: 299, // £2.99
+      },
+      quantity: 1,
+    });
+
     // Add box deposit if applicable
     if (boxDepositPaid) {
       lineItems.push({

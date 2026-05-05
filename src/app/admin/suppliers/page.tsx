@@ -12,7 +12,7 @@ import {
   createSupplierUser,
   deleteSupplierUser,
 } from "@/lib/data";
-import { Plus, Pencil, Trash2, X, MapPin, UserPlus, Link2, ChevronDown, ChevronRight } from "lucide-react";
+import { Plus, Pencil, Trash2, X, MapPin, UserPlus, Link2, ChevronDown, ChevronRight, Star } from "lucide-react";
 import { type SupplierStatus } from "@/lib/data";
 import ImageUpload from "@/components/ImageUpload";
 import MapPicker from "@/components/MapPicker";
@@ -33,10 +33,21 @@ const SUPPLIER_CATEGORIES = [
 const STATUS_CONFIG: Record<SupplierStatus, { label: string; color: string; bgColor: string }> = {
   launch_live: { label: "Live", color: "text-green-700", bgColor: "bg-green-100" },
   launch_not_live: { label: "Not Live", color: "text-red-600", bgColor: "bg-red-100" },
-  development_live: { label: "Development Live", color: "text-blue-700", bgColor: "bg-blue-100" },
-  development_coming_soon: { label: "Development Coming Soon", color: "text-amber-700", bgColor: "bg-amber-100" },
   archived: { label: "Archived", color: "text-gray-500", bgColor: "bg-gray-100" },
 };
+
+// Check which required fields are missing for a supplier
+function getIncompleteFields(supplier: Supplier, hasLinkedUser: boolean): string[] {
+  const missing: string[] = [];
+  if (!supplier.name?.trim()) missing.push("Name");
+  if (!supplier.description?.trim()) missing.push("Description");
+  if (!supplier.image || supplier.image.includes("Holding Image")) missing.push("Photo");
+  if (!supplier.location?.trim()) missing.push("Location");
+  if (!supplier.category?.trim()) missing.push("Category");
+  if (!supplier.email?.trim()) missing.push("Email");
+  if (!hasLinkedUser) missing.push("Supplier Login");
+  return missing;
+}
 
 export default function AdminSuppliersPage() {
   const [supplierList, setSupplierList] = useState<Supplier[]>([]);
@@ -48,8 +59,8 @@ export default function AdminSuppliersPage() {
   
   // Collapsible sections
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
-    main: true,
-    prelaunch: false,
+    live: true,
+    notLive: true,
     archived: false,
   });
   
@@ -58,9 +69,13 @@ export default function AdminSuppliersPage() {
   };
   
   // Group suppliers by status
-  const mainSuppliers = supplierList.filter((s) => s.status === "launch_live" || s.status === "launch_not_live");
-  const developmentSuppliers = supplierList.filter((s) => s.status === "development_live" || s.status === "development_coming_soon");
+  const liveSuppliers = supplierList.filter((s) => s.status === "launch_live");
+  const notLiveSuppliers = supplierList.filter((s) => s.status === "launch_not_live");
   const archivedSuppliers = supplierList.filter((s) => s.status === "archived");
+  
+  // Count incomplete profiles
+  const incompleteCount = (suppliers: Supplier[]) => 
+    suppliers.filter((s) => getIncompleteFields(s, supplierUsers.some((su) => su.supplierId === s.id)).length > 0).length;
 
   const fetchSuppliers = () => getSuppliers().then(setSupplierList).catch(console.error);
   const fetchSupplierUsers = () => getSupplierUsers().then(setSupplierUsers).catch(console.error);
@@ -99,6 +114,12 @@ export default function AdminSuppliersPage() {
 
   const handleStatusChange = async (supplier: Supplier, newStatus: SupplierStatus) => {
     const updated = { ...supplier, status: newStatus, active: newStatus === "launch_live" };
+    await updateSupplier(updated);
+    setSupplierList((prev) => prev.map((s) => (s.id === supplier.id ? updated : s)));
+  };
+
+  const handleToggleFeatured = async (supplier: Supplier) => {
+    const updated = { ...supplier, featured: !supplier.featured };
     await updateSupplier(updated);
     setSupplierList((prev) => prev.map((s) => (s.id === supplier.id ? updated : s)));
   };
@@ -143,12 +164,12 @@ export default function AdminSuppliersPage() {
           <p className="mt-1 text-muted">
             <span className="inline-flex items-center gap-1">
               <span className="inline-block h-2 w-2 rounded-full bg-green-500"></span>
-              {mainSuppliers.filter((s) => s.status === "launch_live").length} live
+              {liveSuppliers.length} live
             </span>
             <span className="mx-2">·</span>
             <span className="inline-flex items-center gap-1">
-              <span className="inline-block h-2 w-2 rounded-full bg-red-400"></span>
-              {mainSuppliers.filter((s) => s.status === "launch_not_live").length} not live
+              <span className="inline-block h-2 w-2 rounded-full bg-amber-400"></span>
+              {notLiveSuppliers.length} not live
             </span>
           </p>
         </div>
@@ -168,56 +189,35 @@ export default function AdminSuppliersPage() {
         />
       )}
 
-      {/* Main Suppliers Section (Live / Not Live) */}
+      {/* Live Suppliers Section */}
       <div className="mt-8">
         <button
-          onClick={() => toggleSection("main")}
+          onClick={() => toggleSection("live")}
           className="flex w-full items-center justify-between rounded-lg bg-surface px-4 py-3 text-left shadow-sm transition hover:bg-surface/80"
         >
           <div className="flex items-center gap-3">
-            {expandedSections.main ? <ChevronDown size={20} className="text-primary" /> : <ChevronRight size={20} className="text-primary" />}
-            <h2 className="text-lg font-semibold text-primary">Launch</h2>
-            <span className="rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-primary">{mainSuppliers.length}</span>
+            {expandedSections.live ? <ChevronDown size={20} className="text-green-600" /> : <ChevronRight size={20} className="text-green-600" />}
+            <h2 className="text-lg font-semibold text-green-700">Live</h2>
+            <span className="rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-700">{liveSuppliers.length}</span>
+            {liveSuppliers.filter((s) => s.featured).length > 0 && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-accent/20 px-2.5 py-0.5 text-xs font-medium text-accent">
+                <Star size={10} className="fill-accent" /> {liveSuppliers.filter((s) => s.featured).length} featured
+              </span>
+            )}
+            {incompleteCount(liveSuppliers) > 0 && (
+              <span className="rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-medium text-red-600">
+                {incompleteCount(liveSuppliers)} incomplete
+              </span>
+            )}
           </div>
         </button>
         
-        {expandedSections.main && (
+        {expandedSections.live && (
           <div className="mt-4 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            {mainSuppliers.map((supplier) => (
-              <SupplierCard
-                key={supplier.id}
-                supplier={supplier}
-                supplierUsers={supplierUsers}
-                onEdit={() => { setEditing(supplier); setShowForm(true); }}
-                onDelete={() => handleDelete(supplier.id)}
-                onStatusChange={(status) => handleStatusChange(supplier, status)}
-                onLinkUser={() => { setLinkingSupplierId(supplier.id); setLinkClerkId(""); }}
-                onUnlinkUser={handleUnlinkUser}
-              />
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* Pre-launch Suppliers Section */}
-      <div className="mt-6">
-        <button
-          onClick={() => toggleSection("prelaunch")}
-          className="flex w-full items-center justify-between rounded-lg bg-surface px-4 py-3 text-left shadow-sm transition hover:bg-surface/80"
-        >
-          <div className="flex items-center gap-3">
-            {expandedSections.prelaunch ? <ChevronDown size={20} className="text-primary" /> : <ChevronRight size={20} className="text-primary" />}
-            <h2 className="text-lg font-semibold text-primary">Pre-launch</h2>
-            <span className="rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-medium text-blue-700">{developmentSuppliers.length}</span>
-          </div>
-        </button>
-        
-        {expandedSections.prelaunch && (
-          <div className="mt-4 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            {developmentSuppliers.length === 0 ? (
-              <p className="col-span-full text-sm text-muted py-4">No pre-launch suppliers yet.</p>
+            {liveSuppliers.length === 0 ? (
+              <p className="col-span-full text-sm text-muted py-4">No live suppliers yet.</p>
             ) : (
-              developmentSuppliers.map((supplier) => (
+              liveSuppliers.map((supplier) => (
                 <SupplierCard
                   key={supplier.id}
                   supplier={supplier}
@@ -227,6 +227,48 @@ export default function AdminSuppliersPage() {
                   onStatusChange={(status) => handleStatusChange(supplier, status)}
                   onLinkUser={() => { setLinkingSupplierId(supplier.id); setLinkClerkId(""); }}
                   onUnlinkUser={handleUnlinkUser}
+                  onToggleFeatured={() => handleToggleFeatured(supplier)}
+                />
+              ))
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Not Live Suppliers Section */}
+      <div className="mt-6">
+        <button
+          onClick={() => toggleSection("notLive")}
+          className="flex w-full items-center justify-between rounded-lg bg-surface px-4 py-3 text-left shadow-sm transition hover:bg-surface/80"
+        >
+          <div className="flex items-center gap-3">
+            {expandedSections.notLive ? <ChevronDown size={20} className="text-amber-600" /> : <ChevronRight size={20} className="text-amber-600" />}
+            <h2 className="text-lg font-semibold text-amber-700">Not Live</h2>
+            <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-700">{notLiveSuppliers.length}</span>
+            {incompleteCount(notLiveSuppliers) > 0 && (
+              <span className="rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-medium text-red-600">
+                {incompleteCount(notLiveSuppliers)} incomplete
+              </span>
+            )}
+          </div>
+        </button>
+        
+        {expandedSections.notLive && (
+          <div className="mt-4 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+            {notLiveSuppliers.length === 0 ? (
+              <p className="col-span-full text-sm text-muted py-4">No suppliers waiting to go live.</p>
+            ) : (
+              notLiveSuppliers.map((supplier) => (
+                <SupplierCard
+                  key={supplier.id}
+                  supplier={supplier}
+                  supplierUsers={supplierUsers}
+                  onEdit={() => { setEditing(supplier); setShowForm(true); }}
+                  onDelete={() => handleDelete(supplier.id)}
+                  onStatusChange={(status) => handleStatusChange(supplier, status)}
+                  onLinkUser={() => { setLinkingSupplierId(supplier.id); setLinkClerkId(""); }}
+                  onUnlinkUser={handleUnlinkUser}
+                  onToggleFeatured={() => handleToggleFeatured(supplier)}
                 />
               ))
             )}
@@ -262,6 +304,7 @@ export default function AdminSuppliersPage() {
                   onStatusChange={(status) => handleStatusChange(supplier, status)}
                   onLinkUser={() => { setLinkingSupplierId(supplier.id); setLinkClerkId(""); }}
                   onUnlinkUser={handleUnlinkUser}
+                  onToggleFeatured={() => handleToggleFeatured(supplier)}
                 />
               ))
             )}
@@ -327,6 +370,7 @@ function SupplierForm({
       status: "launch_not_live",
       email: null,
       instagram: null,
+      featured: false,
     }
   );
   const [showMapPicker, setShowMapPicker] = useState(false);
@@ -407,8 +451,6 @@ function SupplierForm({
             >
               <option value="launch_live">Live</option>
               <option value="launch_not_live">Not Live</option>
-              <option value="development_live">Development Live</option>
-              <option value="development_coming_soon">Development Coming Soon</option>
               <option value="archived">Archived</option>
             </select>
           </div>
@@ -457,6 +499,7 @@ function SupplierCard({
   onStatusChange,
   onLinkUser,
   onUnlinkUser,
+  onToggleFeatured,
 }: {
   supplier: Supplier;
   supplierUsers: (SupplierUser & { supplierName: string })[];
@@ -465,17 +508,48 @@ function SupplierCard({
   onStatusChange: (status: SupplierStatus) => void;
   onLinkUser: () => void;
   onUnlinkUser: (id: string) => void;
+  onToggleFeatured: () => void;
 }) {
   const linked = supplierUsers.find((su) => su.supplierId === supplier.id);
   const statusConfig = STATUS_CONFIG[supplier.status];
+  const incompleteFields = getIncompleteFields(supplier, !!linked);
+  const isComplete = incompleteFields.length === 0;
 
   return (
     <div className="overflow-hidden rounded-xl bg-surface shadow-sm">
       <div className="relative aspect-[3/2] overflow-hidden">
         <img src={supplier.image || "/images/Holding Image - Supplier.png"} alt={supplier.name} className="h-full w-full object-cover" />
+        {/* Featured star */}
+        <button
+          onClick={onToggleFeatured}
+          title={supplier.featured ? "Remove from homepage" : "Feature on homepage"}
+          className={`absolute top-2 left-2 flex h-7 w-7 items-center justify-center rounded-full shadow-sm transition ${
+            supplier.featured
+              ? "bg-accent text-white"
+              : "bg-white/80 text-gray-400 hover:text-accent"
+          }`}
+        >
+          <Star size={14} className={supplier.featured ? "fill-white" : ""} />
+        </button>
         <span className={`absolute top-2 right-2 rounded-full px-2.5 py-0.5 text-xs font-bold ${statusConfig.bgColor} ${statusConfig.color}`}>
           {statusConfig.label}
         </span>
+        {/* Profile completeness indicator */}
+        {!isComplete && (
+          <div className="absolute top-2 left-10 group">
+            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-white text-xs font-bold shadow-sm cursor-help">
+              !
+            </span>
+            <div className="absolute left-0 top-6 z-10 hidden group-hover:block w-48 rounded-lg bg-gray-900 p-2 text-xs text-white shadow-lg">
+              <p className="font-semibold mb-1">Profile Incomplete:</p>
+              <ul className="list-disc list-inside">
+                {incompleteFields.map((field) => (
+                  <li key={field}>{field}</li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        )}
       </div>
       <div className="p-4">
         <span className="inline-block rounded-full bg-secondary/20 px-2.5 py-0.5 text-xs font-medium text-primary">
@@ -498,8 +572,6 @@ function SupplierCard({
           >
             <option value="launch_live">Live</option>
             <option value="launch_not_live">Not Live</option>
-            <option value="development_live">Development Live</option>
-            <option value="development_coming_soon">Development Coming Soon</option>
             <option value="archived">Archived</option>
           </select>
         </div>

@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { type Product, type Supplier, type Locality, type ProductStatus, ALL_LOCALITIES, getProducts, getLiveSuppliers, createProduct, updateProduct, deleteProduct, restoreProduct, permanentlyDeleteProduct, updateProductStatus, getSupplierByProductId } from "@/lib/data";
 import { PRODUCT_CATEGORIES, ALLERGENS, PRODUCT_TAGS } from "@/lib/categories";
-import { Plus, Pencil, Trash2, X, Check, XCircle, Search, ChevronDown, ChevronRight, MapPin, RotateCcw, Archive } from "lucide-react";
+import { Plus, Pencil, Trash2, X, Search, ChevronDown, ChevronRight, MapPin, RotateCcw, Archive, Star, Filter, XCircle } from "lucide-react";
 import MapPicker from "@/components/MapPicker";
 import ImageUpload from "@/components/ImageUpload";
 
@@ -19,6 +19,17 @@ export default function AdminProductsPage() {
   const [rejectionReason, setRejectionReason] = useState("");
   const [deletingProduct, setDeletingProduct] = useState<Product | null>(null);
   const [showArchived, setShowArchived] = useState(false);
+  
+  // Advanced filters
+  const [showFilters, setShowFilters] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState<string>("all");
+  const [selectedLocalities, setSelectedLocalities] = useState<Set<Locality>>(new Set());
+  const [selectedTags, setSelectedTags] = useState<Set<string>>(new Set());
+  const [stockFilter, setStockFilter] = useState<"all" | "in" | "out">("all");
+  const [imageFilter, setImageFilter] = useState<"all" | "has" | "missing">("all");
+  const [locationFilter, setLocationFilter] = useState<"all" | "variable" | "fixed">("all");
+  const [priceFilter, setPriceFilter] = useState<"all" | "has" | "missing">("all");
 
   const fetchProducts = () => getProducts().then(setProductList).catch(console.error);
 
@@ -58,6 +69,13 @@ export default function AdminProductsPage() {
 
   const handleStatusChange = async (productId: string, status: ProductStatus, reason?: string) => {
     const product = productList.find((p) => p.id === productId);
+    
+    // Don't allow approval if product has no image
+    if (status === "approved" && product && !product.image) {
+      alert("Cannot approve a product without a photo. Please add an image first.");
+      return;
+    }
+    
     await updateProductStatus(productId, status, reason);
     setProductList((prev) => prev.map((p) => (p.id === productId ? { ...p, status, rejectionReason: status === "rejected" ? reason : null } : p)));
 
@@ -99,6 +117,27 @@ export default function AdminProductsPage() {
   // Get set of launch supplier IDs for filtering
   const launchSupplierIds = useMemo(() => new Set(suppliers.map((s) => s.id)), [suppliers]);
 
+  // Josie's Picks - count and toggle
+  const josiesPicksCount = productList.filter((p) => p.tags?.includes("josies-pick")).length;
+  
+  const toggleJosiesPick = async (product: Product) => {
+    const isCurrentlyPicked = product.tags?.includes("josies-pick");
+    
+    // Don't allow more than 4 picks
+    if (!isCurrentlyPicked && josiesPicksCount >= 4) {
+      alert("You can only have 4 Josie's Top Picks. Remove one first!");
+      return;
+    }
+    
+    const newTags = isCurrentlyPicked
+      ? product.tags.filter((t) => t !== "josies-pick")
+      : [...(product.tags || []), "josies-pick"];
+    
+    const updatedProduct = { ...product, tags: newTags };
+    await updateProduct(updatedProduct);
+    setProductList((prev) => prev.map((p) => p.id === product.id ? updatedProduct : p));
+  };
+
   // Separate active and archived products
   const activeProducts = productList.filter((p) => !p.archivedAt);
   const archivedProducts = productList.filter((p) => p.archivedAt);
@@ -106,8 +145,66 @@ export default function AdminProductsPage() {
   const filtered = activeProducts
     .filter((p) => launchSupplierIds.has(p.supplierId)) // Only show products from launch suppliers
     .filter((p) => statusFilter === "all" || p.status === statusFilter)
-    .filter((p) => supplierFilter === "all" || p.supplierId === supplierFilter);
+    .filter((p) => {
+      if (supplierFilter === "all") return true;
+      if (supplierFilter === "live_only") {
+        const supplier = suppliers.find((s) => s.id === p.supplierId);
+        return supplier?.status === "launch_live";
+      }
+      if (supplierFilter === "not_live_only") {
+        const supplier = suppliers.find((s) => s.id === p.supplierId);
+        return supplier?.status === "launch_not_live";
+      }
+      return p.supplierId === supplierFilter;
+    })
+    // Search filter
+    .filter((p) => {
+      if (!searchQuery.trim()) return true;
+      const q = searchQuery.toLowerCase();
+      return p.name.toLowerCase().includes(q) || p.description?.toLowerCase().includes(q) || p.supplierName.toLowerCase().includes(q);
+    })
+    // Category filter
+    .filter((p) => categoryFilter === "all" || p.category === categoryFilter)
+    // Locality filter
+    .filter((p) => selectedLocalities.size === 0 || selectedLocalities.has(p.locality))
+    // Tags filter
+    .filter((p) => selectedTags.size === 0 || p.tags?.some((t) => selectedTags.has(t)))
+    // Stock filter
+    .filter((p) => stockFilter === "all" || (stockFilter === "in" ? p.inStock : !p.inStock))
+    // Image filter
+    .filter((p) => imageFilter === "all" || (imageFilter === "has" ? !!p.image : !p.image))
+    // Variable location filter
+    .filter((p) => locationFilter === "all" || (locationFilter === "variable" ? p.variableLocation : !p.variableLocation))
+    // Price filter
+    .filter((p) => priceFilter === "all" || (priceFilter === "has" ? p.price > 0 : !p.price || p.price === 0));
+  
   const pendingCount = activeProducts.filter((p) => launchSupplierIds.has(p.supplierId) && p.status === "pending").length;
+  const totalBeforeFilters = activeProducts.filter((p) => launchSupplierIds.has(p.supplierId)).length;
+  
+  // Count active filters
+  const activeFilterCount = [
+    searchQuery.trim() ? 1 : 0,
+    categoryFilter !== "all" ? 1 : 0,
+    selectedLocalities.size > 0 ? 1 : 0,
+    selectedTags.size > 0 ? 1 : 0,
+    stockFilter !== "all" ? 1 : 0,
+    imageFilter !== "all" ? 1 : 0,
+    locationFilter !== "all" ? 1 : 0,
+    priceFilter !== "all" ? 1 : 0,
+  ].reduce((a, b) => a + b, 0);
+  
+  const clearAllFilters = () => {
+    setSearchQuery("");
+    setCategoryFilter("all");
+    setSelectedLocalities(new Set());
+    setSelectedTags(new Set());
+    setStockFilter("all");
+    setImageFilter("all");
+    setLocationFilter("all");
+    setPriceFilter("all");
+    setStatusFilter("all");
+    setSupplierFilter("all");
+  };
 
   // Group products by supplier, sorted alphabetically
   const groupedBySupplier = useMemo(() => {
@@ -144,14 +241,36 @@ export default function AdminProductsPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold text-primary">Products</h1>
-          <p className="mt-1 text-muted">{filtered.length} products{pendingCount > 0 && <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-bold text-amber-700">{pendingCount} pending</span>}</p>
+          <p className="mt-1 text-muted">
+            {filtered.length !== totalBeforeFilters ? `Showing ${filtered.length} of ${totalBeforeFilters} products` : `${filtered.length} products`}
+            {pendingCount > 0 && <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-bold text-amber-700">{pendingCount} pending</span>}
+            <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-accent/20 px-2 py-0.5 text-xs font-bold text-primary">
+              <Star size={10} className="fill-accent text-accent" /> {josiesPicksCount}/4 picks
+            </span>
+          </p>
         </div>
-        <button
-          onClick={() => { setEditing(null); setShowForm(true); }}
-          className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-background transition hover:bg-secondary"
-        >
-          <Plus size={16} /> Add Product
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowFilters(!showFilters)}
+            className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition ${
+              showFilters || activeFilterCount > 0
+                ? "bg-secondary text-white"
+                : "bg-primary/10 text-primary hover:bg-primary/20"
+            }`}
+          >
+            <Filter size={16} />
+            Filters
+            {activeFilterCount > 0 && (
+              <span className="rounded-full bg-white/20 px-1.5 py-0.5 text-xs">{activeFilterCount}</span>
+            )}
+          </button>
+          <button
+            onClick={() => { setEditing(null); setShowForm(true); }}
+            className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-background transition hover:bg-secondary"
+          >
+            <Plus size={16} /> Add Product
+          </button>
+        </div>
       </div>
 
       {/* Product Form Modal */}
@@ -236,40 +355,219 @@ export default function AdminProductsPage() {
         </div>
       )}
 
-      {/* Filters */}
-      <div className="mt-6 flex flex-wrap items-center gap-4">
-        {/* Supplier filter */}
-        <div className="flex items-center gap-2">
-          <Search size={16} className="text-muted" />
-          <select
-            value={supplierFilter}
-            onChange={(e) => setSupplierFilter(e.target.value)}
-            className="rounded-lg border border-primary/20 bg-surface px-3 py-1.5 text-sm outline-none focus:border-secondary"
-          >
-            <option value="all">All Suppliers</option>
-            {suppliers.map((s) => (
-              <option key={s.id} value={s.id}>{s.name}</option>
-            ))}
-          </select>
+      {/* Collapsible Filters Panel */}
+      {showFilters && (
+        <div className="mt-6 rounded-xl bg-surface p-4 shadow-sm">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="font-semibold text-primary">Filters</h3>
+            {activeFilterCount > 0 && (
+              <button
+                onClick={clearAllFilters}
+                className="inline-flex items-center gap-1 text-xs text-red-600 hover:text-red-700 font-medium"
+              >
+                <XCircle size={14} /> Clear all filters
+              </button>
+            )}
+          </div>
+          
+          {/* Search */}
+          <div className="mb-4">
+            <div className="relative">
+              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
+              <input
+                type="text"
+                placeholder="Search products, descriptions, suppliers..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full rounded-lg border border-primary/20 bg-white pl-10 pr-4 py-2 text-sm outline-none focus:border-secondary"
+              />
+            </div>
+          </div>
+          
+          {/* Row 1: Supplier, Category, Status */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
+            <div>
+              <label className="block text-xs font-medium text-muted mb-1">Supplier</label>
+              <select
+                value={supplierFilter}
+                onChange={(e) => setSupplierFilter(e.target.value)}
+                className="w-full rounded-lg border border-primary/20 bg-white px-3 py-1.5 text-sm outline-none focus:border-secondary"
+              >
+                <option value="all">All Suppliers</option>
+                <option value="live_only">Live Suppliers Only</option>
+                <option value="not_live_only">Not Live Suppliers Only</option>
+                <optgroup label="Live">
+                  {suppliers.filter((s) => s.status === "launch_live").map((s) => (
+                    <option key={s.id} value={s.id}>{s.name}</option>
+                  ))}
+                </optgroup>
+                <optgroup label="Not Live">
+                  {suppliers.filter((s) => s.status === "launch_not_live").map((s) => (
+                    <option key={s.id} value={s.id}>{s.name}</option>
+                  ))}
+                </optgroup>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-muted mb-1">Category</label>
+              <select
+                value={categoryFilter}
+                onChange={(e) => setCategoryFilter(e.target.value)}
+                className="w-full rounded-lg border border-primary/20 bg-white px-3 py-1.5 text-sm outline-none focus:border-secondary"
+              >
+                <option value="all">All Categories</option>
+                {PRODUCT_CATEGORIES.map((cat) => (
+                  <option key={cat} value={cat}>{cat}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-muted mb-1">Status</label>
+              <div className="flex gap-1">
+                {(["all", "approved", "pending", "rejected"] as const).map((s) => (
+                  <button
+                    key={s}
+                    onClick={() => setStatusFilter(s)}
+                    className={`flex-1 rounded-lg px-2 py-1.5 text-xs font-semibold capitalize transition ${
+                      statusFilter === s
+                        ? "bg-primary text-white"
+                        : "bg-primary/10 text-primary hover:bg-primary/20"
+                    }`}
+                  >
+                    {s === "all" ? "All" : s.charAt(0).toUpperCase()}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+          
+          {/* Row 2: Locality */}
+          <div className="mb-4">
+            <label className="block text-xs font-medium text-muted mb-1">Locality</label>
+            <div className="flex flex-wrap gap-2">
+              {ALL_LOCALITIES.map((loc) => (
+                <button
+                  key={loc}
+                  onClick={() => {
+                    const next = new Set(selectedLocalities);
+                    if (next.has(loc)) next.delete(loc);
+                    else next.add(loc);
+                    setSelectedLocalities(next);
+                  }}
+                  className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
+                    selectedLocalities.has(loc)
+                      ? "bg-secondary text-white"
+                      : "bg-primary/10 text-primary hover:bg-primary/20"
+                  }`}
+                >
+                  {loc}
+                </button>
+              ))}
+            </div>
+          </div>
+          
+          {/* Row 3: Tags */}
+          <div className="mb-4">
+            <label className="block text-xs font-medium text-muted mb-1">Tags</label>
+            <div className="flex flex-wrap gap-2">
+              {PRODUCT_TAGS.map((tag) => (
+                <button
+                  key={tag.id}
+                  onClick={() => {
+                    const next = new Set(selectedTags);
+                    if (next.has(tag.id)) next.delete(tag.id);
+                    else next.add(tag.id);
+                    setSelectedTags(next);
+                  }}
+                  className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
+                    selectedTags.has(tag.id)
+                      ? "bg-accent text-white"
+                      : "bg-primary/10 text-primary hover:bg-primary/20"
+                  }`}
+                >
+                  {tag.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          
+          {/* Row 4: Quick filters */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            <div>
+              <label className="block text-xs font-medium text-muted mb-1">Stock</label>
+              <div className="flex gap-1">
+                {([["all", "All"], ["in", "In Stock"], ["out", "Out"]] as const).map(([val, label]) => (
+                  <button
+                    key={val}
+                    onClick={() => setStockFilter(val)}
+                    className={`flex-1 rounded-lg px-2 py-1.5 text-xs font-semibold transition ${
+                      stockFilter === val
+                        ? "bg-primary text-white"
+                        : "bg-primary/10 text-primary hover:bg-primary/20"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-muted mb-1">Image</label>
+              <div className="flex gap-1">
+                {([["all", "All"], ["has", "Has"], ["missing", "Missing"]] as const).map(([val, label]) => (
+                  <button
+                    key={val}
+                    onClick={() => setImageFilter(val)}
+                    className={`flex-1 rounded-lg px-2 py-1.5 text-xs font-semibold transition ${
+                      imageFilter === val
+                        ? "bg-primary text-white"
+                        : "bg-primary/10 text-primary hover:bg-primary/20"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-muted mb-1">Location</label>
+              <div className="flex gap-1">
+                {([["all", "All"], ["variable", "Variable"], ["fixed", "Fixed"]] as const).map(([val, label]) => (
+                  <button
+                    key={val}
+                    onClick={() => setLocationFilter(val)}
+                    className={`flex-1 rounded-lg px-2 py-1.5 text-xs font-semibold transition ${
+                      locationFilter === val
+                        ? "bg-primary text-white"
+                        : "bg-primary/10 text-primary hover:bg-primary/20"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-muted mb-1">Price</label>
+              <div className="flex gap-1">
+                {([["all", "All"], ["has", "Has"], ["missing", "£0"]] as const).map(([val, label]) => (
+                  <button
+                    key={val}
+                    onClick={() => setPriceFilter(val)}
+                    className={`flex-1 rounded-lg px-2 py-1.5 text-xs font-semibold transition ${
+                      priceFilter === val
+                        ? "bg-primary text-white"
+                        : "bg-primary/10 text-primary hover:bg-primary/20"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
         </div>
-
-        {/* Status filter */}
-        <div className="flex gap-2">
-        {(["all", "approved", "pending", "rejected"] as const).map((s) => (
-          <button
-            key={s}
-            onClick={() => setStatusFilter(s)}
-            className={`rounded-full px-3 py-1 text-xs font-semibold capitalize transition ${
-              statusFilter === s
-                ? "bg-primary text-white"
-                : "bg-primary/10 text-primary hover:bg-primary/20"
-            }`}
-          >
-            {s} {s !== "all" && `(${productList.filter((p) => launchSupplierIds.has(p.supplierId) && p.status === s).length})`}
-          </button>
-        ))}
-        </div>
-      </div>
+      )}
 
       {/* Products grouped by supplier */}
       <div className="mt-4 space-y-4">
@@ -321,11 +619,33 @@ export default function AdminProductsPage() {
                       <tr key={product.id} className="border-b border-primary/5 last:border-0">
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-3">
+                            <button
+                              onClick={() => toggleJosiesPick(product)}
+                              title={product.tags?.includes("josies-pick") ? "Remove from Josie's Picks" : "Add to Josie's Picks"}
+                              className={`shrink-0 rounded p-1 transition ${
+                                product.tags?.includes("josies-pick")
+                                  ? "text-accent"
+                                  : "text-gray-300 hover:text-accent/60"
+                              }`}
+                            >
+                              <Star size={16} className={product.tags?.includes("josies-pick") ? "fill-accent" : ""} />
+                            </button>
                             <div className="h-10 w-10 overflow-hidden rounded-lg bg-secondary/10">
-                              <img src={product.image} alt="" className="h-full w-full object-cover" />
+                              {product.image ? (
+                                <img src={product.image} alt="" className="h-full w-full object-cover" />
+                              ) : (
+                                <div className="h-full w-full flex items-center justify-center text-muted text-xs">?</div>
+                              )}
                             </div>
                             <div>
-                              <p className="font-medium text-primary">{product.name}</p>
+                              <p className="font-medium text-primary">
+                                {product.name}
+                                {product.tags?.includes("josies-pick") && (
+                                  <span className="ml-2 inline-flex items-center gap-0.5 rounded-full bg-accent/20 px-1.5 py-0.5 text-[10px] font-bold text-accent">
+                                    <Star size={8} className="fill-accent" /> PICK
+                                  </span>
+                                )}
+                              </p>
                               <p className="text-xs text-muted">{product.unit}</p>
                             </div>
                           </div>
@@ -345,34 +665,29 @@ export default function AdminProductsPage() {
                           <span className={`inline-block h-2.5 w-2.5 rounded-full ${product.inStock ? "bg-green-500" : "bg-red-400"}`} />
                         </td>
                         <td className="px-4 py-3 text-center">
-                          <span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-bold ${
-                            product.status === "approved" ? "bg-green-100 text-green-700" :
-                            product.status === "pending" ? "bg-amber-100 text-amber-700" :
-                            "bg-red-100 text-red-600"
-                          }`}>
-                            {product.status}
-                          </span>
+                          <select
+                            value={product.status}
+                            onChange={(e) => {
+                              const newStatus = e.target.value as ProductStatus;
+                              if (newStatus === "rejected") {
+                                setRejectingProduct(product);
+                              } else {
+                                handleStatusChange(product.id, newStatus);
+                              }
+                            }}
+                            className={`cursor-pointer rounded-full px-2.5 py-0.5 text-xs font-bold border-0 outline-none ${
+                              product.status === "approved" ? "bg-green-100 text-green-700" :
+                              product.status === "pending" ? "bg-amber-100 text-amber-700" :
+                              "bg-red-100 text-red-600"
+                            }`}
+                          >
+                            <option value="approved">approved</option>
+                            <option value="pending">pending</option>
+                            <option value="rejected">rejected</option>
+                          </select>
                         </td>
                         <td className="px-4 py-3 text-right">
                           <div className="flex items-center justify-end gap-1">
-                            {product.status !== "approved" && (
-                              <button
-                                onClick={() => handleStatusChange(product.id, "approved")}
-                                title="Approve"
-                                className="rounded p-1.5 text-green-600 transition hover:bg-green-50"
-                              >
-                                <Check size={14} />
-                              </button>
-                            )}
-                            {product.status !== "rejected" && (
-                              <button
-                                onClick={() => setRejectingProduct(product)}
-                                title="Reject"
-                                className="rounded p-1.5 text-red-500 transition hover:bg-red-50"
-                              >
-                                <XCircle size={14} />
-                              </button>
-                            )}
                             <button
                               onClick={() => { setEditing(product); setShowForm(true); }}
                               className="rounded p-1.5 text-muted transition hover:bg-secondary/20 hover:text-primary"
@@ -502,6 +817,7 @@ function ProductForm({
       status: "approved" as ProductStatus,
       allergens: [],
       tags: [],
+      ingredients: null,
     }
   );
   const [showMapPicker, setShowMapPicker] = useState(false);
@@ -531,9 +847,16 @@ function ProductForm({
             className="w-full rounded-lg border border-primary/20 bg-surface px-3 py-2 text-sm outline-none focus:border-secondary"
           >
             <option value="">Select a supplier...</option>
-            {suppliers.map((s) => (
-              <option key={s.id} value={s.id}>{s.name}</option>
-            ))}
+            <optgroup label="Live">
+              {suppliers.filter((s) => s.status === "launch_live").map((s) => (
+                <option key={s.id} value={s.id}>{s.name}</option>
+              ))}
+            </optgroup>
+            <optgroup label="Not Live">
+              {suppliers.filter((s) => s.status === "launch_not_live").map((s) => (
+                <option key={s.id} value={s.id}>{s.name}</option>
+              ))}
+            </optgroup>
           </select>
           <textarea
             placeholder="Description"
@@ -719,6 +1042,19 @@ function ProductForm({
                 );
               })}
             </div>
+          </div>
+
+          {/* Ingredients */}
+          <div>
+            <label className="block text-xs font-medium text-muted mb-1">Ingredients (optional)</label>
+            <textarea
+              placeholder="e.g. Flour (wheat), butter (milk), sugar, eggs, salt..."
+              value={form.ingredients ?? ""}
+              onChange={(e) => setForm({ ...form, ingredients: e.target.value || null })}
+              className="w-full rounded-lg border border-primary/20 bg-surface px-3 py-2 text-sm outline-none focus:border-secondary"
+              rows={3}
+            />
+            <p className="mt-1 text-xs text-muted">List ingredients if applicable. This will be shown to customers.</p>
           </div>
 
           <div>

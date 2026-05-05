@@ -2,7 +2,7 @@ import { supabase } from "@/lib/supabase";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-export type SupplierStatus = "launch_live" | "launch_not_live" | "development_live" | "development_coming_soon" | "archived";
+export type SupplierStatus = "launch_live" | "launch_not_live" | "archived";
 
 export interface Supplier {
   id: string;
@@ -16,6 +16,7 @@ export interface Supplier {
   status: SupplierStatus;
   email: string | null;
   instagram: string | null;
+  featured: boolean;
 }
 
 export interface SupplierUser {
@@ -52,6 +53,7 @@ export interface Product {
   archivedAt?: string | null;
   allergens: string[];
   tags: string[];
+  ingredients?: string | null;
 }
 
 export type SupplierOrderStatus = "order_placed" | "prepping" | "dropped_at_depot" | "delivered" | "cancelled";
@@ -111,41 +113,11 @@ export async function getSuppliers(): Promise<Supplier[]> {
     status: s.status ?? "launch_live",
     email: s.email ?? null,
     instagram: s.instagram ?? null,
+    featured: s.featured ?? false,
   }));
 }
 
-// Development: get suppliers with development_live or development_coming_soon status
-// Orders by status (development_live first, then development_coming_soon), then by name
-export async function getPreLaunchSuppliers(): Promise<Supplier[]> {
-  const { data, error } = await supabase
-    .from("suppliers")
-    .select("*")
-    .in("status", ["development_live", "development_coming_soon"])
-    .order("status")
-    .order("name");
-  if (error) throw error;
-  // Sort so development_live comes before development_coming_soon
-  const sorted = data.sort((a, b) => {
-    if (a.status === "development_live" && b.status === "development_coming_soon") return -1;
-    if (a.status === "development_coming_soon" && b.status === "development_live") return 1;
-    return a.name.localeCompare(b.name);
-  });
-  return sorted.map((s) => ({
-    id: s.id,
-    name: s.name,
-    description: s.description,
-    image: s.image,
-    location: s.location,
-    category: s.category,
-    lat: s.lat ?? null,
-    lng: s.lng ?? null,
-    status: s.status ?? "launch_live",
-    email: s.email ?? null,
-    instagram: s.instagram ?? null,
-  }));
-}
-
-// Launch: get suppliers with launch_live or launch_not_live status
+// Get suppliers with launch_live or launch_not_live status
 export async function getLiveSuppliers(): Promise<Supplier[]> {
   const { data, error } = await supabase
     .from("suppliers")
@@ -165,15 +137,18 @@ export async function getLiveSuppliers(): Promise<Supplier[]> {
     status: s.status ?? "launch_live",
     email: s.email ?? null,
     instagram: s.instagram ?? null,
+    featured: s.featured ?? false,
   }));
 }
 
 // Get only launch_live suppliers (for homepage carousel etc.)
+// Featured suppliers come first, then alphabetically by name
 export async function getActiveSuppliers(): Promise<Supplier[]> {
   const { data, error } = await supabase
     .from("suppliers")
     .select("*")
     .eq("status", "launch_live")
+    .order("featured", { ascending: false })
     .order("name");
   if (error) throw error;
   return data.map((s) => ({
@@ -188,6 +163,7 @@ export async function getActiveSuppliers(): Promise<Supplier[]> {
     status: "launch_live" as const,
     email: s.email ?? null,
     instagram: s.instagram ?? null,
+    featured: s.featured ?? false,
   }));
 }
 
@@ -210,6 +186,7 @@ export async function getSupplier(id: string): Promise<Supplier | null> {
     status: data.status ?? "launch_live",
     email: data.email ?? null,
     instagram: data.instagram ?? null,
+    featured: data.featured ?? false,
   };
 }
 
@@ -239,6 +216,7 @@ export async function getProducts(): Promise<Product[]> {
     archivedAt: p.archived_at ?? null,
     allergens: p.allergens ?? [],
     tags: p.tags ?? [],
+    ingredients: p.ingredients ?? null,
   }));
 }
 
@@ -269,6 +247,7 @@ export async function getApprovedProducts(): Promise<Product[]> {
     status: "approved" as ProductStatus,
     allergens: p.allergens ?? [],
     tags: p.tags ?? [],
+    ingredients: p.ingredients ?? null,
   }));
 }
 
@@ -299,6 +278,7 @@ export async function getProductsBySupplier(supplierId: string): Promise<Product
     archivedAt: p.archived_at ?? null,
     allergens: p.allergens ?? [],
     tags: p.tags ?? [],
+    ingredients: p.ingredients ?? null,
   }));
 }
 
@@ -329,6 +309,7 @@ export async function getProduct(id: string): Promise<Product | null> {
     archivedAt: data.archived_at ?? null,
     allergens: data.allergens ?? [],
     tags: data.tags ?? [],
+    ingredients: data.ingredients ?? null,
   };
 }
 
@@ -424,6 +405,7 @@ export async function createProduct(product: Omit<Product, "id" | "supplierName"
     status: product.status ?? "approved",
     allergens: product.allergens ?? [],
     tags: product.tags ?? [],
+    ingredients: product.ingredients ?? null,
   });
   if (error) throw error;
 }
@@ -445,6 +427,7 @@ export async function updateProduct(product: Product): Promise<void> {
     status: product.status,
     allergens: product.allergens ?? [],
     tags: product.tags ?? [],
+    ingredients: product.ingredients ?? null,
   }).eq("id", product.id);
   if (error) throw error;
 }
@@ -479,7 +462,7 @@ export async function createSupplier(supplier: Omit<Supplier, "id">): Promise<Su
     instagram: supplier.instagram,
   }).select().single();
   if (error) throw error;
-  return { id: data.id, name: data.name, description: data.description, image: data.image, location: data.location, category: data.category, lat: data.lat ?? null, lng: data.lng ?? null, status: data.status ?? "launch_live", email: data.email ?? null, instagram: data.instagram ?? null };
+  return { id: data.id, name: data.name, description: data.description, image: data.image, location: data.location, category: data.category, lat: data.lat ?? null, lng: data.lng ?? null, status: data.status ?? "launch_live", email: data.email ?? null, instagram: data.instagram ?? null, featured: data.featured ?? false };
 }
 
 export async function updateSupplier(supplier: Supplier): Promise<void> {
@@ -494,6 +477,7 @@ export async function updateSupplier(supplier: Supplier): Promise<void> {
     status: supplier.status,
     email: supplier.email,
     instagram: supplier.instagram,
+    featured: supplier.featured,
   }).eq("id", supplier.id);
   if (error) throw error;
 }
@@ -518,6 +502,7 @@ export async function getSupplierByProductId(productId: string): Promise<Supplie
     status: (s.status as SupplierStatus) ?? "launch_live",
     email: s.email ?? null,
     instagram: s.instagram ?? null,
+    featured: false,
   };
 }
 
@@ -579,6 +564,38 @@ export async function updateDeliveryDay(day: DeliveryDay): Promise<void> {
 export async function deleteDeliveryDay(id: string): Promise<void> {
   const { error } = await supabase.from("delivery_days").delete().eq("id", id);
   if (error) throw error;
+}
+
+export async function getOrdersByDeliveryDay(deliveryDate: string): Promise<Order[]> {
+  const { data, error } = await supabase
+    .from("orders")
+    .select("*, order_items(*, suppliers(name))")
+    .eq("delivery_day", deliveryDate)
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  return data.map((o) => ({
+    id: o.id,
+    orderNumber: o.order_number,
+    userId: o.user_id,
+    customerEmail: o.customer_email ?? null,
+    items: (o.order_items as Array<{ product_id: string; product_name: string; quantity: number; price: number; supplier_id?: string; supplier_status?: string; suppliers?: { name: string } | null }>).map((item) => ({
+      productId: item.product_id,
+      productName: item.product_name,
+      quantity: item.quantity,
+      price: Number(item.price),
+      supplierId: item.supplier_id ?? undefined,
+      supplierName: item.suppliers?.name ?? undefined,
+      supplierStatus: (item.supplier_status as SupplierOrderStatus) ?? "order_placed",
+    })),
+    total: Number(o.total),
+    status: o.status as Order["status"],
+    createdAt: new Date(o.created_at).toISOString().split("T")[0],
+    deliveryDay: o.delivery_day,
+    deliveryWindow: o.delivery_window as DeliveryWindow | null,
+    willBeIn: o.will_be_in ?? true,
+    safePlace: o.safe_place ?? null,
+    boxDepositPaid: o.box_deposit_paid ?? false,
+  }));
 }
 
 export interface CreateOrderOptions {
@@ -830,14 +847,21 @@ export async function updateSupplierOrderItemStatus(
 
 // ─── Feedback ─────────────────────────────────────────────────────────────────
 
-export async function submitFeedback(name: string, message: string, source: "carrie" | "order_review" = "carrie", orderNumber?: number): Promise<void> {
+export async function submitFeedback(name: string, message: string, source: "carrie" | "order_review" | "expansion" = "carrie", orderNumber?: number, postcode?: string): Promise<void> {
   const { error } = await supabase
     .from("feedback")
-    .insert({ name: name || null, message, source, order_number: orderNumber ?? null });
+    .insert({ name: name || null, message, source, order_number: orderNumber ?? null, postcode: postcode ?? null });
   if (error) throw error;
 }
 
-export async function getFeedback(): Promise<{ id: string; name: string | null; message: string; created_at: string; source: string; orderNumber: number | null }[]> {
+export async function submitExpansionRequest(postcode: string, email?: string, name?: string): Promise<void> {
+  const message = email 
+    ? `Expansion request for postcode ${postcode}. Contact: ${email}`
+    : `Expansion request for postcode ${postcode}`;
+  await submitFeedback(name || "", message, "expansion", undefined, postcode);
+}
+
+export async function getFeedback(): Promise<{ id: string; name: string | null; message: string; created_at: string; source: string; orderNumber: number | null; postcode: string | null }[]> {
   const { data, error } = await supabase
     .from("feedback")
     .select("*")
@@ -850,6 +874,7 @@ export async function getFeedback(): Promise<{ id: string; name: string | null; 
     created_at: f.created_at,
     source: f.source ?? "carrie",
     orderNumber: f.order_number ?? null,
+    postcode: f.postcode ?? null,
   }));
 }
 
@@ -1121,6 +1146,24 @@ export async function deleteDeliveryZone(id: string): Promise<void> {
   if (error) throw error;
 }
 
+export async function getLiveDeliveryZones(): Promise<DeliveryZone[]> {
+  const { data, error } = await supabase
+    .from("delivery_zones")
+    .select("*")
+    .eq("zone_status", "live")
+    .order("name");
+  if (error) throw error;
+  return data.map((z) => ({
+    id: z.id,
+    name: z.name,
+    centreLat: z.centre_lat,
+    centreLng: z.centre_lng,
+    radiusMiles: z.radius_miles,
+    zoneStatus: z.zone_status as ZoneStatus,
+    launchDate: z.launch_date ?? null,
+  }));
+}
+
 // Legacy compat — kept so old imports don't break during migration
 export type DeliverySettings = DeliveryZone;
 export async function getDeliverySettings(): Promise<DeliverySettings | null> {
@@ -1147,4 +1190,19 @@ export async function getAverageRatings(): Promise<Record<string, { avg: number;
     result[id] = { avg: total / count, count };
   }
   return result;
+}
+
+// ─── Email Signups ───────────────────────────────────────────────────────────
+
+export async function submitEmailSignup(email: string): Promise<void> {
+  const { error } = await supabase
+    .from("email_signups")
+    .insert({ email: email.toLowerCase().trim() });
+  if (error) {
+    if (error.code === "23505") {
+      // Duplicate email - that's fine, just ignore
+      return;
+    }
+    throw error;
+  }
 }

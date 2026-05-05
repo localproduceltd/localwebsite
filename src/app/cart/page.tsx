@@ -3,13 +3,15 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Trash2, Plus, Minus, ShoppingCart, CheckCircle, Calendar, Clock, Home, Package, MapPin } from "lucide-react";
+import { Trash2, Plus, Minus, ShoppingCart, CheckCircle, Calendar, Clock, Home, Package, MapPin, HelpCircle, X, Loader2, MessageCircle, Lock, Unlock } from "lucide-react";
 import { useUser } from "@clerk/nextjs";
 import { useCart } from "@/lib/cart-context";
-import { type DeliveryDay, type DeliveryWindow, getActiveDeliveryDays, getCustomerProfile } from "@/lib/data";
+import { type DeliveryDay, type DeliveryWindow, type DeliveryZone, getActiveDeliveryDays, getCustomerProfile, getLiveDeliveryZones, getDeliveryZones, submitExpansionRequest } from "@/lib/data";
+import { lookupPostcode, isWithinDeliveryZones } from "@/lib/postcode";
 
 const BOX_DEPOSIT = 10;
-const MINIMUM_ORDER = 30;
+const MINIMUM_ORDER = 25;
+const DELIVERY_FEE = 2.99;
 
 export default function CartPage() {
   const { items, updateQuantity, removeItem, totalPrice, getProduct, clearCart } = useCart();
@@ -25,9 +27,55 @@ export default function CartPage() {
   const [willBeIn, setWillBeIn] = useState<boolean | null>(null);
   const [safePlace, setSafePlace] = useState("");
   const [hasOutstandingBox, setHasOutstandingBox] = useState(false);
+  const [showBoxInfo, setShowBoxInfo] = useState(false);
+
+  // Delivery address state
+  const [addressForm, setAddressForm] = useState({
+    addressLine1: "",
+    addressLine2: "",
+    city: "",
+    postcode: "",
+  });
+  const [checkingPostcode, setCheckingPostcode] = useState(false);
+  const [postcodeError, setPostcodeError] = useState("");
+  const [deliveryZones, setDeliveryZones] = useState<DeliveryZone[]>([]);
+  const [allZones, setAllZones] = useState<DeliveryZone[]>([]);
+  const [deliveryCheck, setDeliveryCheck] = useState<{ checked: boolean; inZone: boolean; zoneName?: string; isLaunching?: boolean; launchDate?: string | null } | null>(null);
+  const [expansionEmail, setExpansionEmail] = useState("");
+  const [submittingExpansion, setSubmittingExpansion] = useState(false);
+  const [expansionSubmitted, setExpansionSubmitted] = useState(false);
+
+  // Trial access state
+  const [trialCode, setTrialCode] = useState("");
+  const [trialUnlocked, setTrialUnlocked] = useState(false);
+  const [trialError, setTrialError] = useState("");
+
+  const handleTrialUnlock = () => {
+    const validCode = process.env.NEXT_PUBLIC_TRIAL_CODE;
+    if (trialCode.trim().toUpperCase() === validCode?.toUpperCase()) {
+      setTrialUnlocked(true);
+      setTrialError("");
+      // Store in sessionStorage so it persists during the session
+      sessionStorage.setItem("trialUnlocked", "true");
+    } else {
+      setTrialError("Invalid code. Please check and try again.");
+    }
+  };
+
+  // Check if already unlocked in this session
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const unlocked = sessionStorage.getItem("trialUnlocked");
+      if (unlocked === "true") {
+        setTrialUnlocked(true);
+      }
+    }
+  }, []);
 
   useEffect(() => {
     getActiveDeliveryDays().then(setDeliveryDays).catch(console.error);
+    getLiveDeliveryZones().then(setDeliveryZones).catch(console.error);
+    getDeliveryZones().then(setAllZones).catch(console.error);
   }, []);
 
   useEffect(() => {
@@ -40,10 +88,57 @@ export default function CartPage() {
     }
   }, [user]);
 
+  const handleCheckPostcode = async () => {
+    if (!addressForm.postcode.trim()) return;
+    setCheckingPostcode(true);
+    setPostcodeError("");
+    setDeliveryCheck(null);
+
+    const result = await lookupPostcode(addressForm.postcode);
+    if (!result) {
+      setPostcodeError("Postcode not found. Please check and try again.");
+      setCheckingPostcode(false);
+      return;
+    }
+
+    // Update postcode to formatted version
+    setAddressForm(prev => ({ ...prev, postcode: result.postcode }));
+
+    // Check live zones first
+    const liveResult = isWithinDeliveryZones(result.lat, result.lng, deliveryZones);
+    if (liveResult.inZone) {
+      setDeliveryCheck({ checked: true, inZone: true, zoneName: liveResult.zoneName });
+    } else {
+      // Check if in a "not live" zone (coming soon)
+      const notLiveZones = allZones.filter(z => z.zoneStatus === "not_live");
+      const comingSoonResult = isWithinDeliveryZones(result.lat, result.lng, notLiveZones);
+      if (comingSoonResult.inZone) {
+        const zone = notLiveZones.find(z => z.name === comingSoonResult.zoneName);
+        setDeliveryCheck({ checked: true, inZone: false, zoneName: comingSoonResult.zoneName, isLaunching: true, launchDate: zone?.launchDate });
+      } else {
+        setDeliveryCheck({ checked: true, inZone: false });
+      }
+    }
+    setCheckingPostcode(false);
+  };
+
+  const handleExpansionRequest = async () => {
+    if (!addressForm.postcode) return;
+    setSubmittingExpansion(true);
+    try {
+      const email = expansionEmail.trim() || (user?.primaryEmailAddress?.emailAddress ?? undefined);
+      await submitExpansionRequest(addressForm.postcode, email);
+      setExpansionSubmitted(true);
+    } catch (error) {
+      console.error("Failed to submit expansion request:", error);
+    }
+    setSubmittingExpansion(false);
+  };
+
   // Calculate if box deposit is needed
   const needsBoxDeposit = willBeIn === false && !hasOutstandingBox;
   const boxDeposit = needsBoxDeposit ? BOX_DEPOSIT : 0;
-  const finalTotal = totalPrice + boxDeposit;
+  const finalTotal = totalPrice + boxDeposit + DELIVERY_FEE;
   
   // Check minimum order
   const belowMinimum = totalPrice < MINIMUM_ORDER;
@@ -104,16 +199,21 @@ export default function CartPage() {
 
       const data = await response.json();
       
+      if (!response.ok) {
+        throw new Error(data.error || `Server error: ${response.status}`);
+      }
+      
       if (data.url) {
         // Store cart in session storage so we can clear it after successful payment
         sessionStorage.setItem("pendingCheckout", "true");
         // Redirect to Stripe Checkout
         window.location.href = data.url;
       } else {
-        throw new Error(data.error || "Failed to create checkout session");
+        throw new Error(data.error || "No checkout URL returned");
       }
-    } catch {
-      alert("Failed to place order. Please try again.");
+    } catch (error) {
+      console.error("Checkout error:", error);
+      alert(`Checkout failed: ${error instanceof Error ? error.message : "Please try again."}`);
     } finally {
       setPlacing(false);
     }
@@ -231,77 +331,277 @@ export default function CartPage() {
         })()}
       </div>
 
-      {/* Delivery Day Picker */}
-      <div className="mt-8 rounded-xl bg-surface p-6 shadow-sm">
-        <div className="flex items-center gap-2">
-          <Calendar size={20} className="text-secondary" />
-          <h2 className="text-lg font-semibold text-primary">Choose Delivery Date</h2>
-        </div>
-        {deliveryDays.length === 0 ? (
-          <p className="mt-3 text-sm text-muted">No delivery dates available at the moment.</p>
-        ) : (
-          <div className="mt-4 flex flex-wrap gap-3">
-            {deliveryDays.map((day) => {
-              const d = new Date(day.deliveryDate + "T00:00:00");
-              const label = d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
-              const cutoffD = new Date(day.cutoffDate + "T00:00:00");
-              const cutoffLabel = cutoffD.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
-              return (
-                <button
-                  key={day.id}
-                  onClick={() => setSelectedDay(day.deliveryDate)}
-                  className={`rounded-lg border-2 px-5 py-3 text-sm font-semibold transition ${
-                    selectedDay === day.deliveryDate
-                      ? "border-primary bg-primary text-background"
-                      : "border-primary/20 bg-surface text-primary hover:border-secondary"
-                  }`}
-                >
-                  <span className="block">{label}</span>
-                  <span className="block text-xs font-normal opacity-70">
-                    Order by {cutoffLabel}, {day.cutoffTime}
-                  </span>
-                </button>
-              );
-            })}
+      {/* Trial Access Lock */}
+      {!trialUnlocked && (
+        <div className="mt-8 rounded-xl bg-primary/5 border-2 border-primary/20 p-6">
+          <div className="flex items-center gap-2">
+            <Lock size={20} className="text-primary" />
+            <h2 className="text-lg font-semibold text-primary">Trial Access</h2>
           </div>
-        )}
-      </div>
-
-      {/* Delivery Window */}
-      <div className="mt-6 rounded-xl bg-surface p-6 shadow-sm">
-        <div className="flex items-center gap-2">
-          <Clock size={20} className="text-secondary" />
-          <h2 className="text-lg font-semibold text-primary">Delivery Window</h2>
+          <p className="mt-1 text-sm text-muted">
+            We&apos;re currently in a limited trial. Enter your access code to continue to checkout.
+          </p>
+          <div className="mt-4 flex gap-2">
+            <input
+              type="text"
+              placeholder="Enter trial code"
+              value={trialCode}
+              onChange={(e) => {
+                setTrialCode(e.target.value.toUpperCase());
+                setTrialError("");
+              }}
+              onKeyDown={(e) => e.key === "Enter" && handleTrialUnlock()}
+              className="flex-1 rounded-lg border border-primary/20 bg-white px-4 py-2.5 text-sm font-mono uppercase outline-none transition focus:border-secondary"
+            />
+            <button
+              onClick={handleTrialUnlock}
+              disabled={!trialCode.trim()}
+              className="inline-flex items-center gap-2 rounded-lg bg-primary px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-primary/90 disabled:opacity-50"
+            >
+              <Unlock size={16} />
+              Unlock
+            </button>
+          </div>
+          {trialError && (
+            <p className="mt-2 text-sm text-red-600">{trialError}</p>
+          )}
+          <p className="mt-3 text-xs text-muted">
+            Don&apos;t have a code? We&apos;ll be opening to everyone soon!
+          </p>
         </div>
-        <p className="mt-1 text-sm text-muted">Choose your preferred delivery time</p>
-        <div className="mt-4 flex flex-wrap gap-3">
-          <button
-            onClick={() => setDeliveryWindow("morning")}
-            className={`flex-1 min-w-[140px] rounded-lg border-2 px-4 py-3 text-sm font-semibold transition ${
-              deliveryWindow === "morning"
-                ? "border-primary bg-primary text-background"
-                : "border-primary/20 bg-surface text-primary hover:border-secondary"
-            }`}
-          >
-            <span className="block">Morning</span>
-            <span className="block text-xs font-normal opacity-70">9am – 1pm</span>
-          </button>
-          <button
-            onClick={() => setDeliveryWindow("afternoon")}
-            className={`flex-1 min-w-[140px] rounded-lg border-2 px-4 py-3 text-sm font-semibold transition ${
-              deliveryWindow === "afternoon"
-                ? "border-primary bg-primary text-background"
-                : "border-primary/20 bg-surface text-primary hover:border-secondary"
-            }`}
-          >
-            <span className="block">Afternoon</span>
-            <span className="block text-xs font-normal opacity-70">1pm – 5pm</span>
-          </button>
+      )}
+
+      {/* Delivery Address - only show if trial unlocked */}
+      {trialUnlocked && (
+        <div className="mt-8 rounded-xl bg-surface p-6 shadow-sm">
+          <div className="flex items-center gap-2">
+            <MapPin size={20} className="text-secondary" />
+            <h2 className="text-lg font-semibold text-primary">Delivery Address</h2>
+          </div>
+          <p className="mt-1 text-sm text-muted">Enter your delivery address to check if we deliver to your area</p>
+        
+        <div className="mt-4 space-y-3">
+          <div>
+            <input
+              type="text"
+              placeholder="Address line 1"
+              value={addressForm.addressLine1}
+              onChange={(e) => setAddressForm({ ...addressForm, addressLine1: e.target.value })}
+              className="w-full rounded-lg border border-primary/20 bg-white px-4 py-2.5 text-sm outline-none transition focus:border-secondary"
+            />
+          </div>
+          <div>
+            <input
+              type="text"
+              placeholder="Address line 2 (optional)"
+              value={addressForm.addressLine2}
+              onChange={(e) => setAddressForm({ ...addressForm, addressLine2: e.target.value })}
+              className="w-full rounded-lg border border-primary/20 bg-white px-4 py-2.5 text-sm outline-none transition focus:border-secondary"
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <input
+              type="text"
+              placeholder="City / Town"
+              value={addressForm.city}
+              onChange={(e) => setAddressForm({ ...addressForm, city: e.target.value })}
+              className="w-full rounded-lg border border-primary/20 bg-white px-4 py-2.5 text-sm outline-none transition focus:border-secondary"
+            />
+            <div className="flex gap-2">
+              <input
+                type="text"
+                placeholder="Postcode"
+                value={addressForm.postcode}
+                onChange={(e) => {
+                  setAddressForm({ ...addressForm, postcode: e.target.value });
+                  setDeliveryCheck(null);
+                  setPostcodeError("");
+                }}
+                className="flex-1 rounded-lg border border-primary/20 bg-white px-4 py-2.5 text-sm outline-none transition focus:border-secondary"
+              />
+              <button
+                onClick={handleCheckPostcode}
+                disabled={!addressForm.postcode.trim() || checkingPostcode}
+                className="rounded-lg bg-secondary px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-secondary/90 disabled:opacity-50"
+              >
+                {checkingPostcode ? <Loader2 size={16} className="animate-spin" /> : "Check"}
+              </button>
+            </div>
+          </div>
+          
+          {postcodeError && (
+            <p className="text-sm text-red-600">{postcodeError}</p>
+          )}
+          
+          {/* Delivery zone result */}
+          {deliveryCheck?.inZone && (
+            <div className="rounded-lg bg-green-50 border border-green-200 p-4">
+              <div className="flex items-center gap-2">
+                <CheckCircle size={18} className="text-green-600" />
+                <p className="font-semibold text-green-800">Great news! We deliver to {deliveryCheck.zoneName}!</p>
+              </div>
+              <p className="text-sm text-green-700 mt-1">Choose your delivery date below to continue.</p>
+            </div>
+          )}
+          
+          {deliveryCheck?.checked && !deliveryCheck.inZone && deliveryCheck.isLaunching && (
+            <div className="rounded-lg bg-amber-50 border border-amber-200 p-4">
+              <p className="font-semibold text-amber-800">
+                🚀 {deliveryCheck.zoneName} is coming soon!
+              </p>
+              <p className="text-sm text-amber-700 mt-1">
+                {deliveryCheck.launchDate 
+                  ? `We're launching in your area on ${new Date(deliveryCheck.launchDate + "T00:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "long" })}.`
+                  : "We're expanding to your area soon — date to be confirmed."
+                }
+              </p>
+              {expansionSubmitted ? (
+                <div className="mt-3 flex items-center gap-2 text-green-700">
+                  <CheckCircle size={16} />
+                  <p className="text-sm font-medium">Thanks! We&apos;ll let you know when we launch.</p>
+                </div>
+              ) : (
+                <>
+                  <p className="text-sm text-amber-700 mt-2">Want to be notified when we launch?</p>
+                  <div className="mt-3 flex gap-2">
+                    <input
+                      type="email"
+                      placeholder="Your email (optional)"
+                      value={expansionEmail}
+                      onChange={(e) => setExpansionEmail(e.target.value)}
+                      className="flex-1 rounded-lg border border-amber-300 bg-white px-3 py-2 text-sm outline-none focus:border-amber-500"
+                    />
+                    <button
+                      onClick={handleExpansionRequest}
+                      disabled={submittingExpansion}
+                      className="inline-flex items-center gap-2 rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-amber-700 disabled:opacity-50"
+                    >
+                      {submittingExpansion ? <Loader2 size={16} className="animate-spin" /> : <MessageCircle size={16} />}
+                      Notify me!
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+          
+          {deliveryCheck?.checked && !deliveryCheck.inZone && !deliveryCheck.isLaunching && (
+            <div className="rounded-lg bg-red-50 border border-red-200 p-4">
+              <p className="font-semibold text-red-800">Sorry, we don&apos;t deliver to your area yet</p>
+              <p className="text-sm text-red-700 mt-1">
+                Your postcode ({addressForm.postcode}) is outside our current delivery zones.
+              </p>
+              {expansionSubmitted ? (
+                <div className="mt-3 flex items-center gap-2 text-green-700">
+                  <CheckCircle size={16} />
+                  <p className="text-sm font-medium">Thanks! We&apos;ve noted your interest in {addressForm.postcode}.</p>
+                </div>
+              ) : (
+                <>
+                  <p className="text-sm text-red-700 mt-2">
+                    We&apos;re always looking to expand! Let Carrie know you&apos;re interested.
+                  </p>
+                  <div className="mt-3 flex gap-2">
+                    <input
+                      type="email"
+                      placeholder="Your email (optional)"
+                      value={expansionEmail}
+                      onChange={(e) => setExpansionEmail(e.target.value)}
+                      className="flex-1 rounded-lg border border-red-300 bg-white px-3 py-2 text-sm outline-none focus:border-red-500"
+                    />
+                    <button
+                      onClick={handleExpansionRequest}
+                      disabled={submittingExpansion}
+                      className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition hover:bg-primary/90 disabled:opacity-50"
+                    >
+                      {submittingExpansion ? <Loader2 size={16} className="animate-spin" /> : <MessageCircle size={16} />}
+                      Ask Carrie to expand
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
         </div>
       </div>
+      )}
 
-      {/* Attendance Choice */}
-      <div className="mt-6 rounded-xl bg-surface p-6 shadow-sm">
+      {/* Delivery Day Picker - only show if in zone and trial unlocked */}
+      {trialUnlocked && deliveryCheck?.inZone && (
+        <div className="mt-6 rounded-xl bg-surface p-6 shadow-sm">
+          <div className="flex items-center gap-2">
+            <Calendar size={20} className="text-secondary" />
+            <h2 className="text-lg font-semibold text-primary">Choose Delivery Date</h2>
+          </div>
+          {deliveryDays.length === 0 ? (
+            <p className="mt-3 text-sm text-muted">No delivery dates available at the moment.</p>
+          ) : (
+            <div className="mt-4 flex flex-wrap gap-3">
+              {deliveryDays.map((day) => {
+                const d = new Date(day.deliveryDate + "T00:00:00");
+                const label = d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
+                const cutoffD = new Date(day.cutoffDate + "T00:00:00");
+                const cutoffLabel = cutoffD.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
+                return (
+                  <button
+                    key={day.id}
+                    onClick={() => setSelectedDay(day.deliveryDate)}
+                    className={`rounded-lg border-2 px-5 py-3 text-sm font-semibold transition ${
+                      selectedDay === day.deliveryDate
+                        ? "border-primary bg-primary text-background"
+                        : "border-primary/20 bg-surface text-primary hover:border-secondary"
+                    }`}
+                  >
+                    <span className="block">{label}</span>
+                    <span className="block text-xs font-normal opacity-70">
+                      Order by {cutoffLabel}, {day.cutoffTime}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Delivery Window - only show if in zone and trial unlocked */}
+      {trialUnlocked && deliveryCheck?.inZone && (
+        <div className="mt-6 rounded-xl bg-surface p-6 shadow-sm">
+          <div className="flex items-center gap-2">
+            <Clock size={20} className="text-secondary" />
+            <h2 className="text-lg font-semibold text-primary">Delivery Window</h2>
+          </div>
+          <p className="mt-1 text-sm text-muted">Choose your preferred delivery time</p>
+          <div className="mt-4 flex flex-wrap gap-3">
+            <button
+              onClick={() => setDeliveryWindow("morning")}
+              className={`flex-1 min-w-[140px] rounded-lg border-2 px-4 py-3 text-sm font-semibold transition ${
+                deliveryWindow === "morning"
+                  ? "border-primary bg-primary text-background"
+                  : "border-primary/20 bg-surface text-primary hover:border-secondary"
+              }`}
+            >
+              <span className="block">Morning</span>
+              <span className="block text-xs font-normal opacity-70">9am – 1pm</span>
+            </button>
+            <button
+              onClick={() => setDeliveryWindow("afternoon")}
+              className={`flex-1 min-w-[140px] rounded-lg border-2 px-4 py-3 text-sm font-semibold transition ${
+                deliveryWindow === "afternoon"
+                  ? "border-primary bg-primary text-background"
+                  : "border-primary/20 bg-surface text-primary hover:border-secondary"
+              }`}
+            >
+              <span className="block">Afternoon</span>
+              <span className="block text-xs font-normal opacity-70">1pm – 5pm</span>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Attendance Choice - only show if in zone and trial unlocked */}
+      {trialUnlocked && deliveryCheck?.inZone && (
+        <div className="mt-6 rounded-xl bg-surface p-6 shadow-sm">
         <div className="flex items-center gap-2">
           <Home size={20} className="text-secondary" />
           <h2 className="text-lg font-semibold text-primary">Will you be in?</h2>
@@ -327,14 +627,67 @@ export default function CartPage() {
                 : "border-primary/20 bg-surface hover:border-secondary"
             }`}
           >
-            <span className="block font-semibold text-primary">No, I won&apos;t be in</span>
-            <span className="block text-sm text-muted mt-1">Please leave my order in my chosen safe place</span>
+            <div className="flex items-start justify-between">
+              <div>
+                <span className="block font-semibold text-primary">No, I won&apos;t be in – I need a cool bag &amp; box</span>
+                {!hasOutstandingBox && (
+                  <span className="block text-sm text-muted mt-1">
+                    £{BOX_DEPOSIT} refundable deposit for cool box &amp; bag
+                  </span>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); setShowBoxInfo(true); }}
+                className="ml-2 mt-0.5 text-secondary hover:text-primary"
+              >
+                <HelpCircle size={22} />
+              </button>
+            </div>
           </button>
         </div>
       </div>
+      )}
 
-      {/* Safe Place (only if not in) */}
-      {willBeIn === false && (
+      {/* Box Info Modal */}
+      {showBoxInfo && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-md rounded-xl bg-surface p-6 shadow-xl">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <Package size={24} className="text-secondary" />
+                <h2 className="text-lg font-bold text-primary">Cool Box &amp; Bag</h2>
+              </div>
+              <button onClick={() => setShowBoxInfo(false)} className="rounded p-1 text-muted hover:text-primary">
+                <X size={20} />
+              </button>
+            </div>
+            <div className="space-y-4 text-sm text-muted">
+              <p>
+                If you won&apos;t be in to receive your delivery, we&apos;ll leave your order in a <strong className="text-primary">reusable cool box with an insulated bag</strong> to keep everything fresh.
+              </p>
+              <p>
+                There&apos;s a <strong className="text-primary">refundable £{BOX_DEPOSIT} deposit</strong> for the box and bag on your first order.
+              </p>
+              <p>
+                <strong className="text-primary">Next time you order:</strong> The system remembers you have a box, so you won&apos;t need to pay the deposit again – we&apos;ll simply swap your old box for a fresh one!
+              </p>
+              <p>
+                <strong className="text-primary">If you don&apos;t order again:</strong> 😢 No worries! We&apos;ll come and collect the box and bag on our next delivery round and refund your £{BOX_DEPOSIT} deposit.
+              </p>
+            </div>
+            <button
+              onClick={() => setShowBoxInfo(false)}
+              className="mt-6 w-full rounded-lg bg-primary py-2.5 text-center font-semibold text-background transition hover:bg-secondary"
+            >
+              Got it!
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Safe Place (only if not in, in zone, and trial unlocked) */}
+      {trialUnlocked && deliveryCheck?.inZone && willBeIn === false && (
         <div className="mt-6 rounded-xl bg-surface p-6 shadow-sm">
           <div className="flex items-center gap-2">
             <MapPin size={20} className="text-secondary" />
@@ -377,6 +730,10 @@ export default function CartPage() {
           <span className="text-muted">Subtotal</span>
           <span className="font-semibold text-primary">£{totalPrice.toFixed(2)}</span>
         </div>
+        <div className="flex items-center justify-between border-b border-primary/5 py-4">
+          <span className="text-muted">Delivery Fee</span>
+          <span className="font-semibold text-primary">£{DELIVERY_FEE.toFixed(2)}</span>
+        </div>
         {needsBoxDeposit && (
           <div className="flex items-center justify-between border-b border-primary/5 py-4">
             <span className="text-muted">Box Deposit (refundable)</span>
@@ -385,7 +742,7 @@ export default function CartPage() {
         )}
         {selectedDay && (
           <div className="flex items-center justify-between border-b border-primary/5 py-4">
-            <span className="text-muted">Delivery</span>
+            <span className="text-muted">Delivery Date</span>
             <span className="font-semibold text-primary">
               {new Date(selectedDay + "T00:00:00").toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })}
               {deliveryWindow && ` (${deliveryWindow === "morning" ? "9am–1pm" : "1pm–5pm"})`}
@@ -410,11 +767,11 @@ export default function CartPage() {
         )}
         
         <button
-          disabled={belowMinimum || !selectedDay || !deliveryWindow || willBeIn === null || (willBeIn === false && !safePlace.trim()) || placing}
+          disabled={belowMinimum || !trialUnlocked || !deliveryCheck?.inZone || !addressForm.addressLine1.trim() || !selectedDay || !deliveryWindow || willBeIn === null || (willBeIn === false && !safePlace.trim()) || placing}
           onClick={handlePlaceOrder}
           className="mt-6 w-full rounded-lg bg-accent py-3 text-center font-semibold text-primary transition hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {placing ? "Placing Order..." : belowMinimum ? `Minimum order £${MINIMUM_ORDER}` : !isSignedIn ? "Sign In to Place Order" : !selectedDay ? "Select a Delivery Day" : !deliveryWindow ? "Select Delivery Window" : willBeIn === null ? "Select Attendance" : (willBeIn === false && !safePlace.trim()) ? "Enter Safe Place" : "Place Order"}
+          {placing ? "Redirecting to Checkout..." : belowMinimum ? `Minimum order £${MINIMUM_ORDER}` : !trialUnlocked ? "Enter Trial Code" : !isSignedIn ? "Sign In to Continue" : !deliveryCheck?.inZone ? "Check Postcode First" : !addressForm.addressLine1.trim() ? "Enter Address" : !selectedDay ? "Select Delivery Day" : !deliveryWindow ? "Select Delivery Window" : willBeIn === null ? "Select Attendance" : (willBeIn === false && !safePlace.trim()) ? "Enter Safe Place" : "Continue to Checkout"}
         </button>
         {!isSignedIn && (
           <p className="mt-2 text-center text-xs text-muted">

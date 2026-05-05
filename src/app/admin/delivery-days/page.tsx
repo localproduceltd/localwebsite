@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { type DeliveryDay, getDeliveryDays, createDeliveryDay, updateDeliveryDay, deleteDeliveryDay } from "@/lib/data";
-import { Calendar, Plus, Trash2, X } from "lucide-react";
+import { Calendar, Plus, Trash2, X, Send, Loader2, CheckCircle } from "lucide-react";
 
 function formatDate(dateStr: string) {
   const d = new Date(dateStr + "T00:00:00");
@@ -20,10 +20,34 @@ export default function AdminDeliveryDaysPage() {
   const [showForm, setShowForm] = useState(false);
   const [editingDay, setEditingDay] = useState<DeliveryDay | null>(null);
   const [form, setForm] = useState({ deliveryDate: "", cutoffDate: "", cutoffTime: "18:00" });
+  const [sendingTo, setSendingTo] = useState<string | null>(null);
+  const [sendResult, setSendResult] = useState<{ date: string; message: string; success: boolean } | null>(null);
 
   const fetchDays = () => getDeliveryDays().then(setDays).catch(console.error);
 
   useEffect(() => { fetchDays(); }, []);
+
+  const handleSendToSuppliers = async (deliveryDate: string) => {
+    setSendingTo(deliveryDate);
+    setSendResult(null);
+    try {
+      const res = await fetch("/api/send-supplier-summaries", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ deliveryDate }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setSendResult({ date: deliveryDate, message: data.error || "Failed to send", success: false });
+      } else {
+        setSendResult({ date: deliveryDate, message: data.message, success: true });
+      }
+    } catch (error) {
+      setSendResult({ date: deliveryDate, message: "Failed to send emails", success: false });
+    } finally {
+      setSendingTo(null);
+    }
+  };
 
   const openNew = () => {
     setEditingDay(null);
@@ -139,52 +163,112 @@ export default function AdminDeliveryDaysPage() {
         ) : (
           <div className="mt-3 space-y-3">
             {upcoming.map((day) => (
-              <div key={day.id} className="flex items-center justify-between rounded-xl bg-surface p-5 shadow-sm ring-2 ring-secondary/20">
-                <div>
-                  <p className="font-semibold text-primary">{formatDate(day.deliveryDate)}</p>
-                  <p className="text-xs text-muted">
-                    Order by {formatDate(day.cutoffDate)} at {day.cutoffTime}
-                  </p>
+              <div key={day.id} className="rounded-xl bg-surface p-5 shadow-sm ring-2 ring-secondary/20">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="font-semibold text-primary">{formatDate(day.deliveryDate)}</p>
+                    <p className="text-xs text-muted">
+                      Order by {formatDate(day.cutoffDate)} at {day.cutoffTime}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => handleSendToSuppliers(day.deliveryDate)}
+                      disabled={sendingTo === day.deliveryDate}
+                      className="inline-flex items-center gap-2 rounded-lg bg-secondary/20 px-3 py-1.5 text-xs font-semibold text-secondary transition hover:bg-secondary/30 disabled:opacity-50"
+                    >
+                      {sendingTo === day.deliveryDate ? (
+                        <>
+                          <Loader2 size={14} className="animate-spin" />
+                          Sending...
+                        </>
+                      ) : (
+                        <>
+                          <Send size={14} />
+                          Send to Suppliers
+                        </>
+                      )}
+                    </button>
+                    <button
+                      onClick={() => openEdit(day)}
+                      className="rounded-lg border border-primary/20 px-3 py-1.5 text-xs font-medium text-primary hover:bg-secondary/10"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      onClick={() => handleDelete(day.id)}
+                      className="rounded p-1.5 text-muted transition hover:bg-red-50 hover:text-red-600"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => openEdit(day)}
-                    className="rounded-lg border border-primary/20 px-3 py-1.5 text-xs font-medium text-primary hover:bg-secondary/10"
-                  >
-                    Edit
-                  </button>
-                  <button
-                    onClick={() => handleDelete(day.id)}
-                    className="rounded p-1.5 text-muted transition hover:bg-red-50 hover:text-red-600"
-                  >
-                    <Trash2 size={14} />
-                  </button>
-                </div>
+                {sendResult && sendResult.date === day.deliveryDate && (
+                  <div className={`mt-3 rounded-lg px-3 py-2 text-sm ${
+                    sendResult.success 
+                      ? "bg-green-50 text-green-700 border border-green-200" 
+                      : "bg-red-50 text-red-700 border border-red-200"
+                  }`}>
+                    {sendResult.success && <CheckCircle size={14} className="inline mr-1.5" />}
+                    {sendResult.message}
+                  </div>
+                )}
               </div>
             ))}
           </div>
         )}
       </div>
 
-      {/* Past Delivery Days */}
+      {/* Past Delivery Days (Cutoff Passed) */}
       {past.length > 0 && (
         <div className="mt-8">
-          <h2 className="text-sm font-semibold text-muted uppercase tracking-wide">Past ({past.length})</h2>
+          <h2 className="text-sm font-semibold text-muted uppercase tracking-wide">Cutoff Passed ({past.length})</h2>
           <div className="mt-3 space-y-3">
             {past.map((day) => (
-              <div key={day.id} className="flex items-center justify-between rounded-xl bg-surface p-5 opacity-50 shadow-sm">
-                <div>
-                  <p className="font-semibold text-primary">{formatDate(day.deliveryDate)}</p>
-                  <p className="text-xs text-muted">
-                    Cutoff was {formatDate(day.cutoffDate)} at {day.cutoffTime}
-                  </p>
+              <div key={day.id} className="rounded-xl bg-surface p-5 shadow-sm">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="font-semibold text-primary">{formatDate(day.deliveryDate)}</p>
+                    <p className="text-xs text-muted">
+                      Cutoff was {formatDate(day.cutoffDate)} at {day.cutoffTime}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => handleSendToSuppliers(day.deliveryDate)}
+                      disabled={sendingTo === day.deliveryDate}
+                      className="inline-flex items-center gap-2 rounded-lg bg-secondary px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-secondary/90 disabled:opacity-50"
+                    >
+                      {sendingTo === day.deliveryDate ? (
+                        <>
+                          <Loader2 size={14} className="animate-spin" />
+                          Sending...
+                        </>
+                      ) : (
+                        <>
+                          <Send size={14} />
+                          Send to Suppliers
+                        </>
+                      )}
+                    </button>
+                    <button
+                      onClick={() => handleDelete(day.id)}
+                      className="rounded p-1.5 text-muted transition hover:bg-red-50 hover:text-red-600"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
                 </div>
-                <button
-                  onClick={() => handleDelete(day.id)}
-                  className="rounded p-1.5 text-muted transition hover:bg-red-50 hover:text-red-600"
-                >
-                  <Trash2 size={14} />
-                </button>
+                {sendResult && sendResult.date === day.deliveryDate && (
+                  <div className={`mt-3 rounded-lg px-3 py-2 text-sm ${
+                    sendResult.success 
+                      ? "bg-green-50 text-green-700 border border-green-200" 
+                      : "bg-red-50 text-red-700 border border-red-200"
+                  }`}>
+                    {sendResult.success && <CheckCircle size={14} className="inline mr-1.5" />}
+                    {sendResult.message}
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -197,6 +281,7 @@ export default function AdminDeliveryDaysPage() {
           <li>&#8226; Add a delivery date — the day customers will receive their orders</li>
           <li>&#8226; Set a cutoff date &amp; time — orders must be placed before this deadline</li>
           <li>&#8226; Customers only see dates where the cutoff hasn&apos;t passed yet</li>
+          <li>&#8226; After cutoff, use &quot;Send to Suppliers&quot; to email each supplier their order summary with stock totals and individual orders</li>
         </ul>
       </div>
     </div>

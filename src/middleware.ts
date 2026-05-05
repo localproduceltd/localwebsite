@@ -1,6 +1,5 @@
 import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
-import { PRE_LAUNCH } from "@/lib/pre-launch";
 
 const isProtectedRoute = createRouteMatcher([
   "/orders(.*)",
@@ -11,26 +10,13 @@ const isProtectedRoute = createRouteMatcher([
 
 const isAdminRoute = createRouteMatcher(["/admin(.*)"]);
 
-// Pre-launch: routes that require admin (cart only - products shows overlay)
-const isAdminOnlyPreLaunch = createRouteMatcher([
-  "/cart(.*)",
-]);
-
 export default clerkMiddleware(async (auth, req) => {
-  // Check if user is admin or signed in
-  const { sessionClaims, userId } = await auth();
+  const { sessionClaims } = await auth();
   const role = (sessionClaims?.metadata as { role?: string })?.role;
   const isAdmin = role === "admin";
-  const isSignedIn = !!userId;
 
-  // Pre-launch: redirect root (/) to /home for everyone
-  if (PRE_LAUNCH && req.nextUrl.pathname === "/") {
-    return NextResponse.redirect(new URL("/home", req.url));
-  }
-
-  // Pre-launch: redirect non-signed-in users from cart to home
-  // Signed-in users (customers) can access cart
-  if (PRE_LAUNCH && isAdminOnlyPreLaunch(req) && !isSignedIn) {
+  // Redirect root to /home
+  if (req.nextUrl.pathname === "/") {
     return NextResponse.redirect(new URL("/home", req.url));
   }
 

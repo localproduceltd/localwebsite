@@ -428,6 +428,7 @@ function SupplierProductForm({
       status: "pending" as ProductStatus,
       allergens: [],
       tags: [],
+      ingredients: null,
     }
   );
   const [showMapPicker, setShowMapPicker] = useState(false);
@@ -643,6 +644,19 @@ function SupplierProductForm({
                 );
               })}
             </div>
+          </div>
+
+          {/* Ingredients */}
+          <div>
+            <label className="block text-xs font-medium text-muted mb-1">Ingredients (optional)</label>
+            <textarea
+              placeholder="e.g. Flour (wheat), butter (milk), sugar, eggs, salt..."
+              value={form.ingredients ?? ""}
+              onChange={(e) => setForm({ ...form, ingredients: e.target.value || null })}
+              className="w-full rounded-lg border border-primary/20 bg-surface px-3 py-2 text-sm outline-none focus:border-secondary"
+              rows={3}
+            />
+            <p className="mt-1 text-xs text-muted">List ingredients if applicable. This will be shown to customers.</p>
           </div>
         </div>
         <div className="mt-6 flex justify-end gap-3">

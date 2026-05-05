@@ -11,26 +11,20 @@ import {
   getRatingsByOrder,
   submitOrderRatings,
   getCustomerProfile,
-  saveCustomerAddress,
-  clearCustomerAddress,
   canModifyOrder,
   cancelOrder,
   submitFeedback,
 } from "@/lib/data";
-import { lookupPostcode } from "@/lib/postcode";
 import {
   Package,
   Clock,
   CheckCircle,
   XCircle,
   Star,
-  MapPin,
-  Trash2,
   Loader2,
   User,
   Mail,
   Pencil,
-  Save,
   MessageSquare,
   RefreshCw,
   X,
@@ -85,15 +79,6 @@ export default function AccountPage() {
 
   // Profile state
   const [profile, setProfile] = useState<CustomerProfile | null>(null);
-  const [editingAddress, setEditingAddress] = useState(false);
-  const [addressForm, setAddressForm] = useState({
-    addressLine1: "",
-    addressLine2: "",
-    city: "",
-    postcode: "",
-  });
-  const [saving, setSaving] = useState(false);
-  const [saveError, setSaveError] = useState("");
 
   // Orders state
   const [orders, setOrders] = useState<Order[]>([]);
@@ -143,65 +128,6 @@ export default function AccountPage() {
       setModifiableOrders(modifiable);
     }).catch(console.error);
   }, [user]);
-
-  const startEditAddress = () => {
-    setAddressForm({
-      addressLine1: profile?.addressLine1 ?? "",
-      addressLine2: profile?.addressLine2 ?? "",
-      city: profile?.city ?? "",
-      postcode: profile?.postcode ?? "",
-    });
-    setEditingAddress(true);
-    setSaveError("");
-  };
-
-  const handleSaveAddress = async () => {
-    if (!user || !addressForm.postcode.trim()) return;
-    setSaving(true);
-    setSaveError("");
-
-    const result = await lookupPostcode(addressForm.postcode);
-    if (!result) {
-      setSaveError("Postcode not found. Please check and try again.");
-      setSaving(false);
-      return;
-    }
-
-    try {
-      await saveCustomerAddress(user.id, {
-        addressLine1: addressForm.addressLine1.trim(),
-        addressLine2: addressForm.addressLine2.trim() || undefined,
-        city: addressForm.city.trim(),
-        postcode: result.postcode,
-      }, result.lat, result.lng);
-      
-      setProfile({
-        id: profile?.id ?? "",
-        clerkUserId: user.id,
-        addressLine1: addressForm.addressLine1.trim(),
-        addressLine2: addressForm.addressLine2.trim() || null,
-        city: addressForm.city.trim(),
-        postcode: result.postcode,
-        lat: result.lat,
-        lng: result.lng,
-        hasOutstandingBox: profile?.hasOutstandingBox ?? false,
-      });
-      setEditingAddress(false);
-    } catch {
-      setSaveError("Failed to save address. Please try again.");
-    }
-    setSaving(false);
-  };
-
-  const handleClearAddress = async () => {
-    if (!user) return;
-    try {
-      await clearCustomerAddress(user.id);
-      setProfile((prev) => prev ? { ...prev, addressLine1: null, addressLine2: null, city: null, postcode: null, lat: null, lng: null } : null);
-    } catch {
-      console.error("Failed to clear address");
-    }
-  };
 
   const startReview = (orderId: string, items: Array<{ productId: string }>) => {
     const existing = submittedRatings[orderId] ?? {};
@@ -385,121 +311,6 @@ export default function AccountPage() {
             </div>
           </div>
         </div>
-      </section>
-
-      {/* ─── Delivery Address Section ─── */}
-      <section className="mt-6 rounded-xl bg-surface p-6 shadow-sm">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2">
-            <MapPin size={20} className="text-secondary" />
-            <h2 className="text-lg font-semibold text-primary">Delivery Address</h2>
-          </div>
-          {profile?.postcode && !editingAddress && (
-            <button
-              onClick={startEditAddress}
-              className="flex items-center gap-1 text-xs font-medium text-secondary hover:text-secondary/80 transition"
-            >
-              <Pencil size={12} /> Edit
-            </button>
-          )}
-        </div>
-
-        {editingAddress ? (
-          <div className="space-y-4">
-            <div>
-              <label className="block text-xs font-medium text-muted mb-1">Address Line 1 *</label>
-              <input
-                type="text"
-                placeholder="House number and street"
-                value={addressForm.addressLine1}
-                onChange={(e) => setAddressForm({ ...addressForm, addressLine1: e.target.value })}
-                className="w-full rounded-lg border border-primary/20 bg-white px-4 py-2.5 text-sm outline-none transition focus:border-secondary focus:ring-2 focus:ring-secondary/20"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-muted mb-1">Address Line 2</label>
-              <input
-                type="text"
-                placeholder="Apartment, suite, etc. (optional)"
-                value={addressForm.addressLine2}
-                onChange={(e) => setAddressForm({ ...addressForm, addressLine2: e.target.value })}
-                className="w-full rounded-lg border border-primary/20 bg-white px-4 py-2.5 text-sm outline-none transition focus:border-secondary focus:ring-2 focus:ring-secondary/20"
-              />
-            </div>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div>
-                <label className="block text-xs font-medium text-muted mb-1">City / Town *</label>
-                <input
-                  type="text"
-                  placeholder="e.g. Ashbourne"
-                  value={addressForm.city}
-                  onChange={(e) => setAddressForm({ ...addressForm, city: e.target.value })}
-                  className="w-full rounded-lg border border-primary/20 bg-white px-4 py-2.5 text-sm outline-none transition focus:border-secondary focus:ring-2 focus:ring-secondary/20"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-muted mb-1">Postcode *</label>
-                <input
-                  type="text"
-                  placeholder="e.g. DE6 1GH"
-                  value={addressForm.postcode}
-                  onChange={(e) => setAddressForm({ ...addressForm, postcode: e.target.value.toUpperCase() })}
-                  className="w-full rounded-lg border border-primary/20 bg-white px-4 py-2.5 text-sm outline-none transition focus:border-secondary focus:ring-2 focus:ring-secondary/20"
-                />
-              </div>
-            </div>
-            {saveError && (
-              <p className="text-sm text-red-600">{saveError}</p>
-            )}
-            <div className="flex gap-3">
-              <button
-                onClick={handleSaveAddress}
-                disabled={saving || !addressForm.addressLine1.trim() || !addressForm.city.trim() || !addressForm.postcode.trim()}
-                className="inline-flex items-center gap-2 rounded-lg bg-primary px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-primary/90 disabled:opacity-50"
-              >
-                {saving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
-                Save Address
-              </button>
-              <button
-                onClick={() => setEditingAddress(false)}
-                className="rounded-lg px-5 py-2.5 text-sm font-medium text-muted hover:text-primary transition"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        ) : profile?.postcode ? (
-          <div>
-            <div className="text-sm text-primary space-y-0.5">
-              {profile.addressLine1 && <p className="font-medium">{profile.addressLine1}</p>}
-              {profile.addressLine2 && <p>{profile.addressLine2}</p>}
-              {profile.city && <p>{profile.city}</p>}
-              <p className="font-semibold">{profile.postcode}</p>
-            </div>
-            <div className="mt-4 flex items-center gap-4">
-              <Link href="/map" className="text-xs font-medium text-secondary hover:underline">
-                Check delivery coverage on Map
-              </Link>
-              <button
-                onClick={handleClearAddress}
-                className="flex items-center gap-1 text-xs text-red-500 hover:text-red-700 transition"
-              >
-                <Trash2 size={12} /> Remove
-              </button>
-            </div>
-          </div>
-        ) : (
-          <div>
-            <p className="text-sm text-muted mb-4">Add your delivery address to place orders.</p>
-            <button
-              onClick={startEditAddress}
-              className="inline-flex items-center gap-2 rounded-lg bg-primary px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-primary/90"
-            >
-              <MapPin size={16} />
-              Add Address
-            </button>
-          </div>
-        )}
       </section>
 
       {/* ─── Orders Section ─── */}

@@ -8,7 +8,6 @@ import { useCart } from "@/lib/cart-context";
 import { SignedIn, SignedOut } from "@clerk/nextjs";
 import UserAvatar from "@/components/UserAvatar";
 import CarrieFeedback from "@/components/CarrieFeedback";
-import { PRE_LAUNCH } from "@/lib/pre-launch";
 
 const NAV_LINKS = [
   { href: "/home", label: "Home", icon: Home },
@@ -19,7 +18,6 @@ const NAV_LINKS = [
 
 export default function Navbar() {
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [showSignInModal, setShowSignInModal] = useState(false);
   const { totalItems } = useCart();
   const pathname = usePathname();
   const isHoldingPage = pathname === "/holding";
@@ -84,21 +82,12 @@ export default function Navbar() {
               </Link>
 
               <SignedOut>
-                {PRE_LAUNCH ? (
-                  <button
-                    onClick={() => setShowSignInModal(true)}
-                    className="hidden rounded-lg bg-primary px-5 py-2 text-sm font-semibold text-white transition hover:bg-primary/90 md:inline-flex"
-                  >
-                    Sign In
-                  </button>
-                ) : (
-                  <Link
-                    href="/sign-in"
-                    className="hidden rounded-lg bg-primary px-5 py-2 text-sm font-semibold text-white transition hover:bg-primary/90 md:inline-flex"
-                  >
-                    Sign In
-                  </Link>
-                )}
+                <Link
+                  href="/sign-in"
+                  className="hidden rounded-lg bg-primary px-5 py-2 text-sm font-semibold text-white transition hover:bg-primary/90 md:inline-flex"
+                >
+                  Sign In
+                </Link>
               </SignedOut>
             </>
           )}
@@ -144,58 +133,17 @@ export default function Navbar() {
             </Link>
           </SignedIn>
           <SignedOut>
-            {PRE_LAUNCH ? (
-              <button
-                onClick={() => {
-                  setMobileOpen(false);
-                  setShowSignInModal(true);
-                }}
-                className="mt-2 block w-full rounded-md bg-primary px-3 py-2 text-center text-sm font-semibold text-white"
-              >
-                Sign In
-              </button>
-            ) : (
-              <Link
-                href="/sign-in"
-                className="mt-2 block rounded-md bg-primary px-3 py-2 text-center text-sm font-semibold text-white"
-                onClick={() => setMobileOpen(false)}
-              >
-                Sign In
-              </Link>
-            )}
+            <Link
+              href="/sign-in"
+              className="mt-2 block rounded-md bg-primary px-3 py-2 text-center text-sm font-semibold text-white"
+              onClick={() => setMobileOpen(false)}
+            >
+              Sign In
+            </Link>
           </SignedOut>
         </nav>
       )}
     </header>
-
-      {/* Coming Soon Modal (Pre-launch) */}
-      {showSignInModal && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
-          <div className="relative w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl">
-            <button
-              onClick={() => setShowSignInModal(false)}
-              className="absolute right-4 top-4 text-muted hover:text-primary transition"
-            >
-              <X size={20} />
-            </button>
-            <div className="text-center">
-              <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-secondary/20">
-                <User size={32} className="text-secondary" />
-              </div>
-              <h3 className="text-xl font-bold text-primary">Coming Soon!</h3>
-              <p className="mt-2 text-sm text-muted">
-                Customer accounts will be available once we launch. Check back soon!
-              </p>
-              <button
-                onClick={() => setShowSignInModal(false)}
-                className="mt-6 w-full rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-primary/90"
-              >
-                Got it
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </>
   );
 }

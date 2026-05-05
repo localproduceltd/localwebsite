@@ -1,16 +1,12 @@
 "use client";
 
-import { useMemo, useState, useEffect } from "react";
-import { Search, Check, Plus, Minus, Star, Mail, CheckCircle2, MapPinned } from "lucide-react";
-import Link from "next/link";
+import { useState, useEffect } from "react";
+import { Search, Check, Plus, Minus, Star, HelpCircle, X } from "lucide-react";
 import { useCart } from "@/lib/cart-context";
 import { LOCALITY_OPTIONS, getAverageRatings } from "@/lib/data";
 import type { Locality, Product } from "@/lib/data";
 import { LOCALITY_COLORS } from "@/lib/locality";
 import { PRODUCT_CATEGORIES, PRODUCT_TAGS } from "@/lib/categories";
-import { PRE_LAUNCH } from "@/lib/pre-launch";
-import { supabase } from "@/lib/supabase";
-import { useAuth } from "@clerk/nextjs";
 import ProductDetailModal from "@/components/ProductDetailModal";
 
 export default function ProductsPage() {
@@ -22,32 +18,7 @@ export default function ProductsPage() {
   const [justAdded, setJustAdded] = useState<string | null>(null);
   const [avgRatings, setAvgRatings] = useState<Record<string, { avg: number; count: number }>>({});
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
-  const [email, setEmail] = useState("");
-  const [emailSubmitted, setEmailSubmitted] = useState(false);
-  const [emailLoading, setEmailLoading] = useState(false);
-  const [emailError, setEmailError] = useState("");
-  const { isSignedIn, isLoaded } = useAuth();
-  // Show pre-launch to signed-out users only; signed-in users see launch version
-  // Wait for auth to load before deciding
-  const showPreLaunch = PRE_LAUNCH && isLoaded && !isSignedIn;
-
-  const handleEmailSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setEmailLoading(true);
-    setEmailError("");
-    try {
-      const { error } = await supabase
-        .from("email_signups")
-        .insert([{ email, created_at: new Date().toISOString() }]);
-      if (error) throw error;
-      setEmailSubmitted(true);
-      setEmail("");
-    } catch {
-      setEmailError("Something went wrong. Please try again.");
-    } finally {
-      setEmailLoading(false);
-    }
-  };
+  const [showLocalityInfo, setShowLocalityInfo] = useState(false);
 
   useEffect(() => {
     getAverageRatings().then(setAvgRatings).catch(console.error);
@@ -57,94 +28,55 @@ export default function ProductsPage() {
 
   const localityOptions: ("All" | Locality)[] = ["All", ...LOCALITY_OPTIONS];
 
-  const localityOrder: Record<string, number> = { "Own Produce": 0, "Local": 1, "Regional": 2, "UK": 3, "International": 4, "TBC": 5 };
+  // Locality priority: Own Produce/Local/Regional = 0, UK = 1, International = 2, TBC = 3
+  const localityPriority: Record<string, number> = { "Own Produce": 0, "Local": 0, "Regional": 0, "UK": 1, "International": 2, "TBC": 3 };
 
-  const filtered = products.filter((p) => {
-    const matchesSearch =
-      p.name.toLowerCase().includes(search.toLowerCase()) ||
-      p.supplierName.toLowerCase().includes(search.toLowerCase()) ||
-      p.description.toLowerCase().includes(search.toLowerCase());
-    const matchesCategory = category === "All" || p.category === category;
-    const matchesLocality = selectedLocalities.size === 0 || selectedLocalities.has(p.locality);
-    const matchesTags = selectedTags.size === 0 || Array.from(selectedTags).every((tag) => p.tags?.includes(tag));
-    return matchesSearch && matchesCategory && matchesLocality && matchesTags;
-  }).sort((a, b) => (localityOrder[a.locality] ?? 9) - (localityOrder[b.locality] ?? 9));
+  const filtered = (() => {
+    // First filter products
+    const matchingProducts = products.filter((p) => {
+      const matchesSearch =
+        p.name.toLowerCase().includes(search.toLowerCase()) ||
+        p.supplierName.toLowerCase().includes(search.toLowerCase()) ||
+        p.description.toLowerCase().includes(search.toLowerCase());
+      const matchesCategory = category === "All" || p.category === category;
+      const matchesLocality = selectedLocalities.size === 0 || selectedLocalities.has(p.locality);
+      const matchesTags = selectedTags.size === 0 || Array.from(selectedTags).every((tag) => p.tags?.includes(tag));
+      return matchesSearch && matchesCategory && matchesLocality && matchesTags;
+    });
+
+    // Group by category, sorted by locality priority within each category
+    const byCategory = new Map<string, typeof matchingProducts>();
+    for (const p of matchingProducts) {
+      if (!byCategory.has(p.category)) byCategory.set(p.category, []);
+      byCategory.get(p.category)!.push(p);
+    }
+    // Sort each category by locality priority, then by name
+    for (const [, prods] of byCategory) {
+      prods.sort((a, b) => {
+        const localityDiff = (localityPriority[a.locality] ?? 9) - (localityPriority[b.locality] ?? 9);
+        if (localityDiff !== 0) return localityDiff;
+        return a.name.localeCompare(b.name);
+      });
+    }
+
+    // Round-robin interleave categories
+    const categoryArrays = Array.from(byCategory.values());
+    const result: typeof matchingProducts = [];
+    let maxLen = Math.max(...categoryArrays.map((arr) => arr.length), 0);
+    for (let i = 0; i < maxLen; i++) {
+      for (const arr of categoryArrays) {
+        if (i < arr.length) result.push(arr[i]);
+      }
+    }
+    return result;
+  })();
 
   return (
-    <div className="relative mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
-      {/* Pre-launch overlay */}
-      {showPreLaunch && (
-        <div className="absolute inset-0 z-30 flex flex-col items-center justify-start pt-8 bg-white/80 backdrop-blur-sm">
-          {/* Coming Soon Badge */}
-          <div className="mb-8 rounded-2xl bg-primary px-8 py-4 shadow-xl">
-            <h2 className="text-2xl font-bold text-white sm:text-3xl">Coming Soon!</h2>
-          </div>
-
-          {/* Email Signup */}
-          <div className="w-full max-w-md px-4">
-            <div className="rounded-xl bg-surface p-6 shadow-lg">
-              <h3 className="text-lg font-bold text-primary text-center">Register Your Interest</h3>
-              <p className="mt-1 text-sm text-muted text-center">
-                Sign up for discounts and updates on when to order
-              </p>
-
-              {!emailSubmitted ? (
-                <form onSubmit={handleEmailSubmit} className="mt-4">
-                  <div className="flex flex-col gap-3">
-                    <input
-                      type="email"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      placeholder="Enter your email address"
-                      required
-                      className="w-full rounded-lg border border-primary/20 bg-white px-4 py-3 text-base outline-none focus:border-secondary focus:ring-2 focus:ring-secondary/20"
-                    />
-                    <button
-                      type="submit"
-                      disabled={emailLoading}
-                      className="inline-flex items-center justify-center gap-2 rounded-lg bg-secondary px-6 py-3 font-semibold text-white transition hover:bg-secondary/90 disabled:opacity-50"
-                    >
-                      <Mail size={20} />
-                      {emailLoading ? "Signing up..." : "Keep Me Posted"}
-                    </button>
-                  </div>
-                  {emailError && (
-                    <p className="mt-3 text-sm text-red-600 text-center">{emailError}</p>
-                  )}
-                </form>
-              ) : (
-                <div className="mt-4 rounded-xl bg-green-50 border-2 border-green-200 px-4 py-4">
-                  <div className="flex items-center justify-center gap-3 text-green-800">
-                    <CheckCircle2 size={24} />
-                    <div className="text-left">
-                      <p className="font-bold">You're on the list!</p>
-                      <p className="text-sm text-green-700">We'll send you updates soon.</p>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Check Delivery */}
-            <div className="mt-4 rounded-xl bg-surface p-6 shadow-lg text-center">
-              <p className="text-sm text-muted mb-3">Want to know if we deliver to your area?</p>
-              <Link 
-                href="/map" 
-                className="inline-flex items-center gap-2 rounded-lg bg-primary px-5 py-2.5 font-semibold text-white transition hover:bg-primary/90"
-              >
-                <MapPinned size={18} />
-                Check if we deliver to you
-              </Link>
-            </div>
-          </div>
-        </div>
-      )}
-
-      <div className={showPreLaunch ? "pointer-events-none select-none filter grayscale opacity-40" : ""}>
-        <div>
-          <h1 className="text-3xl font-bold text-primary">Products</h1>
-          <p className="mt-1 text-secondary">Browse fresh produce from our local suppliers</p>
-        </div>
+    <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
+      <div>
+        <h1 className="text-3xl font-bold text-primary">Products</h1>
+        <p className="mt-1 text-secondary">Browse fresh produce from our local suppliers</p>
+      </div>
 
       {/* Search & Filters */}
       <div className="mt-6 flex flex-col gap-4">
@@ -178,7 +110,13 @@ export default function ProductsPage() {
 
         {/* Locality Filter */}
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-xs font-semibold text-muted uppercase tracking-wide mr-1">Locality:</span>
+          <button
+            onClick={() => setShowLocalityInfo(true)}
+            className="inline-flex items-center gap-1 text-xs font-semibold text-muted uppercase tracking-wide mr-1 hover:text-secondary transition cursor-pointer"
+          >
+            Locality:
+            <HelpCircle size={14} className="text-secondary" />
+          </button>
           <button
             onClick={() => setSelectedLocalities(new Set())}
             className="rounded-full px-3 py-1 text-xs font-semibold transition"
@@ -388,13 +326,82 @@ export default function ProductsPage() {
         </div>
       )}
 
-      </div>
-
       <ProductDetailModal
         product={selectedProduct}
         onClose={() => setSelectedProduct(null)}
         avgRatings={avgRatings}
       />
+
+      {/* Locality Info Modal */}
+      {showLocalityInfo && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="relative w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+            <button
+              onClick={() => setShowLocalityInfo(false)}
+              className="absolute right-4 top-4 text-muted hover:text-primary transition"
+            >
+              <X size={20} />
+            </button>
+            <h3 className="text-xl font-bold text-primary mb-4">What does Locality mean?</h3>
+            <p className="text-sm text-muted mb-4">
+              Locality shows where a product comes from, helping you choose how local you want to go.
+            </p>
+            <div className="space-y-3">
+              <div className="flex items-start gap-3">
+                <span
+                  className="mt-0.5 shrink-0 rounded-full px-2.5 py-0.5 text-xs font-semibold"
+                  style={{ background: LOCALITY_COLORS["Own Produce"].bg, color: LOCALITY_COLORS["Own Produce"].text, border: `1px solid ${LOCALITY_COLORS["Own Produce"].border}` }}
+                >
+                  Own Produce
+                </span>
+                <p className="text-sm text-muted">Grown or made by the supplier themselves</p>
+              </div>
+              <div className="flex items-start gap-3">
+                <span
+                  className="mt-0.5 shrink-0 rounded-full px-2.5 py-0.5 text-xs font-semibold"
+                  style={{ background: LOCALITY_COLORS["Local"].bg, color: LOCALITY_COLORS["Local"].text, border: `1px solid ${LOCALITY_COLORS["Local"].border}` }}
+                >
+                  Local
+                </span>
+                <p className="text-sm text-muted">From within 20 miles of Ashbourne</p>
+              </div>
+              <div className="flex items-start gap-3">
+                <span
+                  className="mt-0.5 shrink-0 rounded-full px-2.5 py-0.5 text-xs font-semibold"
+                  style={{ background: LOCALITY_COLORS["Regional"].bg, color: LOCALITY_COLORS["Regional"].text, border: `1px solid ${LOCALITY_COLORS["Regional"].border}` }}
+                >
+                  Regional
+                </span>
+                <p className="text-sm text-muted">From Derbyshire or surrounding counties</p>
+              </div>
+              <div className="flex items-start gap-3">
+                <span
+                  className="mt-0.5 shrink-0 rounded-full px-2.5 py-0.5 text-xs font-semibold"
+                  style={{ background: LOCALITY_COLORS["UK"].bg, color: LOCALITY_COLORS["UK"].text, border: `1px solid ${LOCALITY_COLORS["UK"].border}` }}
+                >
+                  UK
+                </span>
+                <p className="text-sm text-muted">From elsewhere in the United Kingdom</p>
+              </div>
+              <div className="flex items-start gap-3">
+                <span
+                  className="mt-0.5 shrink-0 rounded-full px-2.5 py-0.5 text-xs font-semibold"
+                  style={{ background: LOCALITY_COLORS["International"].bg, color: LOCALITY_COLORS["International"].text, border: `1px solid ${LOCALITY_COLORS["International"].border}` }}
+                >
+                  International
+                </span>
+                <p className="text-sm text-muted">Imported from outside the UK, selected by the supplier</p>
+              </div>
+            </div>
+            <button
+              onClick={() => setShowLocalityInfo(false)}
+              className="mt-6 w-full rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-primary/90"
+            >
+              Got it
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,19 +1,24 @@
 "use client";
 
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, Suspense } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useCart } from "@/lib/cart-context";
 import { type Supplier, type DeliveryZone, getLiveSuppliers, getCustomerProfile, getDeliveryZones, saveCustomerPostcode } from "@/lib/data";
 import { LOCALITY_COLORS } from "@/lib/locality";
-import { MapPin, CheckCircle2, Clock, HelpCircle, Loader2, Search, Truck, Store, X } from "lucide-react";
+import { MapPin, CheckCircle2, Clock, HelpCircle, Loader2, Search, Truck, Store } from "lucide-react";
 import { useAuth, useUser } from "@clerk/nextjs";
-import { PRE_LAUNCH } from "@/lib/pre-launch";
 
 // Dynamically import Leaflet to avoid SSR issues
-let L: typeof import("leaflet") | null = null;
+import type * as LType from "leaflet";
+import "leaflet.markercluster/dist/MarkerCluster.css";
+import "leaflet.markercluster/dist/MarkerCluster.Default.css";
+
+let L: typeof LType | null = null;
 if (typeof window !== "undefined") {
   L = require("leaflet");
+  require("leaflet.markercluster");
 }
 
 type MapView = "zones" | "suppliers";
@@ -46,11 +51,13 @@ function getDistanceMiles(lat1: number, lng1: number, lat2: number, lng2: number
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-export default function MapPage() {
+function MapPageContent() {
+  const searchParams = useSearchParams();
   const { products, addItem, items, updateQuantity } = useCart();
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [zones, setZones] = useState<DeliveryZone[]>([]);
-  const [mapView, setMapView] = useState<MapView>("zones");
+  const initialView = searchParams.get("view") === "suppliers" ? "suppliers" : "zones";
+  const [mapView, setMapView] = useState<MapView>(initialView);
   const [customerLocation, setCustomerLocation] = useState<{ lat: number; lng: number; postcode: string } | null>(null);
   const [justAdded, setJustAdded] = useState<string | null>(null);
   const [deliveryStatus, setDeliveryStatus] = useState<DeliveryStatus>(null);
@@ -60,16 +67,14 @@ export default function MapPage() {
   const [postcodeInput, setPostcodeInput] = useState("");
   const [checkingPostcode, setCheckingPostcode] = useState(false);
   const [postcodeError, setPostcodeError] = useState("");
-  const [showComingSoonModal, setShowComingSoonModal] = useState(false);
   
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
   const zonesLayerRef = useRef<L.LayerGroup | null>(null);
-  const markersLayerRef = useRef<L.LayerGroup | null>(null);
+  const markersLayerRef = useRef<LType.MarkerClusterGroup | null>(null);
+  const customerMarkerRef = useRef<L.LayerGroup | null>(null);
   const { user } = useUser();
   const { isSignedIn, isLoaded } = useAuth();
-  // Show pre-launch to signed-out users only; signed-in users see launch version
-  const showPreLaunch = PRE_LAUNCH && isLoaded && !isSignedIn;
 
   useEffect(() => {
     Promise.all([getLiveSuppliers(), getDeliveryZones()])
@@ -169,6 +174,39 @@ export default function MapPage() {
     // Create zones layer (added first so it's behind markers)
     zonesLayerRef.current = L.layerGroup().addTo(map);
     
+    // Create marker cluster group for suppliers/products
+    markersLayerRef.current = L.markerClusterGroup({
+      maxClusterRadius: 50,
+      spiderfyOnMaxZoom: true,
+      showCoverageOnHover: false,
+      zoomToBoundsOnClick: true,
+      iconCreateFunction: (cluster) => {
+        const count = cluster.getChildCount();
+        return L.divIcon({
+          html: `<div style="
+            background: #A30E4E;
+            color: white;
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 14px;
+            border: 3px solid white;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+          ">${count}</div>`,
+          className: '',
+          iconSize: [36, 36],
+          iconAnchor: [18, 18],
+        });
+      },
+    }).addTo(map);
+    
+    // Create separate layer for customer marker (not clustered)
+    customerMarkerRef.current = L.layerGroup().addTo(map);
+    
     // Force map to recalculate size after a short delay
     setTimeout(() => {
       map.invalidateSize();
@@ -178,6 +216,8 @@ export default function MapPage() {
       map.remove();
       mapInstanceRef.current = null;
       zonesLayerRef.current = null;
+      markersLayerRef.current = null;
+      customerMarkerRef.current = null;
     };
   }, []);
 
@@ -227,23 +267,19 @@ export default function MapPage() {
     });
   }, [zones]);
 
-  // Create markers layer after map init
-  useEffect(() => {
-    const map = mapInstanceRef.current;
-    if (!map || !L || markersLayerRef.current) return;
-    markersLayerRef.current = L.layerGroup().addTo(map);
-  }, [zones]); // Run after zones effect
-
-  // Show/hide zones layer based on view
+  // Show/hide layers based on view
   useEffect(() => {
     const zonesLayer = zonesLayerRef.current;
+    const markersLayer = markersLayerRef.current;
     const map = mapInstanceRef.current;
-    if (!zonesLayer || !map) return;
+    if (!zonesLayer || !markersLayer || !map) return;
 
     if (mapView === "zones") {
       if (!map.hasLayer(zonesLayer)) zonesLayer.addTo(map);
+      if (map.hasLayer(markersLayer)) map.removeLayer(markersLayer);
     } else {
       if (map.hasLayer(zonesLayer)) map.removeLayer(zonesLayer);
+      if (!map.hasLayer(markersLayer)) markersLayer.addTo(map);
     }
   }, [mapView]);
 
@@ -394,7 +430,15 @@ export default function MapPage() {
       });
     }
 
-    // Always show customer location marker if set (in both views)
+  }, [mapView, productsWithCoords, suppliersWithCoords, items, justAdded]);
+
+  // Customer location marker (separate layer, always visible)
+  useEffect(() => {
+    const customerLayer = customerMarkerRef.current;
+    if (!customerLayer || !L) return;
+
+    customerLayer.clearLayers();
+
     if (customerLocation) {
       const icon = L.divIcon({
         className: "product-map-marker",
@@ -418,7 +462,7 @@ export default function MapPage() {
         iconSize: [36, 36],
         iconAnchor: [18, 18],
       });
-      const marker = L.marker([customerLocation.lat, customerLocation.lng], { icon }).addTo(markersLayer);
+      const marker = L.marker([customerLocation.lat, customerLocation.lng], { icon }).addTo(customerLayer);
       marker.bindPopup(`
         <div style="min-width:140px;font-family:system-ui,sans-serif;text-align:center;">
           <p style="font-weight:700;font-size:14px;margin:0;color:#A30E4E;">Your Location</p>
@@ -426,7 +470,7 @@ export default function MapPage() {
         </div>
       `);
     }
-  }, [mapView, productsWithCoords, suppliersWithCoords, customerLocation, items, justAdded]);
+  }, [customerLocation]);
 
   // Expose cart functions for popup buttons
   useEffect(() => {
@@ -565,13 +609,7 @@ export default function MapPage() {
             Delivery Areas
           </button>
           <button
-            onClick={() => {
-              if (showPreLaunch) {
-                setShowComingSoonModal(true);
-              } else {
-                setMapView("suppliers");
-              }
-            }}
+            onClick={() => setMapView("suppliers")}
             className={`inline-flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold transition ${
               mapView === "suppliers"
                 ? "bg-primary text-white shadow-sm"
@@ -622,34 +660,14 @@ export default function MapPage() {
         )}
       </div>
 
-      {/* Coming Soon Modal (Pre-launch) */}
-      {showComingSoonModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="relative w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl">
-            <button
-              onClick={() => setShowComingSoonModal(false)}
-              className="absolute right-4 top-4 text-muted hover:text-primary transition"
-            >
-              <X size={20} />
-            </button>
-            <div className="text-center">
-              <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-secondary/20">
-                <Store size={32} className="text-secondary" />
-              </div>
-              <h3 className="text-xl font-bold text-primary">Coming Soon!</h3>
-              <p className="mt-2 text-sm text-muted">
-                Our suppliers and products will be available to browse once we launch. Check back soon!
-              </p>
-              <button
-                onClick={() => setShowComingSoonModal(false)}
-                className="mt-6 w-full rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-primary/90"
-              >
-                Got it
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
+  );
+}
+
+export default function MapPage() {
+  return (
+    <Suspense fallback={<div className="flex h-screen items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>}>
+      <MapPageContent />
+    </Suspense>
   );
 }

@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { getFeedback } from "@/lib/data";
-import { Loader2, MessageCircleHeart, Star, Package } from "lucide-react";
+import { Loader2, MessageCircleHeart, Star, Package, MapPin } from "lucide-react";
 
 interface FeedbackItem {
   id: string;
@@ -11,12 +11,13 @@ interface FeedbackItem {
   created_at: string;
   source: string;
   orderNumber: number | null;
+  postcode: string | null;
 }
 
 export default function AdminFeedbackPage() {
   const [feedback, setFeedback] = useState<FeedbackItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState<"all" | "carrie" | "order_review">("all");
+  const [filter, setFilter] = useState<"all" | "carrie" | "order_review" | "expansion">("all");
 
   useEffect(() => {
     (async () => {
@@ -28,7 +29,8 @@ export default function AdminFeedbackPage() {
 
   const carrieFeedback = feedback.filter((f) => f.source === "carrie");
   const orderReviews = feedback.filter((f) => f.source === "order_review");
-  const filtered = filter === "all" ? feedback : filter === "carrie" ? carrieFeedback : orderReviews;
+  const expansionRequests = feedback.filter((f) => f.source === "expansion");
+  const filtered = filter === "all" ? feedback : filter === "carrie" ? carrieFeedback : filter === "order_review" ? orderReviews : expansionRequests;
 
   if (loading) {
     return (
@@ -45,7 +47,7 @@ export default function AdminFeedbackPage() {
         <div>
           <h1 className="text-2xl font-bold text-primary">Feedback & Reviews</h1>
           <p className="text-sm text-muted">
-            {carrieFeedback.length} from Carrie 🥕 · {orderReviews.length} order review{orderReviews.length !== 1 ? "s" : ""}
+            {carrieFeedback.length} from Carrie 🥕 · {orderReviews.length} order review{orderReviews.length !== 1 ? "s" : ""} · {expansionRequests.length} expansion request{expansionRequests.length !== 1 ? "s" : ""}
           </p>
         </div>
       </div>
@@ -76,6 +78,14 @@ export default function AdminFeedbackPage() {
         >
           Order Reviews ({orderReviews.length})
         </button>
+        <button
+          onClick={() => setFilter("expansion")}
+          className={`rounded-full px-4 py-1.5 text-sm font-semibold transition ${
+            filter === "expansion" ? "bg-green-600 text-white" : "bg-green-100 text-green-700 hover:bg-green-200"
+          }`}
+        >
+          📍 Expansions ({expansionRequests.length})
+        </button>
       </div>
 
       {filtered.length === 0 ? (
@@ -84,6 +94,7 @@ export default function AdminFeedbackPage() {
           <p className="mt-1 text-sm text-muted">
             {filter === "carrie" ? "Feedback submitted via Carrie the Carrot will appear here" :
              filter === "order_review" ? "Customer order reviews will appear here" :
+             filter === "expansion" ? "Expansion requests from customers outside your delivery zones will appear here" :
              "Feedback and reviews will appear here"}
           </p>
         </div>
@@ -98,6 +109,12 @@ export default function AdminFeedbackPage() {
                       <Star size={12} />
                       Order Review
                       {item.orderNumber && <span className="text-muted">#{item.orderNumber}</span>}
+                    </span>
+                  ) : item.source === "expansion" ? (
+                    <span className="flex items-center gap-1 rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700">
+                      <MapPin size={12} />
+                      Expansion Request
+                      {item.postcode && <span className="font-bold ml-1">{item.postcode}</span>}
                     </span>
                   ) : (
                     <span className="rounded-full bg-accent/10 px-2 py-0.5 text-xs font-medium text-accent">

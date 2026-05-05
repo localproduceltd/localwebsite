@@ -253,3 +253,117 @@ export async function sendOrderStatusUpdate(data: OrderStatusUpdateData) {
     throw error;
   }
 }
+
+// ─── Supplier Order Summary Email ─────────────────────────────────────────────
+
+interface SupplierOrderSummaryData {
+  supplierEmail: string;
+  supplierName: string;
+  deliveryDate: string;
+  stockTotals: Array<{ productName: string; totalQuantity: number }>;
+  orders: Array<{
+    orderNumber: number;
+    items: Array<{ productName: string; quantity: number; price: number }>;
+    subtotal: number;
+  }>;
+  grandTotal: number;
+}
+
+export async function sendSupplierOrderSummary(data: SupplierOrderSummaryData) {
+  const formattedDate = new Date(data.deliveryDate + "T00:00:00").toLocaleDateString("en-GB", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+
+  const stockSummaryHtml = data.stockTotals
+    .map((item) => `
+      <tr>
+        <td style="padding: 8px 12px; border-bottom: 1px solid #eee;">${item.productName}</td>
+        <td style="padding: 8px 12px; border-bottom: 1px solid #eee; text-align: center; font-weight: bold;">${item.totalQuantity}</td>
+      </tr>
+    `)
+    .join("");
+
+  const ordersHtml = data.orders
+    .map((order) => `
+      <div style="background: #fff; border: 1px solid #e5e5e5; border-radius: 8px; padding: 16px; margin-bottom: 12px;">
+        <h4 style="margin: 0 0 12px 0; color: #A30E4E;">Order #${order.orderNumber}</h4>
+        ${order.items.map((item) => `
+          <div style="display: flex; justify-content: space-between; margin: 6px 0; font-size: 14px;">
+            <span>${item.productName} x${item.quantity}</span>
+            <span>£${(item.price * item.quantity).toFixed(2)}</span>
+          </div>
+        `).join("")}
+        <hr style="border: none; border-top: 1px solid #eee; margin: 12px 0;">
+        <div style="display: flex; justify-content: space-between; font-weight: bold;">
+          <span>Order Subtotal</span>
+          <span>£${order.subtotal.toFixed(2)}</span>
+        </div>
+      </div>
+    `)
+    .join("");
+
+  const { error } = await resend.emails.send({
+    from: FROM_EMAIL,
+    to: data.supplierEmail,
+    subject: `Order Summary for ${formattedDate}`,
+    html: `
+      <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
+        <h1 style="color: #A30E4E;">📦 Your Order Summary</h1>
+        <p>Hi ${data.supplierName},</p>
+        <p>Here's your order summary for <strong>${formattedDate}</strong>. Please make sure you package this into individual customer orders and then drop it at the depot.</p>
+        <p>
+          <a href="https://www.localproduce.ltd/sign-in" style="display: inline-block; background: #A30E4E; color: white; padding: 10px 20px; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 14px;">
+            Log in to Supplier Portal
+          </a>
+        </p>
+        
+        <div style="background: #f0fdf4; border: 2px solid #22c55e; border-radius: 12px; padding: 20px; margin: 24px 0;">
+          <h2 style="margin: 0 0 16px 0; color: #166534; font-size: 18px;">📊 Stock Totals</h2>
+          <p style="margin: 0 0 12px 0; color: #666; font-size: 14px;">Total quantities needed for this delivery:</p>
+          <table style="width: 100%; border-collapse: collapse; background: #fff; border-radius: 8px; overflow: hidden;">
+            <thead>
+              <tr style="background: #166534; color: white;">
+                <th style="padding: 10px 12px; text-align: left;">Product</th>
+                <th style="padding: 10px 12px; text-align: center;">Qty</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${stockSummaryHtml}
+            </tbody>
+          </table>
+        </div>
+        
+        <h2 style="color: #333; font-size: 18px; margin-top: 32px;">📋 Individual Orders</h2>
+        ${ordersHtml}
+        
+        <div style="background: #f9f9f9; border: 1px solid #e5e5e5; border-radius: 8px; padding: 16px 20px; margin-top: 24px;">
+          <div style="display: flex; justify-content: space-between; font-size: 16px; margin-bottom: 8px;">
+            <span>Your Grand Total</span>
+            <span>£${data.grandTotal.toFixed(2)}</span>
+          </div>
+          <div style="display: flex; justify-content: space-between; font-size: 14px; color: #666; margin-bottom: 8px;">
+            <span>Commission (20%)</span>
+            <span>-£${(data.grandTotal * 0.2).toFixed(2)}</span>
+          </div>
+          <hr style="border: none; border-top: 2px solid #A30E4E; margin: 12px 0;">
+          <div style="display: flex; justify-content: space-between; font-size: 18px; font-weight: bold; color: #A30E4E;">
+            <span>Your Payout</span>
+            <span>£${(data.grandTotal * 0.8).toFixed(2)}</span>
+          </div>
+        </div>
+        
+        <p style="color: #666; font-size: 14px; margin-top: 30px;">
+          — The Local Produce Team
+        </p>
+      </div>
+    `,
+  });
+
+  if (error) {
+    console.error("Failed to send supplier order summary email:", error);
+    throw error;
+  }
+}

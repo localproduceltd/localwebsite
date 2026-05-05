@@ -108,6 +108,14 @@ export default function ProductDetailModal({ product, onClose, avgRatings = {} }
             </div>
           )}
 
+          {/* Ingredients */}
+          {product.ingredients && (
+            <div className="mt-4 rounded-lg bg-gray-50 border border-gray-200 p-3">
+              <p className="text-xs font-semibold text-gray-700 mb-1">📋 Ingredients:</p>
+              <p className="text-xs text-gray-600 leading-relaxed">{product.ingredients}</p>
+            </div>
+          )}
+
           <div className="mt-4 flex items-center justify-between border-t border-primary/10 pt-4">
             <div>
               <span className="text-3xl font-bold text-primary">£{product.price.toFixed(2)}</span>
