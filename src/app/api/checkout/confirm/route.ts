@@ -28,20 +28,19 @@ export async function POST(request: NextRequest) {
     }
 
     // Parse the items from metadata
-    // Items are stored as compact arrays: [productId, quantity, price, supplierId]
+    // Items stored as minimal format: { p: productId, q: quantity, s: supplierId }
     const itemsData = JSON.parse(metadata.items || "[]");
     const items: OrderItem[] = await Promise.all(
-      itemsData.map(async (item: [string, number, number, string] | { productId: string; productName: string; quantity: number; price: number; supplierId: string }) => {
-        // Handle both old format (object) and new format (array)
-        if (Array.isArray(item)) {
-          const [productId, quantity, price, supplierId] = item;
-          const product = await getProduct(productId);
+      itemsData.map(async (item: { p: string; q: number; s: string } | { productId: string; productName: string; quantity: number; price: number; supplierId: string }) => {
+        // Handle both old format (full object) and new format (minimal)
+        if ("p" in item) {
+          const product = await getProduct(item.p);
           return {
-            productId,
+            productId: item.p,
             productName: product?.name || "Unknown Product",
-            quantity,
-            price,
-            supplierId,
+            quantity: item.q,
+            price: product?.price || 0,
+            supplierId: item.s,
           };
         } else {
           return {

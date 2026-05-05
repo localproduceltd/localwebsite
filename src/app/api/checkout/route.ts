@@ -96,8 +96,8 @@ export async function POST(request: NextRequest) {
         boxDepositPaid: boxDepositPaid ? "true" : "false",
         total: total.toString(),
         itemCount: items.length.toString(),
-        // Store items as compact format: productId:qty:price:supplierId, truncated if needed
-        items: JSON.stringify(items.map(i => [i.productId, i.quantity, i.price, i.supplierId])).slice(0, 500),
+        // Store minimal item data - just IDs and quantities, prices looked up on confirm
+        items: JSON.stringify(items.map(i => ({ p: i.productId, q: i.quantity, s: i.supplierId }))),
       },
     });
 
