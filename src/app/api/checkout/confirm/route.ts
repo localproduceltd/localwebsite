@@ -28,29 +28,47 @@ export async function POST(request: NextRequest) {
     }
 
     // Parse the items from metadata
-    // Items stored as minimal format: { p: productId, q: quantity, s: supplierId }
-    const itemsData = JSON.parse(metadata.items || "[]");
-    const items: OrderItem[] = await Promise.all(
-      itemsData.map(async (item: { p: string; q: number; s: string } | { productId: string; productName: string; quantity: number; price: number; supplierId: string }) => {
-        // Handle both old format (full object) and new format (minimal)
-        if ("p" in item) {
-          const product = await getProduct(item.p);
-          return {
-            productId: item.p,
-            productName: product?.name || "Unknown Product",
-            quantity: item.q,
-            price: product?.price || 0,
-            supplierId: item.s,
-          };
-        } else {
-          return {
-            productId: item.productId,
-            productName: item.productName,
-            quantity: item.quantity,
-            price: item.price,
-            supplierId: item.supplierId,
-          };
-        }
+    // Items are split across items0, items1, etc. as "productId:quantity:supplierId" strings
+    let allItemsStr = "";
+    for (let i = 0; ; i++) {
+      const chunk = metadata[`items${i}`];
+      if (!chunk) break;
+      allItemsStr = allItemsStr ? `${allItemsStr},${chunk}` : chunk;
+    }
+    
+    // Also handle old format with single "items" field
+    if (!allItemsStr && metadata.items) {
+      try {
+        const oldItems = JSON.parse(metadata.items);
+        const items: OrderItem[] = await Promise.all(
+          oldItems.map(async (item: { p: string; q: number; s: string } | { productId: string; productName: string; quantity: number; price: number; supplierId: string }) => {
+            if ("p" in item) {
+              const product = await getProduct(item.p);
+              return { productId: item.p, productName: product?.name || "Unknown Product", quantity: item.q, price: product?.price || 0, supplierId: item.s };
+            } else {
+              return { productId: item.productId, productName: item.productName, quantity: item.quantity, price: item.price, supplierId: item.supplierId };
+            }
+          })
+        );
+        // Continue with these items (handled below)
+        allItemsStr = "OLD_FORMAT";
+        var parsedItems = items;
+      } catch {
+        allItemsStr = "";
+      }
+    }
+
+    const items: OrderItem[] = allItemsStr === "OLD_FORMAT" ? parsedItems! : await Promise.all(
+      allItemsStr.split(",").filter(Boolean).map(async (itemStr) => {
+        const [productId, quantityStr, supplierId] = itemStr.split(":");
+        const product = await getProduct(productId);
+        return {
+          productId,
+          productName: product?.name || "Unknown Product",
+          quantity: parseInt(quantityStr, 10),
+          price: product?.price || 0,
+          supplierId,
+        };
       })
     );
 

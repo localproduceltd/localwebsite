@@ -96,8 +96,24 @@ export async function POST(request: NextRequest) {
         boxDepositPaid: boxDepositPaid ? "true" : "false",
         total: total.toString(),
         itemCount: items.length.toString(),
-        // Store minimal item data - just IDs and quantities, prices looked up on confirm
-        items: JSON.stringify(items.map(i => ({ p: i.productId, q: i.quantity, s: i.supplierId }))),
+        // Split items across multiple metadata fields to stay under 500 char limit per field
+        ...(() => {
+          const itemsCompact = items.map(i => `${i.productId}:${i.quantity}:${i.supplierId}`);
+          const chunks: Record<string, string> = {};
+          let currentChunk = 0;
+          let currentStr = "";
+          for (const item of itemsCompact) {
+            if (currentStr.length + item.length + 1 > 490) {
+              chunks[`items${currentChunk}`] = currentStr;
+              currentChunk++;
+              currentStr = item;
+            } else {
+              currentStr = currentStr ? `${currentStr},${item}` : item;
+            }
+          }
+          if (currentStr) chunks[`items${currentChunk}`] = currentStr;
+          return chunks;
+        })(),
       },
     });
 
