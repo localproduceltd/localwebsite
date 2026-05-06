@@ -1,6 +1,7 @@
 import { Calendar, ShoppingCart, TrendingUp, Package, Users } from "lucide-react";
-import { getOrders, getActiveDeliveryDays } from "@/lib/data";
+import { getOrders, getActiveDeliveryDays, type Order } from "@/lib/data";
 import AdminCharts from "@/components/AdminCharts";
+import UpcomingDeliveryDays from "@/components/UpcomingDeliveryDays";
 
 function formatDeliveryDate(dateStr: string) {
   if (!dateStr) return "No date";
@@ -117,31 +118,10 @@ export default async function AdminDashboard() {
       </div>
 
       {/* Upcoming Delivery Days */}
-      <div className="mt-8 rounded-xl bg-surface p-6 shadow-sm">
-        <div className="flex items-center gap-2 mb-4">
-          <Calendar size={20} className="text-secondary" />
-          <h2 className="text-lg font-semibold text-primary">Upcoming Delivery Days</h2>
-        </div>
-        {upcomingDeliveryStats.length === 0 ? (
-          <p className="text-sm text-muted">No upcoming delivery days</p>
-        ) : (
-          <div className="space-y-3">
-            {upcomingDeliveryStats.map((day) => (
-              <div key={day.date} className="flex items-center justify-between rounded-lg bg-primary/5 px-4 py-3">
-                <div className="flex items-center gap-3">
-                  <span className="font-medium text-primary">{formatDeliveryDate(day.date)}</span>
-                </div>
-                <div className="flex items-center gap-6 text-sm">
-                  <span className="text-muted">
-                    <span className="font-semibold text-primary">{day.orderCount}</span> order{day.orderCount !== 1 ? "s" : ""}
-                  </span>
-                  <span className="font-semibold text-green-600">£{day.revenue.toFixed(2)}</span>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
+      <UpcomingDeliveryDays 
+        upcomingDeliveryStats={upcomingDeliveryStats} 
+        orders={orders} 
+      />
 
       {/* Most Popular Products & Suppliers */}
       <div className="mt-8 grid gap-6 lg:grid-cols-2">
