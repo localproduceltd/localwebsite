@@ -24,6 +24,7 @@ interface CheckoutRequest {
   bottleDepositPaid: boolean;
   bottleDepositQty: number;
   total: number;
+  address: string;
 }
 
 export async function POST(request: NextRequest) {
@@ -34,7 +35,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body: CheckoutRequest = await request.json();
-    const { items, deliveryDay, deliveryWindow, willBeIn, safePlace, customerEmail, boxDepositPaid, bottleDepositPaid, bottleDepositQty, total } = body;
+    const { items, deliveryDay, deliveryWindow, willBeIn, safePlace, customerEmail, boxDepositPaid, bottleDepositPaid, bottleDepositQty, total, address } = body;
 
     if (!items || items.length === 0) {
       return NextResponse.json({ error: "No items in cart" }, { status: 400 });
@@ -112,6 +113,8 @@ export async function POST(request: NextRequest) {
         safePlace: safePlace || "",
         boxDepositPaid: boxDepositPaid ? "true" : "false",
         bottleDepositPaid: bottleDepositPaid ? "true" : "false",
+        bottleDepositQty: bottleDepositQty.toString(),
+        address: address || "",
         total: total.toString(),
         itemCount: items.length.toString(),
         // Split items across multiple metadata fields to stay under 500 char limit per field

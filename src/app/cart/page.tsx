@@ -242,6 +242,7 @@ export default function CartPage() {
             bottleDepositPaid: hasGlassBottles && hasOwnBottles === false,
             bottleDepositQty: hasGlassBottles && hasOwnBottles === false ? bottleDepositQty : 0,
             total: finalTotal,
+            address: `${addressForm.addressLine1}${addressForm.addressLine2 ? ", " + addressForm.addressLine2 : ""}, ${addressForm.city}, ${addressForm.postcode}`,
           }),
         });
 

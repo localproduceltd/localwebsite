@@ -11,6 +11,12 @@ interface OrderConfirmationData {
   customerName: string;
   orderNumber: number;
   deliveryDay: string;
+  deliveryWindow?: "morning" | "afternoon";
+  address?: string;
+  willBeIn?: boolean;
+  safePlace?: string;
+  boxDepositPaid?: boolean;
+  bottleDepositPaid?: boolean;
   items: Array<{ productName: string; quantity: number; price: number }>;
   total: number;
   isTopUp?: boolean;
@@ -33,6 +39,20 @@ export async function sendOrderConfirmation(data: OrderConfirmationData) {
     ? `The following items have been added to your order <strong>#${data.orderNumber}</strong>.`
     : `Your order <strong>#${data.orderNumber}</strong> has been confirmed.`;
 
+  const deliveryWindowText = data.deliveryWindow === "morning" ? "9am – 1pm" : data.deliveryWindow === "afternoon" ? "1pm – 5pm" : "";
+  
+  // Build reminders section
+  const reminders: string[] = [];
+  if (data.boxDepositPaid) {
+    reminders.push("🧊 <strong>Cool bag & box:</strong> We'll leave your order in a cool bag and insulated box. Please leave it outside for collection on your next delivery.");
+  }
+  if (data.bottleDepositPaid === false && data.items.some(i => i.productName.toLowerCase().includes("glass bottle"))) {
+    reminders.push("🍼 <strong>Bottle return:</strong> Please leave your empty glass bottles outside for collection when we deliver.");
+  }
+  if (data.willBeIn === false && data.safePlace) {
+    reminders.push(`📍 <strong>Safe place:</strong> ${data.safePlace}`);
+  }
+
   const { error } = await resend.emails.send({
     from: FROM_EMAIL,
     to: data.customerEmail,
@@ -44,9 +64,11 @@ export async function sendOrderConfirmation(data: OrderConfirmationData) {
         <p>${message}</p>
         
         <div style="background: #f9f9f9; padding: 20px; border-radius: 8px; margin: 20px 0;">
-          <h3 style="margin-top: 0; color: #333;">Order Details</h3>
-          <p><strong>Delivery Day:</strong> ${data.deliveryDay}</p>
+          <h3 style="margin-top: 0; color: #333;">Delivery Details</h3>
+          <p><strong>Date:</strong> ${data.deliveryDay}${deliveryWindowText ? ` (${deliveryWindowText})` : ""}</p>
+          ${data.address ? `<p><strong>Address:</strong> ${data.address}</p>` : ""}
           <hr style="border: none; border-top: 1px solid #ddd; margin: 15px 0;">
+          <h4 style="margin: 0 0 10px 0; color: #333;">Items</h4>
           ${data.items.map((item) => `
             <div style="display: flex; justify-content: space-between; margin: 8px 0;">
               <span>${item.productName} x${item.quantity}</span>
@@ -59,6 +81,13 @@ export async function sendOrderConfirmation(data: OrderConfirmationData) {
             <span>£${data.total.toFixed(2)}</span>
           </div>
         </div>
+        
+        ${reminders.length > 0 ? `
+        <div style="background: #fef3c7; padding: 16px 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #f59e0b;">
+          <h4 style="margin: 0 0 10px 0; color: #92400e;">Reminders</h4>
+          ${reminders.map(r => `<p style="margin: 8px 0; color: #78350f;">${r}</p>`).join("")}
+        </div>
+        ` : ""}
         
         <p>We'll notify you when your order is on its way.</p>
         <p>Thank you for supporting local producers!</p>

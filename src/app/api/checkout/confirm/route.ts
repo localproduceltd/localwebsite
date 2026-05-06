@@ -121,11 +121,18 @@ export async function POST(request: NextRequest) {
       
       // Send customer confirmation email
       try {
+        const deliveryWindow = metadata.deliveryWindow as "morning" | "afternoon" | undefined;
         await sendOrderConfirmation({
           customerEmail,
           customerName: "Customer",
           orderNumber: order.orderNumber,
           deliveryDay: deliveryDayFormatted,
+          deliveryWindow,
+          address: metadata.address || undefined,
+          willBeIn: metadata.willBeIn === "true",
+          safePlace: metadata.safePlace || undefined,
+          boxDepositPaid,
+          bottleDepositPaid,
           items: items.map((item) => ({
             productName: item.productName,
             quantity: item.quantity,
