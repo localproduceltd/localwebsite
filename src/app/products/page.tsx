@@ -32,20 +32,55 @@ export default function ProductsPage() {
   // Locality priority: Own Produce/Local/Regional = 0, UK = 1, International = 2, TBC = 3
   const localityPriority: Record<string, number> = { "Own Produce": 0, "Local": 0, "Regional": 0, "UK": 1, "International": 2, "TBC": 3 };
 
+  // Calculate search relevance score for a product
+  const getSearchScore = (p: Product, searchTerm: string): number => {
+    if (!searchTerm) return 0;
+    const term = searchTerm.toLowerCase();
+    const name = p.name.toLowerCase();
+    const supplier = p.supplierName.toLowerCase();
+    const desc = p.description.toLowerCase();
+    const cat = p.category.toLowerCase();
+    
+    // Name starts with search term - highest priority
+    if (name.startsWith(term)) return 100;
+    // Name contains a word starting with search term
+    if (name.split(/\s+/).some(word => word.startsWith(term))) return 80;
+    // Name contains search term anywhere
+    if (name.includes(term)) return 60;
+    // Category matches (e.g. "meat" shows all Meat products)
+    if (cat.startsWith(term) || cat.includes(term)) return 50;
+    // Supplier name matches
+    if (supplier.startsWith(term) || supplier.split(/\s+/).some(word => word.startsWith(term))) return 40;
+    if (supplier.includes(term)) return 30;
+    // Description matches
+    if (desc.includes(term)) return 20;
+    return 0;
+  };
+
   const filtered = (() => {
+    const searchTerm = search.trim().toLowerCase();
+    
     // First filter products
     const matchingProducts = products.filter((p) => {
-      const matchesSearch =
-        p.name.toLowerCase().includes(search.toLowerCase()) ||
-        p.supplierName.toLowerCase().includes(search.toLowerCase()) ||
-        p.description.toLowerCase().includes(search.toLowerCase());
+      const matchesSearch = !searchTerm || getSearchScore(p, searchTerm) > 0;
       const matchesCategory = category === "All" || p.category === category;
       const matchesLocality = selectedLocalities.size === 0 || selectedLocalities.has(p.locality);
       const matchesTags = selectedTags.size === 0 || Array.from(selectedTags).every((tag) => p.tags?.includes(tag));
       return matchesSearch && matchesCategory && matchesLocality && matchesTags;
     });
 
-    // Group by category, sorted by locality priority within each category
+    // If searching, sort by relevance score then locality
+    if (searchTerm) {
+      return matchingProducts.sort((a, b) => {
+        const scoreDiff = getSearchScore(b, searchTerm) - getSearchScore(a, searchTerm);
+        if (scoreDiff !== 0) return scoreDiff;
+        const localityDiff = (localityPriority[a.locality] ?? 9) - (localityPriority[b.locality] ?? 9);
+        if (localityDiff !== 0) return localityDiff;
+        return a.name.localeCompare(b.name);
+      });
+    }
+
+    // No search: group by category, sorted by locality priority within each category
     const byCategory = new Map<string, typeof matchingProducts>();
     for (const p of matchingProducts) {
       if (!byCategory.has(p.category)) byCategory.set(p.category, []);
