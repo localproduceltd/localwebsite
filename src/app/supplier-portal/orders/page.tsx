@@ -148,20 +148,20 @@ export default function SupplierOrdersPage() {
   // Aggregate quantity per product per delivery day (non-delivered only)
   const demandGrid = useMemo(() => {
     const daySet = new Set<string>();
-    // productId → { name, days: { dayKey → qty } }
+    // productName → { name, days: { dayKey → qty } }
     const map = new Map<string, { name: string; days: Map<string, number>; total: number }>();
     for (const item of orderItems) {
       if (item.supplierStatus === "delivered" || item.supplierStatus === "cancelled") continue;
       const day = item.deliveryDay || "unassigned";
       daySet.add(day);
-      const existing = map.get(item.productId);
+      const existing = map.get(item.productName);
       if (existing) {
         existing.days.set(day, (existing.days.get(day) ?? 0) + item.quantity);
         existing.total += item.quantity;
       } else {
         const days = new Map<string, number>();
         days.set(day, item.quantity);
-        map.set(item.productId, { name: item.productName, days, total: item.quantity });
+        map.set(item.productName, { name: item.productName, days, total: item.quantity });
       }
     }
     const deliveryDays = Array.from(daySet).sort((a, b) => {
