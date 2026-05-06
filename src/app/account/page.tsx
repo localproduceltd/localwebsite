@@ -12,7 +12,6 @@ import {
   submitOrderRatings,
   getCustomerProfile,
   canModifyOrder,
-  cancelOrder,
   submitFeedback,
 } from "@/lib/data";
 import {
@@ -27,9 +26,9 @@ import {
   Pencil,
   MessageSquare,
   RefreshCw,
-  X,
-  AlertTriangle,
+  Plus,
 } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { useCart } from "@/lib/cart-context";
 
 const statusConfig = {
@@ -75,7 +74,8 @@ interface DraftRating {
 export default function AccountPage() {
   const { user } = useUser();
   const { openUserProfile } = useClerk();
-  const { addItems, products } = useCart();
+  const { addItems, products, setTopUpOrder } = useCart();
+  const router = useRouter();
 
   // Profile state
   const [profile, setProfile] = useState<CustomerProfile | null>(null);
@@ -99,8 +99,6 @@ export default function AccountPage() {
 
   // Order modification state
   const [modifiableOrders, setModifiableOrders] = useState<Set<string>>(new Set());
-  const [cancellingOrder, setCancellingOrder] = useState<string | null>(null);
-  const [modifyingOrder, setModifyingOrder] = useState(false);
 
   // Load data
   useEffect(() => {
@@ -219,43 +217,15 @@ export default function AccountPage() {
 
   const [reorderedId, setReorderedId] = useState<string | null>(null);
 
-  // Order modification handlers
-  const handleCancelOrder = async (orderId: string) => {
-    setModifyingOrder(true);
-    try {
-      const order = orders.find((o) => o.id === orderId);
-      await cancelOrder(orderId);
-      setOrders((prev) => prev.map((o) => o.id === orderId ? { ...o, status: "cancelled" as const } : o));
-      setModifiableOrders((prev) => {
-        const next = new Set(prev);
-        next.delete(orderId);
-        return next;
-      });
-      setCancellingOrder(null);
-
-      // Send cancellation email
-      if (order?.customerEmail) {
-        fetch("/api/email", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            type: "order_status_update",
-            data: {
-              customerEmail: order.customerEmail,
-              customerName: user?.fullName || user?.firstName || "Customer",
-              orderNumber: order.orderNumber,
-              status: "cancelled",
-              deliveryDay: new Date(order.deliveryDay + "T00:00:00").toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" }),
-            },
-          }),
-        }).catch(console.error);
-      }
-    } catch (error) {
-      console.error("Failed to cancel order:", error);
-      alert("Failed to cancel order. The cutoff time may have passed.");
-    } finally {
-      setModifyingOrder(false);
-    }
+  // Handle add to order - sets up top-up mode and navigates to products
+  const handleAddToOrder = (order: Order) => {
+    setTopUpOrder({
+      orderId: order.id,
+      orderNumber: order.orderNumber,
+      deliveryDay: order.deliveryDay,
+      customerEmail: order.customerEmail || "",
+    });
+    router.push("/products");
   };
 
   const handleReorder = (order: Order) => {
@@ -336,7 +306,6 @@ export default function AccountPage() {
               const hasAllRatings = order.items.every((item) => orderSubmittedRatings[item.productId]?.stars > 0);
               const draftHasAnyStars = Object.values(draft).some((r) => r.stars > 0);
               const canModify = modifiableOrders.has(order.id);
-              const isCancelling = cancellingOrder === order.id;
 
               return (
                 <div key={order.id} className="overflow-hidden rounded-xl bg-surface shadow-sm">
@@ -349,11 +318,11 @@ export default function AccountPage() {
                     <div className="flex items-center gap-3">
                       {canModify && (
                         <button
-                          onClick={() => setCancellingOrder(order.id)}
-                          className="inline-flex items-center gap-1.5 rounded-lg bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-700 transition hover:bg-red-100"
+                          onClick={() => handleAddToOrder(order)}
+                          className="inline-flex items-center gap-1.5 rounded-lg bg-secondary/20 px-3 py-1.5 text-xs font-semibold text-secondary transition hover:bg-secondary/30"
                         >
-                          <X size={12} />
-                          Cancel
+                          <Plus size={12} />
+                          Add to Order
                         </button>
                       )}
                       {!canModify && order.status !== "delivered" && order.status !== "cancelled" && (
@@ -380,36 +349,6 @@ export default function AccountPage() {
                       </span>
                     </div>
                   </div>
-
-                  {/* Cancel confirmation dialog */}
-                  {isCancelling && (
-                    <div className="bg-red-50 border-b border-red-100 px-6 py-4">
-                      <div className="flex items-start gap-3">
-                        <AlertTriangle size={20} className="text-red-600 mt-0.5" />
-                        <div className="flex-1">
-                          <p className="text-sm font-semibold text-red-800">Cancel this order?</p>
-                          <p className="text-xs text-red-600 mt-1">This action cannot be undone.</p>
-                          <div className="flex gap-2 mt-3">
-                            <button
-                              onClick={() => handleCancelOrder(order.id)}
-                              disabled={modifyingOrder}
-                              className="inline-flex items-center gap-1.5 rounded-lg bg-red-600 px-4 py-2 text-xs font-semibold text-white transition hover:bg-red-700 disabled:opacity-50"
-                            >
-                              {modifyingOrder ? <Loader2 size={12} className="animate-spin" /> : <X size={12} />}
-                              Yes, Cancel Order
-                            </button>
-                            <button
-                              onClick={() => setCancellingOrder(null)}
-                              disabled={modifyingOrder}
-                              className="inline-flex items-center gap-1.5 rounded-lg bg-white px-4 py-2 text-xs font-semibold text-gray-700 transition hover:bg-gray-50 border border-gray-200"
-                            >
-                              Keep Order
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  )}
 
                   {/* Order items grouped by supplier */}
                   <div className="px-6 py-4">

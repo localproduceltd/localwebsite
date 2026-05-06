@@ -770,6 +770,76 @@ export async function updateOrderItems(orderId: string, items: OrderItem[]): Pro
   if (totalError) throw totalError;
 }
 
+export async function getOrder(orderId: string): Promise<Order | null> {
+  const { data, error } = await supabase
+    .from("orders")
+    .select("*, order_items(*, suppliers(name))")
+    .eq("id", orderId)
+    .single();
+  if (error || !data) return null;
+  return {
+    id: data.id,
+    orderNumber: data.order_number,
+    userId: data.user_id,
+    customerEmail: data.customer_email ?? null,
+    items: (data.order_items as Array<{ product_id: string; product_name: string; quantity: number; price: number; supplier_id?: string; supplier_status?: string; suppliers?: { name: string } | null }>).map((item) => ({
+      productId: item.product_id,
+      productName: item.product_name,
+      quantity: item.quantity,
+      price: Number(item.price),
+      supplierId: item.supplier_id ?? undefined,
+      supplierStatus: (item.supplier_status as OrderItem["supplierStatus"]) ?? "order_placed",
+      supplierName: item.suppliers?.name,
+    })),
+    total: Number(data.total),
+    status: data.status as Order["status"],
+    createdAt: new Date(data.created_at).toISOString().split("T")[0],
+    deliveryDay: data.delivery_day,
+    deliveryWindow: data.delivery_window as DeliveryWindow,
+    willBeIn: data.will_be_in ?? true,
+    safePlace: data.safe_place ?? null,
+    boxDepositPaid: data.box_deposit_paid ?? false,
+  };
+}
+
+export async function addItemsToOrder(orderId: string, items: OrderItem[], additionalTotal: number): Promise<void> {
+  const canModify = await canModifyOrder(orderId);
+  if (!canModify) throw new Error("Order cannot be modified after cutoff");
+  
+  // Insert new items
+  if (items.length > 0) {
+    const { error: itemsError } = await supabase.from("order_items").insert(
+      items.map((item) => ({
+        order_id: orderId,
+        product_id: item.productId,
+        product_name: item.productName,
+        quantity: item.quantity,
+        price: item.price,
+        supplier_id: item.supplierId ?? null,
+        supplier_status: "order_placed",
+      }))
+    );
+    if (itemsError) throw itemsError;
+  }
+  
+  // Get current order total and add to it
+  const { data: order, error: orderError } = await supabase
+    .from("orders")
+    .select("total")
+    .eq("id", orderId)
+    .single();
+  
+  if (orderError || !order) throw orderError ?? new Error("Order not found");
+  
+  const newTotal = Number(order.total) + additionalTotal;
+  const { error: totalError } = await supabase
+    .from("orders")
+    .update({ total: newTotal })
+    .eq("id", orderId);
+  
+  if (totalError) throw totalError;
+}
+
 // ─── Supplier User functions ────────────────────────────────────────────────
 
 export async function getSupplierUser(clerkUserId: string): Promise<SupplierUser | null> {

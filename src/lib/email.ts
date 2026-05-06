@@ -13,6 +13,7 @@ interface OrderConfirmationData {
   deliveryDay: string;
   items: Array<{ productName: string; quantity: number; price: number }>;
   total: number;
+  isTopUp?: boolean;
 }
 
 export async function sendOrderConfirmation(data: OrderConfirmationData) {
@@ -20,15 +21,27 @@ export async function sendOrderConfirmation(data: OrderConfirmationData) {
     .map((item) => `• ${item.productName} x${item.quantity} - £${(item.price * item.quantity).toFixed(2)}`)
     .join("\n");
 
+  const subject = data.isTopUp 
+    ? `Items Added to Order #${data.orderNumber}` 
+    : `Order Confirmed - #${data.orderNumber}`;
+  
+  const heading = data.isTopUp
+    ? "Items added to your order!"
+    : "Thank you for your order!";
+  
+  const message = data.isTopUp
+    ? `The following items have been added to your order <strong>#${data.orderNumber}</strong>.`
+    : `Your order <strong>#${data.orderNumber}</strong> has been confirmed.`;
+
   const { error } = await resend.emails.send({
     from: FROM_EMAIL,
     to: data.customerEmail,
-    subject: `Order Confirmed - #${data.orderNumber}`,
+    subject,
     html: `
       <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
-        <h1 style="color: #A30E4E;">Thank you for your order!</h1>
+        <h1 style="color: #A30E4E;">${heading}</h1>
         <p>Hi ${data.customerName},</p>
-        <p>Your order <strong>#${data.orderNumber}</strong> has been confirmed.</p>
+        <p>${message}</p>
         
         <div style="background: #f9f9f9; padding: 20px; border-radius: 8px; margin: 20px 0;">
           <h3 style="margin-top: 0; color: #333;">Order Details</h3>
@@ -139,18 +152,28 @@ interface NewOrderData {
   deliveryDay: string;
   items: Array<{ productName: string; quantity: number; price: number }>;
   subtotal: number;
+  isTopUp?: boolean;
 }
 
 export async function sendSupplierNewOrder(data: NewOrderData) {
+  const subject = data.isTopUp
+    ? `Items Added to Order #${data.orderNumber}`
+    : `New Order Received - #${data.orderNumber}`;
+  
+  const heading = data.isTopUp ? "📦 Items Added to Order!" : "🎉 New Order!";
+  const message = data.isTopUp
+    ? "Additional items have been added to an existing order."
+    : "You've received a new order for your products.";
+
   const { error } = await resend.emails.send({
     from: FROM_EMAIL,
     to: data.supplierEmail,
-    subject: `New Order Received - #${data.orderNumber}`,
+    subject,
     html: `
       <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
-        <h1 style="color: #A30E4E;">🎉 New Order!</h1>
+        <h1 style="color: #A30E4E;">${heading}</h1>
         <p>Hi ${data.supplierName},</p>
-        <p>You've received a new order for your products.</p>
+        <p>${message}</p>
         
         <div style="background: #f9f9f9; padding: 20px; border-radius: 8px; margin: 20px 0;">
           <h3 style="margin-top: 0; color: #333;">Order #${data.orderNumber}</h3>

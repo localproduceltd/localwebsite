@@ -8,6 +8,13 @@ export interface CartItem {
   quantity: number;
 }
 
+export interface TopUpOrder {
+  orderId: string;
+  orderNumber: number;
+  deliveryDay: string;
+  customerEmail: string;
+}
+
 interface CartContextType {
   items: CartItem[];
   addItem: (productId: string) => void;
@@ -19,6 +26,9 @@ interface CartContextType {
   totalPrice: number;
   getProduct: (productId: string) => Product | undefined;
   products: Product[];
+  topUpOrder: TopUpOrder | null;
+  setTopUpOrder: (order: TopUpOrder | null) => void;
+  clearTopUpOrder: () => void;
 }
 
 const CartContext = createContext<CartContextType | null>(null);
@@ -26,10 +36,13 @@ const CartContext = createContext<CartContextType | null>(null);
 export function CartProvider({ children }: { children: ReactNode }) {
   const [items, setItems] = useState<CartItem[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
+  const [topUpOrder, setTopUpOrder] = useState<TopUpOrder | null>(null);
 
   useEffect(() => {
     getApprovedProducts().then(setProducts).catch(console.error);
   }, []);
+
+  const clearTopUpOrder = useCallback(() => setTopUpOrder(null), []);
 
   const addItem = useCallback((productId: string) => {
     setItems((prev) => {
@@ -101,6 +114,9 @@ export function CartProvider({ children }: { children: ReactNode }) {
         totalPrice,
         getProduct,
         products,
+        topUpOrder,
+        setTopUpOrder,
+        clearTopUpOrder,
       }}
     >
       {children}

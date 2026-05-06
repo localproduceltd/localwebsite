@@ -14,7 +14,7 @@ const MINIMUM_ORDER = 25;
 const DELIVERY_FEE = 2.99;
 
 export default function CartPage() {
-  const { items, updateQuantity, removeItem, totalPrice, getProduct, clearCart } = useCart();
+  const { items, updateQuantity, removeItem, totalPrice, getProduct, clearCart, topUpOrder, clearTopUpOrder } = useCart();
   const { isSignedIn, user } = useUser();
   const router = useRouter();
   const [deliveryDays, setDeliveryDays] = useState<DeliveryDay[]>([]);
@@ -137,11 +137,12 @@ export default function CartPage() {
 
   // Calculate if box deposit is needed
   const needsBoxDeposit = willBeIn === false && !hasOutstandingBox;
-  const boxDeposit = needsBoxDeposit ? BOX_DEPOSIT : 0;
-  const finalTotal = totalPrice + boxDeposit + DELIVERY_FEE;
+  const boxDeposit = needsBoxDeposit && !topUpOrder ? BOX_DEPOSIT : 0;
+  const deliveryFee = topUpOrder ? 0 : DELIVERY_FEE;
+  const finalTotal = totalPrice + boxDeposit + deliveryFee;
   
-  // Check minimum order
-  const belowMinimum = totalPrice < MINIMUM_ORDER;
+  // Check minimum order (not required for top-up orders)
+  const belowMinimum = !topUpOrder && totalPrice < MINIMUM_ORDER;
   const amountToMinimum = MINIMUM_ORDER - totalPrice;
 
   const handlePlaceOrder = async () => {
@@ -149,8 +150,12 @@ export default function CartPage() {
       router.push("/sign-in");
       return;
     }
-    if (!selectedDay || !deliveryWindow || willBeIn === null) return;
-    if (willBeIn === false && !safePlace.trim()) return;
+    
+    // For top-up orders, we don't need delivery day/window/etc
+    if (!topUpOrder) {
+      if (!selectedDay || !deliveryWindow || willBeIn === null) return;
+      if (willBeIn === false && !safePlace.trim()) return;
+    }
 
     setPlacing(true);
 
@@ -181,35 +186,61 @@ export default function CartPage() {
     try {
       const customerEmail = user.primaryEmailAddress?.emailAddress ?? "";
       
-      // Create Stripe checkout session
-      const response = await fetch("/api/checkout", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          items: orderItems,
-          deliveryDay: selectedDay,
-          deliveryWindow,
-          willBeIn,
-          safePlace: willBeIn ? undefined : safePlace,
-          customerEmail,
-          boxDepositPaid: needsBoxDeposit,
-          total: finalTotal,
-        }),
-      });
+      if (topUpOrder) {
+        // Top-up checkout - different endpoint
+        const response = await fetch("/api/checkout/topup", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            orderId: topUpOrder.orderId,
+            items: orderItems,
+            customerEmail,
+            total: finalTotal,
+          }),
+        });
 
-      const data = await response.json();
-      
-      if (!response.ok) {
-        throw new Error(data.error || `Server error: ${response.status}`);
-      }
-      
-      if (data.url) {
-        // Store cart in session storage so we can clear it after successful payment
-        sessionStorage.setItem("pendingCheckout", "true");
-        // Redirect to Stripe Checkout
-        window.location.href = data.url;
+        const data = await response.json();
+        
+        if (!response.ok) {
+          throw new Error(data.error || `Server error: ${response.status}`);
+        }
+        
+        if (data.url) {
+          sessionStorage.setItem("pendingCheckout", "true");
+          sessionStorage.setItem("topUpOrderId", topUpOrder.orderId);
+          window.location.href = data.url;
+        } else {
+          throw new Error(data.error || "No checkout URL returned");
+        }
       } else {
-        throw new Error(data.error || "No checkout URL returned");
+        // Regular checkout
+        const response = await fetch("/api/checkout", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            items: orderItems,
+            deliveryDay: selectedDay,
+            deliveryWindow,
+            willBeIn,
+            safePlace: willBeIn ? undefined : safePlace,
+            customerEmail,
+            boxDepositPaid: needsBoxDeposit,
+            total: finalTotal,
+          }),
+        });
+
+        const data = await response.json();
+        
+        if (!response.ok) {
+          throw new Error(data.error || `Server error: ${response.status}`);
+        }
+        
+        if (data.url) {
+          sessionStorage.setItem("pendingCheckout", "true");
+          window.location.href = data.url;
+        } else {
+          throw new Error(data.error || "No checkout URL returned");
+        }
       }
     } catch (error) {
       console.error("Checkout error:", error);
@@ -263,8 +294,31 @@ export default function CartPage() {
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-10 sm:px-6 lg:px-8">
-      <h1 className="text-3xl font-bold text-primary">Shopping Cart</h1>
+      <h1 className="text-3xl font-bold text-primary">
+        {topUpOrder ? `Add to Order #${topUpOrder.orderNumber}` : "Shopping Cart"}
+      </h1>
       <p className="mt-1 text-secondary">{items.length} item{items.length !== 1 ? "s" : ""} in your cart</p>
+
+      {/* Top-up mode banner */}
+      {topUpOrder && (
+        <div className="mt-4 rounded-xl bg-secondary/20 border border-secondary/30 p-4">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="font-semibold text-primary">Adding items to Order #{topUpOrder.orderNumber}</p>
+              <p className="text-sm text-muted mt-1">
+                Delivery: {new Date(topUpOrder.deliveryDay + "T00:00:00").toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })}
+              </p>
+              <p className="text-sm text-secondary mt-1">No delivery fee for top-up orders</p>
+            </div>
+            <button
+              onClick={clearTopUpOrder}
+              className="text-xs text-muted hover:text-primary transition"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="mt-8 space-y-6">
         {(() => {
@@ -331,8 +385,8 @@ export default function CartPage() {
         })()}
       </div>
 
-      {/* Trial Access Lock */}
-      {!trialUnlocked && (
+      {/* Trial Access Lock - hide in top-up mode */}
+      {!topUpOrder && !trialUnlocked && (
         <div className="mt-8 rounded-xl bg-primary/5 border-2 border-primary/20 p-6">
           <div className="flex items-center gap-2">
             <Lock size={20} className="text-primary" />
@@ -371,8 +425,8 @@ export default function CartPage() {
         </div>
       )}
 
-      {/* Delivery Address - only show if trial unlocked */}
-      {trialUnlocked && (
+      {/* Delivery Address - only show if trial unlocked and not top-up mode */}
+      {!topUpOrder && trialUnlocked && (
         <div className="mt-8 rounded-xl bg-surface p-6 shadow-sm">
           <div className="flex items-center gap-2">
             <MapPin size={20} className="text-secondary" />
@@ -526,8 +580,8 @@ export default function CartPage() {
       </div>
       )}
 
-      {/* Delivery Day Picker - only show if in zone and trial unlocked */}
-      {trialUnlocked && deliveryCheck?.inZone && (
+      {/* Delivery Day Picker - only show if in zone, trial unlocked, and not top-up mode */}
+      {!topUpOrder && trialUnlocked && deliveryCheck?.inZone && (
         <div className="mt-6 rounded-xl bg-surface p-6 shadow-sm">
           <div className="flex items-center gap-2">
             <Calendar size={20} className="text-secondary" />
@@ -564,8 +618,8 @@ export default function CartPage() {
         </div>
       )}
 
-      {/* Delivery Window - only show if in zone and trial unlocked */}
-      {trialUnlocked && deliveryCheck?.inZone && (
+      {/* Delivery Window - only show if in zone, trial unlocked, and not top-up mode */}
+      {!topUpOrder && trialUnlocked && deliveryCheck?.inZone && (
         <div className="mt-6 rounded-xl bg-surface p-6 shadow-sm">
           <div className="flex items-center gap-2">
             <Clock size={20} className="text-secondary" />
@@ -599,8 +653,8 @@ export default function CartPage() {
         </div>
       )}
 
-      {/* Attendance Choice - only show if in zone and trial unlocked */}
-      {trialUnlocked && deliveryCheck?.inZone && (
+      {/* Attendance Choice - only show if in zone, trial unlocked, and not top-up mode */}
+      {!topUpOrder && trialUnlocked && deliveryCheck?.inZone && (
         <div className="mt-6 rounded-xl bg-surface p-6 shadow-sm">
         <div className="flex items-center gap-2">
           <Home size={20} className="text-secondary" />
@@ -686,8 +740,8 @@ export default function CartPage() {
         </div>
       )}
 
-      {/* Safe Place (only if not in, in zone, and trial unlocked) */}
-      {trialUnlocked && deliveryCheck?.inZone && willBeIn === false && (
+      {/* Safe Place (only if not in, in zone, trial unlocked, and not top-up mode) */}
+      {!topUpOrder && trialUnlocked && deliveryCheck?.inZone && willBeIn === false && (
         <div className="mt-6 rounded-xl bg-surface p-6 shadow-sm">
           <div className="flex items-center gap-2">
             <MapPin size={20} className="text-secondary" />
@@ -732,15 +786,23 @@ export default function CartPage() {
         </div>
         <div className="flex items-center justify-between border-b border-primary/5 py-4">
           <span className="text-muted">Delivery Fee</span>
-          <span className="font-semibold text-primary">£{DELIVERY_FEE.toFixed(2)}</span>
+          <span className="font-semibold text-primary">
+            {topUpOrder ? <span className="text-secondary">Free (top-up)</span> : `£${DELIVERY_FEE.toFixed(2)}`}
+          </span>
         </div>
-        {needsBoxDeposit && (
+        {needsBoxDeposit && !topUpOrder && (
           <div className="flex items-center justify-between border-b border-primary/5 py-4">
             <span className="text-muted">Box Deposit (refundable)</span>
             <span className="font-semibold text-primary">£{BOX_DEPOSIT.toFixed(2)}</span>
           </div>
         )}
-        {selectedDay && (
+        {topUpOrder && (
+          <div className="flex items-center justify-between border-b border-primary/5 py-4">
+            <span className="text-muted">Adding to Order</span>
+            <span className="font-semibold text-primary">#{topUpOrder.orderNumber}</span>
+          </div>
+        )}
+        {!topUpOrder && selectedDay && (
           <div className="flex items-center justify-between border-b border-primary/5 py-4">
             <span className="text-muted">Delivery Date</span>
             <span className="font-semibold text-primary">
@@ -767,11 +829,15 @@ export default function CartPage() {
         )}
         
         <button
-          disabled={belowMinimum || !trialUnlocked || !deliveryCheck?.inZone || !addressForm.addressLine1.trim() || !selectedDay || !deliveryWindow || willBeIn === null || (willBeIn === false && !safePlace.trim()) || placing}
+          disabled={
+            topUpOrder 
+              ? (belowMinimum || !isSignedIn || placing)
+              : (belowMinimum || !trialUnlocked || !deliveryCheck?.inZone || !addressForm.addressLine1.trim() || !selectedDay || !deliveryWindow || willBeIn === null || (willBeIn === false && !safePlace.trim()) || placing)
+          }
           onClick={handlePlaceOrder}
           className="mt-6 w-full rounded-lg bg-accent py-3 text-center font-semibold text-primary transition hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {placing ? "Redirecting to Checkout..." : belowMinimum ? `Minimum order £${MINIMUM_ORDER}` : !trialUnlocked ? "Enter Trial Code" : !isSignedIn ? "Sign In to Continue" : !deliveryCheck?.inZone ? "Check Postcode First" : !addressForm.addressLine1.trim() ? "Enter Address" : !selectedDay ? "Select Delivery Day" : !deliveryWindow ? "Select Delivery Window" : willBeIn === null ? "Select Attendance" : (willBeIn === false && !safePlace.trim()) ? "Enter Safe Place" : "Continue to Checkout"}
+          {placing ? "Redirecting to Checkout..." : belowMinimum ? `Minimum order £${MINIMUM_ORDER}` : topUpOrder ? "Add to Order & Pay" : !trialUnlocked ? "Enter Trial Code" : !isSignedIn ? "Sign In to Continue" : !deliveryCheck?.inZone ? "Check Postcode First" : !addressForm.addressLine1.trim() ? "Enter Address" : !selectedDay ? "Select Delivery Day" : !deliveryWindow ? "Select Delivery Window" : willBeIn === null ? "Select Attendance" : (willBeIn === false && !safePlace.trim()) ? "Enter Safe Place" : "Continue to Checkout"}
         </button>
         {!isSignedIn && (
           <p className="mt-2 text-center text-xs text-muted">

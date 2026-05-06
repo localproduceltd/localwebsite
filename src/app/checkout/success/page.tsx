@@ -9,15 +9,18 @@ import { useCart } from "@/lib/cart-context";
 function CheckoutSuccessContent() {
   const searchParams = useSearchParams();
   const sessionId = searchParams.get("session_id");
+  const isTopUp = searchParams.get("topup") === "true";
   const [orderNumber, setOrderNumber] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
-  const { clearCart } = useCart();
+  const { clearCart, clearTopUpOrder } = useCart();
 
   useEffect(() => {
     if (sessionId) {
-      // Confirm the session and create the order
-      fetch("/api/checkout/confirm", {
+      // Use different endpoint for top-up orders
+      const endpoint = isTopUp ? "/api/checkout/topup/confirm" : "/api/checkout/confirm";
+      
+      fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ sessionId }),
@@ -28,6 +31,10 @@ function CheckoutSuccessContent() {
             setOrderNumber(data.orderNumber);
             // Clear the cart after successful order
             clearCart();
+            if (isTopUp) {
+              clearTopUpOrder();
+              sessionStorage.removeItem("topUpOrderId");
+            }
             sessionStorage.removeItem("pendingCheckout");
           } else {
             setError(true);
@@ -41,7 +48,7 @@ function CheckoutSuccessContent() {
     } else {
       setLoading(false);
     }
-  }, [sessionId, clearCart]);
+  }, [sessionId, isTopUp, clearCart, clearTopUpOrder]);
 
   if (loading) {
     return (
@@ -80,12 +87,16 @@ function CheckoutSuccessContent() {
           <CheckCircle className="h-10 w-10 text-green-600" />
         </div>
         
-        <h1 className="mt-6 text-2xl font-bold text-primary">Payment Successful!</h1>
+        <h1 className="mt-6 text-2xl font-bold text-primary">
+          {isTopUp ? "Items Added!" : "Payment Successful!"}
+        </h1>
         {orderNumber && (
           <p className="mt-2 text-lg font-medium text-secondary">Order #{orderNumber}</p>
         )}
         <p className="mt-2 text-muted">
-          Thank you for your order. We&apos;ve sent a confirmation email with your order details.
+          {isTopUp 
+            ? "Your items have been added to your existing order. We've sent a confirmation email."
+            : "Thank you for your order. We've sent a confirmation email with your order details."}
         </p>
 
         <div className="mt-8 rounded-xl bg-secondary/10 p-6">
