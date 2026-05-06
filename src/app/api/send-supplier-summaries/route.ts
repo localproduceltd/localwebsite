@@ -69,8 +69,9 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Send emails to each supplier
+    // Send emails to each supplier with delay to avoid rate limits
     const results: Array<{ supplier: string; success: boolean; error?: string }> = [];
+    const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
     for (const [, data] of supplierOrders) {
       if (!data.supplier.email) {
@@ -104,6 +105,9 @@ export async function POST(request: NextRequest) {
           supplier: data.supplier.name,
           success: true,
         });
+        
+        // Wait 250ms between emails to avoid rate limits
+        await delay(250);
       } catch (error) {
         results.push({
           supplier: data.supplier.name,

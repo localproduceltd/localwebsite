@@ -18,7 +18,7 @@ const NAV_LINKS = [
 
 export default function Navbar() {
   const [mobileOpen, setMobileOpen] = useState(false);
-  const { totalItems } = useCart();
+  const { totalItems, totalPrice } = useCart();
   const pathname = usePathname();
   const isHoldingPage = pathname === "/holding";
 
@@ -72,12 +72,10 @@ export default function Navbar() {
         <div className="flex items-center gap-4">
           {!isHoldingPage && (
             <>
-              <Link href="/cart" className="relative rounded-full bg-surface p-2.5 transition hover:bg-surface/90">
+              <Link href="/cart" className="flex items-center gap-2 rounded-full bg-surface px-3 py-2 transition hover:bg-surface/90">
                 <ShoppingCart size={20} className="text-secondary" />
                 {totalItems > 0 && (
-                  <span className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-secondary text-[11px] font-bold text-white">
-                    {totalItems}
-                  </span>
+                  <span className="text-sm font-semibold text-primary">£{totalPrice.toFixed(2)}</span>
                 )}
               </Link>
 
