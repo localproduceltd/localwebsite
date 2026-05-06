@@ -608,6 +608,39 @@ export interface CreateOrderOptions {
   willBeIn: boolean;
   safePlace?: string;
   boxDepositPaid: boolean;
+  stripeSessionId?: string;
+}
+
+export async function getOrderByStripeSession(sessionId: string): Promise<Order | null> {
+  const { data, error } = await supabase
+    .from("orders")
+    .select("*, order_items(*, suppliers(name))")
+    .eq("stripe_session_id", sessionId)
+    .single();
+  if (error || !data) return null;
+  return {
+    id: data.id,
+    orderNumber: data.order_number,
+    userId: data.user_id,
+    customerEmail: data.customer_email ?? null,
+    items: (data.order_items as Array<{ product_id: string; product_name: string; quantity: number; price: number; supplier_id?: string; supplier_status?: string; suppliers?: { name: string } | null }>).map((item) => ({
+      productId: item.product_id,
+      productName: item.product_name,
+      quantity: item.quantity,
+      price: Number(item.price),
+      supplierId: item.supplier_id ?? undefined,
+      supplierStatus: (item.supplier_status as OrderItem["supplierStatus"]) ?? "order_placed",
+      supplierName: item.suppliers?.name,
+    })),
+    total: Number(data.total),
+    status: data.status as Order["status"],
+    createdAt: new Date(data.created_at).toISOString().split("T")[0],
+    deliveryDay: data.delivery_day,
+    deliveryWindow: data.delivery_window as DeliveryWindow,
+    willBeIn: data.will_be_in ?? true,
+    safePlace: data.safe_place ?? null,
+    boxDepositPaid: data.box_deposit_paid ?? false,
+  };
 }
 
 export async function createOrder(options: CreateOrderOptions): Promise<Order> {
@@ -623,6 +656,7 @@ export async function createOrder(options: CreateOrderOptions): Promise<Order> {
       will_be_in: options.willBeIn,
       safe_place: options.safePlace ?? null,
       box_deposit_paid: options.boxDepositPaid,
+      stripe_session_id: options.stripeSessionId ?? null,
     })
     .select()
     .single();

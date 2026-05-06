@@ -107,8 +107,10 @@ CREATE TABLE IF NOT EXISTS orders (
   will_be_in        boolean DEFAULT true,
   safe_place        text,
   box_deposit_paid  boolean DEFAULT false,
+  stripe_session_id text UNIQUE,
   created_at        timestamptz DEFAULT now()
 );
+CREATE INDEX IF NOT EXISTS idx_orders_stripe_session_id ON orders(stripe_session_id);
 
 -- Order items
 CREATE TABLE IF NOT EXISTS order_items (
