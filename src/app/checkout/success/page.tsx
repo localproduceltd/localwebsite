@@ -103,7 +103,7 @@ function CheckoutSuccessContent() {
 
         <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:justify-center">
           <Link
-            href="/orders"
+            href="/account"
             className="inline-flex items-center justify-center gap-2 rounded-full bg-primary px-6 py-3 text-sm font-semibold text-white transition hover:bg-primary/90"
           >
             View My Orders

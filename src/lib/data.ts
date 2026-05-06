@@ -571,6 +571,7 @@ export async function getOrdersByDeliveryDay(deliveryDate: string): Promise<Orde
     .from("orders")
     .select("*, order_items(*, suppliers(name))")
     .eq("delivery_day", deliveryDate)
+    .neq("status", "cancelled")
     .order("created_at", { ascending: false });
   if (error) throw error;
   return data.map((o) => ({
