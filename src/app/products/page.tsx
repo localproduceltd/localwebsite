@@ -111,7 +111,7 @@ export default function ProductsPage() {
     <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
       <div>
         <h1 className="text-3xl font-bold text-primary">Products</h1>
-        <p className="mt-1 text-secondary">Browse fresh produce from our local suppliers</p>
+        <p className="mt-1 text-secondary">Browse fresh produce from our local suppliers. Click Carrie the carrot if there's a product you'd like to see!</p>
       </div>
 
       {/* Search & Filters */}

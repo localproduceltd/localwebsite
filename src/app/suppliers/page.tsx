@@ -84,7 +84,7 @@ export default function SuppliersPage() {
   return (
     <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
       <h1 className="text-3xl font-bold text-primary">Local Suppliers</h1>
-      <p className="mt-1 text-secondary">Meet the farmers, producers and suppliers behind your produce</p>
+      <p className="mt-1 text-secondary">Meet the farmers, producers and suppliers in your area. Click Carrie the carrot if there's a supplier you'd like to see here!</p>
       
       <SignedOut>
         <p className="mt-3 text-sm text-muted">
