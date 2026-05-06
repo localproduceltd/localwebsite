@@ -21,6 +21,8 @@ interface CheckoutRequest {
   safePlace?: string;
   customerEmail: string;
   boxDepositPaid: boolean;
+  bottleDepositPaid: boolean;
+  bottleDepositQty: number;
   total: number;
 }
 
@@ -32,7 +34,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body: CheckoutRequest = await request.json();
-    const { items, deliveryDay, deliveryWindow, willBeIn, safePlace, customerEmail, boxDepositPaid, total } = body;
+    const { items, deliveryDay, deliveryWindow, willBeIn, safePlace, customerEmail, boxDepositPaid, bottleDepositPaid, bottleDepositQty, total } = body;
 
     if (!items || items.length === 0) {
       return NextResponse.json({ error: "No items in cart" }, { status: 400 });
@@ -79,6 +81,21 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    // Add bottle deposit if applicable
+    if (bottleDepositPaid && bottleDepositQty > 0) {
+      lineItems.push({
+        price_data: {
+          currency: "gbp",
+          product_data: {
+            name: "Returnable Bottle Deposit",
+            description: `${bottleDepositQty} bottle${bottleDepositQty > 1 ? "s" : ""} – refunded when returned`,
+          },
+          unit_amount: 100, // £1 per bottle
+        },
+        quantity: bottleDepositQty,
+      });
+    }
+
     // Create Stripe Checkout Session
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ["card"],
@@ -94,6 +111,7 @@ export async function POST(request: NextRequest) {
         willBeIn: willBeIn ? "true" : "false",
         safePlace: safePlace || "",
         boxDepositPaid: boxDepositPaid ? "true" : "false",
+        bottleDepositPaid: bottleDepositPaid ? "true" : "false",
         total: total.toString(),
         itemCount: items.length.toString(),
         // Split items across multiple metadata fields to stay under 500 char limit per field

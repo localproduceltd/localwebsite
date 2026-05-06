@@ -84,6 +84,7 @@ export interface Order {
   willBeIn: boolean;
   safePlace: string | null;
   boxDepositPaid: boolean;
+  bottleDepositPaid: boolean;
 }
 
 export interface DeliveryDay {
@@ -343,6 +344,7 @@ export async function getOrders(userId?: string): Promise<Order[]> {
     willBeIn: o.will_be_in ?? true,
     safePlace: o.safe_place ?? null,
     boxDepositPaid: o.box_deposit_paid ?? false,
+    bottleDepositPaid: o.bottle_deposit_paid ?? false,
   }));
 }
 
@@ -596,6 +598,7 @@ export async function getOrdersByDeliveryDay(deliveryDate: string): Promise<Orde
     willBeIn: o.will_be_in ?? true,
     safePlace: o.safe_place ?? null,
     boxDepositPaid: o.box_deposit_paid ?? false,
+    bottleDepositPaid: o.bottle_deposit_paid ?? false,
   }));
 }
 
@@ -609,6 +612,7 @@ export interface CreateOrderOptions {
   willBeIn: boolean;
   safePlace?: string;
   boxDepositPaid: boolean;
+  bottleDepositPaid: boolean;
   stripeSessionId?: string;
 }
 
@@ -641,6 +645,7 @@ export async function getOrderByStripeSession(sessionId: string): Promise<Order 
     willBeIn: data.will_be_in ?? true,
     safePlace: data.safe_place ?? null,
     boxDepositPaid: data.box_deposit_paid ?? false,
+    bottleDepositPaid: data.bottle_deposit_paid ?? false,
   };
 }
 
@@ -657,6 +662,7 @@ export async function createOrder(options: CreateOrderOptions): Promise<Order> {
       will_be_in: options.willBeIn,
       safe_place: options.safePlace ?? null,
       box_deposit_paid: options.boxDepositPaid,
+      bottle_deposit_paid: options.bottleDepositPaid,
       stripe_session_id: options.stripeSessionId ?? null,
     })
     .select()
@@ -690,6 +696,7 @@ export async function createOrder(options: CreateOrderOptions): Promise<Order> {
     willBeIn: order.will_be_in ?? true,
     safePlace: order.safe_place ?? null,
     boxDepositPaid: order.box_deposit_paid ?? false,
+    bottleDepositPaid: order.bottle_deposit_paid ?? false,
   };
 }
 
@@ -799,6 +806,7 @@ export async function getOrder(orderId: string): Promise<Order | null> {
     willBeIn: data.will_be_in ?? true,
     safePlace: data.safe_place ?? null,
     boxDepositPaid: data.box_deposit_paid ?? false,
+    bottleDepositPaid: data.bottle_deposit_paid ?? false,
   };
 }
 

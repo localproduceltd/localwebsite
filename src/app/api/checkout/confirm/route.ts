@@ -90,6 +90,7 @@ export async function POST(request: NextRequest) {
 
     const total = parseFloat(metadata.total);
     const boxDepositPaid = metadata.boxDepositPaid === "true";
+    const bottleDepositPaid = metadata.bottleDepositPaid === "true";
 
     // Create the order with stripe_session_id for idempotency
     const order = await createOrder({
@@ -102,6 +103,7 @@ export async function POST(request: NextRequest) {
       willBeIn: metadata.willBeIn === "true",
       safePlace: metadata.safePlace || undefined,
       boxDepositPaid,
+      bottleDepositPaid,
       stripeSessionId: sessionId,
     });
 

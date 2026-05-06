@@ -10,6 +10,7 @@ import { type DeliveryDay, type DeliveryWindow, type DeliveryZone, getActiveDeli
 import { lookupPostcode, isWithinDeliveryZones } from "@/lib/postcode";
 
 const BOX_DEPOSIT = 10;
+const BOTTLE_DEPOSIT = 1;
 const MINIMUM_ORDER = 25;
 const DELIVERY_FEE = 2.99;
 
@@ -28,6 +29,11 @@ export default function CartPage() {
   const [safePlace, setSafePlace] = useState("");
   const [hasOutstandingBox, setHasOutstandingBox] = useState(false);
   const [showBoxInfo, setShowBoxInfo] = useState(false);
+
+  // Bottle deposit state
+  const [hasOwnBottles, setHasOwnBottles] = useState<boolean | null>(null);
+  const [bottleDepositQty, setBottleDepositQty] = useState(1);
+  const [showBottleInfo, setShowBottleInfo] = useState(false);
 
   // Delivery address state
   const [addressForm, setAddressForm] = useState({
@@ -135,11 +141,18 @@ export default function CartPage() {
     setSubmittingExpansion(false);
   };
 
+  // Check if cart contains glass bottles (Alkmonton Dairy)
+  const hasGlassBottles = items.some((item) => {
+    const product = getProduct(item.productId);
+    return product?.name.toLowerCase().includes("glass bottle");
+  });
+
   // Calculate if box deposit is needed
   const needsBoxDeposit = willBeIn === false && !hasOutstandingBox;
   const boxDeposit = needsBoxDeposit && !topUpOrder ? BOX_DEPOSIT : 0;
+  const bottleDeposit = hasGlassBottles && hasOwnBottles === false ? BOTTLE_DEPOSIT * bottleDepositQty : 0;
   const deliveryFee = topUpOrder ? 0 : DELIVERY_FEE;
-  const finalTotal = totalPrice + boxDeposit + deliveryFee;
+  const finalTotal = totalPrice + boxDeposit + bottleDeposit + deliveryFee;
   
   // Check minimum order (not required for top-up orders)
   const belowMinimum = !topUpOrder && totalPrice < MINIMUM_ORDER;
@@ -155,6 +168,7 @@ export default function CartPage() {
     if (!topUpOrder) {
       if (!selectedDay || !deliveryWindow || willBeIn === null) return;
       if (willBeIn === false && !safePlace.trim()) return;
+      if (hasGlassBottles && hasOwnBottles === null) return;
     }
 
     setPlacing(true);
@@ -225,6 +239,8 @@ export default function CartPage() {
             safePlace: willBeIn ? undefined : safePlace,
             customerEmail,
             boxDepositPaid: needsBoxDeposit,
+            bottleDepositPaid: hasGlassBottles && hasOwnBottles === false,
+            bottleDepositQty: hasGlassBottles && hasOwnBottles === false ? bottleDepositQty : 0,
             total: finalTotal,
           }),
         });
@@ -796,6 +812,88 @@ export default function CartPage() {
             <span className="font-semibold text-primary">£{BOX_DEPOSIT.toFixed(2)}</span>
           </div>
         )}
+        {hasGlassBottles && !topUpOrder && (
+          <div className="border-b border-primary/5 py-4">
+            <div className="flex items-center justify-between">
+              <span className="text-muted">Bottle Deposit (refundable)</span>
+              <span className="font-semibold text-primary">
+                {hasOwnBottles === null ? "—" : hasOwnBottles ? "£0.00" : `£${bottleDeposit.toFixed(2)}`}
+              </span>
+            </div>
+            <p className="text-xs text-muted mt-2 mb-3">Your order includes milk in glass bottles from Alkmonton Dairy</p>
+            <div className="space-y-2">
+              <button
+                type="button"
+                onClick={() => setHasOwnBottles(true)}
+                className={`w-full rounded-lg border-2 px-4 py-3 text-left text-sm transition ${
+                  hasOwnBottles === true
+                    ? "border-primary bg-primary/5"
+                    : "border-primary/20 bg-surface hover:border-secondary"
+                }`}
+              >
+                <div className="flex items-start justify-between">
+                  <div>
+                    <span className="font-semibold text-primary">I already have bottles to return</span>
+                    <span className="block text-xs text-muted mt-0.5">
+                      I&apos;ll leave them outside for collection during delivery
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); setShowBottleInfo(!showBottleInfo); }}
+                    className="ml-2 mt-0.5 text-secondary hover:text-primary"
+                  >
+                    <HelpCircle size={18} />
+                  </button>
+                </div>
+              </button>
+              {hasOwnBottles === true && showBottleInfo && (
+                <div className="rounded-lg bg-amber-50 border border-amber-200 px-4 py-3">
+                  <p className="text-sm text-amber-800">
+                    <strong>Note:</strong> If you don&apos;t leave your bottles outside, we may not be able to leave your milk.
+                  </p>
+                </div>
+              )}
+              <button
+                type="button"
+                onClick={() => setHasOwnBottles(false)}
+                className={`w-full rounded-lg border-2 px-4 py-3 text-left text-sm transition ${
+                  hasOwnBottles === false
+                    ? "border-primary bg-primary/5"
+                    : "border-primary/20 bg-surface hover:border-secondary"
+                }`}
+              >
+                <span className="font-semibold text-primary">I need to pay a bottle deposit</span>
+                <span className="block text-xs text-muted mt-0.5">
+                  £{BOTTLE_DEPOSIT} per bottle – refunded when you return them
+                </span>
+              </button>
+              {hasOwnBottles === false && (
+                <div className="flex items-center gap-3 mt-2 pl-2">
+                  <span className="text-sm text-muted">How many bottles?</span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setBottleDepositQty(Math.max(1, bottleDepositQty - 1))}
+                      className="w-8 h-8 rounded-lg border border-primary/20 bg-surface flex items-center justify-center text-primary hover:border-secondary disabled:opacity-50"
+                      disabled={bottleDepositQty <= 1}
+                    >
+                      <Minus size={14} />
+                    </button>
+                    <span className="w-8 text-center font-semibold text-primary">{bottleDepositQty}</span>
+                    <button
+                      type="button"
+                      onClick={() => setBottleDepositQty(bottleDepositQty + 1)}
+                      className="w-8 h-8 rounded-lg border border-primary/20 bg-surface flex items-center justify-center text-primary hover:border-secondary"
+                    >
+                      <Plus size={14} />
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
         {topUpOrder && (
           <div className="flex items-center justify-between border-b border-primary/5 py-4">
             <span className="text-muted">Adding to Order</span>
@@ -832,12 +930,12 @@ export default function CartPage() {
           disabled={
             topUpOrder 
               ? (belowMinimum || !isSignedIn || placing)
-              : (belowMinimum || !trialUnlocked || !deliveryCheck?.inZone || !addressForm.addressLine1.trim() || !selectedDay || !deliveryWindow || willBeIn === null || (willBeIn === false && !safePlace.trim()) || placing)
+              : (belowMinimum || !trialUnlocked || !deliveryCheck?.inZone || !addressForm.addressLine1.trim() || !selectedDay || !deliveryWindow || willBeIn === null || (willBeIn === false && !safePlace.trim()) || (hasGlassBottles && hasOwnBottles === null) || placing)
           }
           onClick={handlePlaceOrder}
           className="mt-6 w-full rounded-lg bg-accent py-3 text-center font-semibold text-primary transition hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {placing ? "Redirecting to Checkout..." : belowMinimum ? `Minimum order £${MINIMUM_ORDER}` : topUpOrder ? "Add to Order & Pay" : !trialUnlocked ? "Enter Trial Code" : !isSignedIn ? "Sign In to Continue" : !deliveryCheck?.inZone ? "Check Postcode First" : !addressForm.addressLine1.trim() ? "Enter Address" : !selectedDay ? "Select Delivery Day" : !deliveryWindow ? "Select Delivery Window" : willBeIn === null ? "Select Attendance" : (willBeIn === false && !safePlace.trim()) ? "Enter Safe Place" : "Continue to Checkout"}
+          {placing ? "Redirecting to Checkout..." : belowMinimum ? `Minimum order £${MINIMUM_ORDER}` : topUpOrder ? "Add to Order & Pay" : !trialUnlocked ? "Enter Trial Code" : !isSignedIn ? "Sign In to Continue" : !deliveryCheck?.inZone ? "Check Postcode First" : !addressForm.addressLine1.trim() ? "Enter Address" : !selectedDay ? "Select Delivery Day" : !deliveryWindow ? "Select Delivery Window" : willBeIn === null ? "Select Attendance" : (willBeIn === false && !safePlace.trim()) ? "Enter Safe Place" : (hasGlassBottles && hasOwnBottles === null) ? "Select Bottle Deposit Option" : "Continue to Checkout"}
         </button>
         {!isSignedIn && (
           <p className="mt-2 text-center text-xs text-muted">
