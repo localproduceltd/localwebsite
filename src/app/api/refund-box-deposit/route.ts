@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { stripe } from "@/lib/stripe";
 import { supabase } from "@/lib/supabase";
 import { setCustomerOutstandingBox } from "@/lib/data";
+import { sendBoxDepositRefund } from "@/lib/email";
 
 const BOX_DEPOSIT_PENCE = 1000; // £10
 
@@ -16,7 +17,7 @@ export async function POST(request: NextRequest) {
     // Find the most recent order with box deposit for this user
     const { data: orders, error: ordersError } = await supabase
       .from("orders")
-      .select("id, stripe_session_id, box_deposit_paid")
+      .select("id, stripe_session_id, box_deposit_paid, customer_email")
       .eq("user_id", clerkUserId)
       .eq("box_deposit_paid", true)
       .order("created_at", { ascending: false })
@@ -53,6 +54,19 @@ export async function POST(request: NextRequest) {
 
     // Update customer's outstanding box status
     await setCustomerOutstandingBox(clerkUserId, false);
+
+    // Send refund confirmation email
+    if (order.customer_email) {
+      try {
+        await sendBoxDepositRefund({
+          customerEmail: order.customer_email,
+          customerName: "", // We don't have the name stored, email will handle it gracefully
+        });
+      } catch (emailError) {
+        console.error("Failed to send refund email:", emailError);
+        // Don't fail the refund if email fails
+      }
+    }
 
     return NextResponse.json({
       success: true,

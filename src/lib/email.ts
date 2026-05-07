@@ -137,6 +137,36 @@ export async function sendProductApproved(data: ProductApprovalData) {
   }
 }
 
+interface BoxDepositRefundData {
+  customerEmail: string;
+  customerName: string;
+}
+
+export async function sendBoxDepositRefund(data: BoxDepositRefundData) {
+  const { error } = await resend.emails.send({
+    from: FROM_EMAIL,
+    to: data.customerEmail,
+    subject: "Your Box Deposit Has Been Refunded",
+    html: `
+      <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
+        <h1 style="color: #22c55e;">💰 Deposit Refunded!</h1>
+        <p>Hi${data.customerName ? ` ${data.customerName}` : ""},</p>
+        <p>Thanks for returning your cool box! We've refunded your <strong>£10 deposit</strong>.</p>
+        <p>The refund should appear in your account within <strong>5-10 business days</strong>, depending on your bank.</p>
+        <p>Thanks for shopping with us — we hope to see you again soon!</p>
+        <p style="color: #666; font-size: 14px; margin-top: 30px;">
+          — The Local Produce Team
+        </p>
+      </div>
+    `,
+  });
+
+  if (error) {
+    console.error("Failed to send box deposit refund email:", error);
+    throw error;
+  }
+}
+
 interface ProductRejectionData {
   supplierEmail: string;
   supplierName: string;
