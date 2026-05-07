@@ -1088,6 +1088,70 @@ export async function getCustomerProfile(clerkUserId: string): Promise<CustomerP
   };
 }
 
+export interface CustomerSummary {
+  clerkUserId: string;
+  email: string | null;
+  postcode: string | null;
+  hasOutstandingBox: boolean;
+  totalOrders: number;
+  totalSpent: number;
+  lastOrderDate: string | null;
+  boxDepositOrders: number;
+}
+
+export async function getAllCustomers(): Promise<CustomerSummary[]> {
+  // Get all orders grouped by user
+  const { data: orders, error: ordersError } = await supabase
+    .from("orders")
+    .select("user_id, customer_email, total, created_at, box_deposit_paid, status")
+    .neq("status", "cancelled");
+  if (ordersError) throw ordersError;
+
+  // Get all customer profiles
+  const { data: profiles, error: profilesError } = await supabase
+    .from("customer_profiles")
+    .select("clerk_user_id, postcode, has_outstanding_box");
+  if (profilesError) throw profilesError;
+
+  const profileMap = new Map(profiles?.map(p => [p.clerk_user_id, p]) ?? []);
+
+  // Group orders by user
+  const customerMap = new Map<string, CustomerSummary>();
+  
+  for (const order of orders ?? []) {
+    if (!order.user_id) continue;
+    
+    const existing = customerMap.get(order.user_id);
+    const profile = profileMap.get(order.user_id);
+    
+    if (existing) {
+      existing.totalOrders += 1;
+      existing.totalSpent += Number(order.total);
+      if (order.box_deposit_paid) existing.boxDepositOrders += 1;
+      if (!existing.lastOrderDate || order.created_at > existing.lastOrderDate) {
+        existing.lastOrderDate = order.created_at;
+      }
+      if (!existing.email && order.customer_email) {
+        existing.email = order.customer_email;
+      }
+    } else {
+      customerMap.set(order.user_id, {
+        clerkUserId: order.user_id,
+        email: order.customer_email ?? null,
+        postcode: profile?.postcode ?? null,
+        hasOutstandingBox: profile?.has_outstanding_box ?? false,
+        totalOrders: 1,
+        totalSpent: Number(order.total),
+        lastOrderDate: order.created_at,
+        boxDepositOrders: order.box_deposit_paid ? 1 : 0,
+      });
+    }
+  }
+
+  // Sort by total spent descending
+  return Array.from(customerMap.values()).sort((a, b) => b.totalSpent - a.totalSpent);
+}
+
 export async function saveCustomerAddress(
   clerkUserId: string,
   address: { addressLine1: string; addressLine2?: string; city: string; postcode: string },
