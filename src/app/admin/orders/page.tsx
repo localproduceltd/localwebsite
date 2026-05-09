@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useEffect, useMemo, useCallback } from "react";
-import { type Order, type OrderItem, type DeliveryStockTracking, type OrderItemRefund, getOrders, updateOrderStatus, getCustomerBoxStatuses, getDeliveryStockTracking, upsertDeliveryStockTracking, getRefundsForDeliveryDay, createOrderItemRefund, deleteOrderItemRefund } from "@/lib/data";
-import { Package, Clock, CheckCircle, XCircle, Calendar, ChevronDown, ChevronRight, Home, MapPin, Download, Users, Truck, AlertTriangle, RefreshCw } from "lucide-react";
+import { type Order, type OrderItem, type DeliveryStockTracking, type OrderItemRefund, type RefundPaidBy, getOrders, updateOrderStatus, getCustomerBoxStatuses, getDeliveryStockTracking, upsertDeliveryStockTracking, getRefundsForDeliveryDay, createOrderItemRefund, deleteOrderItemRefund } from "@/lib/data";
+import { Package, Clock, CheckCircle, XCircle, Calendar, ChevronDown, ChevronRight, Home, MapPin, Download, Users, Truck, AlertTriangle, RefreshCw, FileText } from "lucide-react";
 
 const statusConfig = {
   pending: { label: "Pending", icon: Clock, color: "text-amber-600 bg-amber-50" },
@@ -140,9 +140,11 @@ export default function AdminOrdersPage() {
   // Persistent tracking data
   const [stockTracking, setStockTracking] = useState<Map<string, DeliveryStockTracking>>(new Map());
   const [refunds, setRefunds] = useState<Map<string, OrderItemRefund[]>>(new Map());
-  const [refundModal, setRefundModal] = useState<{ orderId: string; orderNumber: number; productName: string; price: number; quantity: number } | null>(null);
+  const [refundModal, setRefundModal] = useState<{ orderId: string; orderNumber: number; productName: string; price: number; quantity: number; supplierId: string } | null>(null);
   const [refundAmount, setRefundAmount] = useState("");
   const [refundReason, setRefundReason] = useState("");
+  const [refundPaidBy, setRefundPaidBy] = useState<RefundPaidBy>("local");
+  const [payoutModal, setPayoutModal] = useState<string | null>(null); // delivery day
 
   const toggleSet = useCallback((setName: "packed" | "order", key: string) => {
     const setter = setName === "packed" ? setPackedItems : setOrderCheckedIn;
@@ -153,6 +155,51 @@ export default function AdminOrdersPage() {
       return next;
     });
   }, []);
+
+  // Handle order check-in with stock arrivals sync
+  const handleOrderCheckIn = async (
+    deliveryDay: string,
+    supplierId: string,
+    orderId: string,
+    itemIndex: number,
+    productName: string,
+    quantity: number,
+    totalOrderedForProduct: number
+  ) => {
+    const itemKey = `order-${deliveryDay}-${supplierId}-${orderId}-${itemIndex}`;
+    const isCurrentlyChecked = orderCheckedIn.has(itemKey);
+    
+    // Toggle the checkbox
+    setOrderCheckedIn(prev => {
+      const next = new Set(prev);
+      if (next.has(itemKey)) next.delete(itemKey);
+      else next.add(itemKey);
+      return next;
+    });
+    
+    // Calculate new arrived quantity based on all checked items for this product
+    const trackingKey = `${deliveryDay}-${supplierId}-${productName}`;
+    const currentTracking = stockTracking.get(trackingKey);
+    const currentArrived = currentTracking?.quantityArrived ?? 0;
+    
+    // If checking, add quantity; if unchecking, subtract
+    const newArrived = isCurrentlyChecked 
+      ? Math.max(0, currentArrived - quantity)
+      : currentArrived + quantity;
+    
+    // Update stock tracking
+    await upsertDeliveryStockTracking(deliveryDay, supplierId, productName, totalOrderedForProduct, newArrived, null);
+    
+    // Refresh tracking data
+    const tracking = await getDeliveryStockTracking(deliveryDay);
+    setStockTracking(prev => {
+      const next = new Map(prev);
+      for (const t of tracking) {
+        next.set(`${t.deliveryDay}-${t.supplierId}-${t.productName}`, t);
+      }
+      return next;
+    });
+  };
 
   const toggleExpand = useCallback((set: "suppliers" | "customers", key: string) => {
     const setter = set === "suppliers" ? setExpandedSuppliers : setExpandedCustomers;
@@ -217,6 +264,26 @@ export default function AdminOrdersPage() {
     });
   };
 
+  const handleMarkAllArrived = async (
+    deliveryDay: string,
+    supplierId: string,
+    items: Array<{ productName: string; quantity: number }>
+  ) => {
+    // Mark all items as arrived with full quantity
+    for (const item of items) {
+      await upsertDeliveryStockTracking(deliveryDay, supplierId, item.productName, item.quantity, item.quantity, null);
+    }
+    // Refresh tracking data
+    const tracking = await getDeliveryStockTracking(deliveryDay);
+    setStockTracking(prev => {
+      const next = new Map(prev);
+      for (const t of tracking) {
+        next.set(`${t.deliveryDay}-${t.supplierId}-${t.productName}`, t);
+      }
+      return next;
+    });
+  };
+
   const handleCreateRefund = async () => {
     if (!refundModal) return;
     const amount = parseFloat(refundAmount);
@@ -227,7 +294,9 @@ export default function AdminOrdersPage() {
       refundModal.productName,
       refundModal.quantity,
       amount,
-      refundReason || null
+      refundReason || null,
+      refundPaidBy,
+      refundModal.supplierId
     );
     
     // Refresh refunds for this order
@@ -248,6 +317,7 @@ export default function AdminOrdersPage() {
     setRefundModal(null);
     setRefundAmount("");
     setRefundReason("");
+    setRefundPaidBy("local");
   };
 
   const handleDeleteRefund = async (refundId: string, orderId: string) => {
@@ -415,6 +485,13 @@ export default function AdminOrdersPage() {
                       <h3 className="font-bold text-primary">Suppliers</h3>
                       <span className="text-xs text-muted">({supplierSummaries.length})</span>
                     </div>
+                    <button
+                      onClick={() => setPayoutModal(deliveryDay)}
+                      className="inline-flex items-center gap-1.5 rounded-lg bg-primary/10 px-3 py-1.5 text-xs font-semibold text-primary hover:bg-primary/20 transition"
+                    >
+                      <FileText size={14} />
+                      Supplier Payouts
+                    </button>
                   </div>
                   <div className="divide-y divide-primary/5">
                     {supplierSummaries.map((supplier) => {
@@ -441,12 +518,21 @@ export default function AdminOrdersPage() {
                               <div className="rounded-lg border border-primary/10 bg-surface overflow-hidden">
                                 <div className="px-3 py-2 border-b border-primary/10 flex items-center justify-between">
                                   <span className="text-xs font-semibold text-muted uppercase">Stock Arrivals</span>
-                                  {supplier.items.every(item => {
-                                    const tracking = stockTracking.get(`${deliveryDay}-${supplier.supplierId}-${item.productName}`);
-                                    return tracking?.quantityArrived !== null && tracking?.quantityArrived !== undefined;
-                                  }) && (
-                                    <span className="text-xs font-semibold text-green-600">✓ All checked in</span>
-                                  )}
+                                  <div className="flex items-center gap-2">
+                                    {supplier.items.every(item => {
+                                      const tracking = stockTracking.get(`${deliveryDay}-${supplier.supplierId}-${item.productName}`);
+                                      return tracking?.quantityArrived !== null && tracking?.quantityArrived !== undefined;
+                                    }) ? (
+                                      <span className="text-xs font-semibold text-green-600">✓ All checked in</span>
+                                    ) : (
+                                      <button
+                                        onClick={() => handleMarkAllArrived(deliveryDay, supplier.supplierId, supplier.items)}
+                                        className="text-xs font-medium text-secondary hover:text-secondary/80 transition"
+                                      >
+                                        Mark All Arrived
+                                      </button>
+                                    )}
+                                  </div>
                                 </div>
                                 <table className="w-full text-sm">
                                   <thead>
@@ -536,12 +622,13 @@ export default function AdminOrdersPage() {
                                           {orderEntry.items.map((item, i) => {
                                             const itemKey = `order-${deliveryDay}-${supplier.supplierId}-${orderEntry.orderId}-${i}`;
                                             const isItemChecked = orderCheckedIn.has(itemKey);
+                                            const totalOrderedForProduct = supplier.items.find(si => si.productName === item.productName)?.quantity ?? item.quantity;
                                             return (
                                               <label key={i} className="flex items-center gap-2 cursor-pointer pl-2">
                                                 <input
                                                   type="checkbox"
                                                   checked={isItemChecked}
-                                                  onChange={() => toggleSet("order", itemKey)}
+                                                  onChange={() => handleOrderCheckIn(deliveryDay, supplier.supplierId, orderEntry.orderId, i, item.productName, item.quantity, totalOrderedForProduct)}
                                                   className="w-3.5 h-3.5 rounded border-primary/30 text-green-600 focus:ring-green-500"
                                                 />
                                                 <span className={`text-sm ${isItemChecked ? 'text-green-600 line-through' : 'text-muted'}`}>
@@ -735,7 +822,7 @@ export default function AdminOrdersPage() {
                                                               </div>
                                                             ) : (
                                                               <button
-                                                                onClick={() => setRefundModal({ orderId: order.id, orderNumber: order.orderNumber, productName: item.productName, price: item.price, quantity: item.quantity })}
+                                                                onClick={() => setRefundModal({ orderId: order.id, orderNumber: order.orderNumber, productName: item.productName, price: item.price, quantity: item.quantity, supplierId: supplierGroup.supplierId })}
                                                                 className="text-xs text-muted hover:text-red-600 transition"
                                                               >
                                                                 Refund
@@ -860,6 +947,32 @@ export default function AdminOrdersPage() {
                   className="w-full rounded-lg border border-primary/20 px-3 py-2 text-sm focus:border-secondary focus:outline-none"
                 />
               </div>
+              <div>
+                <label className="block text-sm font-medium text-muted mb-1">Who pays?</label>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setRefundPaidBy("local")}
+                    className={`flex-1 rounded-lg px-3 py-2 text-sm font-medium transition ${refundPaidBy === "local" ? "bg-primary text-white" : "border border-primary/20 text-muted hover:bg-primary/5"}`}
+                  >
+                    Local
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setRefundPaidBy("supplier")}
+                    className={`flex-1 rounded-lg px-3 py-2 text-sm font-medium transition ${refundPaidBy === "supplier" ? "bg-primary text-white" : "border border-primary/20 text-muted hover:bg-primary/5"}`}
+                  >
+                    Supplier
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setRefundPaidBy("50-50")}
+                    className={`flex-1 rounded-lg px-3 py-2 text-sm font-medium transition ${refundPaidBy === "50-50" ? "bg-primary text-white" : "border border-primary/20 text-muted hover:bg-primary/5"}`}
+                  >
+                    50-50
+                  </button>
+                </div>
+              </div>
               <div className="flex gap-3 pt-2">
                 <button
                   onClick={() => setRefundModal(null)}
@@ -879,6 +992,148 @@ export default function AdminOrdersPage() {
           </div>
         </div>
       )}
+
+      {/* Supplier Payout Modal */}
+      {payoutModal && (() => {
+        const dayOrders = orderList.filter(o => o.deliveryDay === payoutModal);
+        const daySummaries = getSupplierSummaries(dayOrders);
+        const dayRefunds = dayOrders.flatMap(o => refunds.get(o.id) || []);
+        
+        // Calculate payouts per supplier
+        const payouts = daySummaries.map(supplier => {
+          // Get stock tracking for this supplier
+          const supplierTracking: Array<{ productName: string; ordered: number; arrived: number | null; price: number }> = [];
+          for (const item of supplier.items) {
+            const tracking = stockTracking.get(`${payoutModal}-${supplier.supplierId}-${item.productName}`);
+            supplierTracking.push({
+              productName: item.productName,
+              ordered: item.quantity,
+              arrived: tracking?.quantityArrived ?? null,
+              price: item.price,
+            });
+          }
+          
+          // Get refunds for this supplier
+          const supplierRefunds = dayRefunds.filter(r => r.supplierId === supplier.supplierId);
+          const refundsBySupplier = supplierRefunds.filter(r => r.paidBy === "supplier").reduce((sum, r) => sum + r.refundAmount, 0);
+          const refunds5050 = supplierRefunds.filter(r => r.paidBy === "50-50").reduce((sum, r) => sum + r.refundAmount, 0);
+          const supplierRefundDeduction = refundsBySupplier + (refunds5050 / 2);
+          
+          // Calculate arrived value (only pay for what arrived)
+          const arrivedValue = supplierTracking.reduce((sum, item) => {
+            const arrivedQty = item.arrived ?? 0;
+            return sum + (arrivedQty * item.price);
+          }, 0);
+          
+          // Final payout
+          const payout = Math.max(0, arrivedValue - supplierRefundDeduction);
+          
+          return {
+            ...supplier,
+            tracking: supplierTracking,
+            supplierRefunds,
+            refundDeduction: supplierRefundDeduction,
+            arrivedValue,
+            payout,
+          };
+        });
+        
+        const totalPayout = payouts.reduce((sum, p) => sum + p.payout, 0);
+        
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setPayoutModal(null)}>
+            <div className="bg-surface rounded-xl shadow-xl w-full max-w-4xl max-h-[90vh] overflow-hidden" onClick={(e) => e.stopPropagation()}>
+              <div className="px-6 py-4 border-b border-primary/10 flex items-center justify-between">
+                <div>
+                  <h3 className="text-lg font-bold text-primary">Supplier Payouts</h3>
+                  <p className="text-sm text-muted">{formatDeliveryDate(payoutModal)}</p>
+                </div>
+                <button onClick={() => setPayoutModal(null)} className="text-muted hover:text-primary">
+                  <XCircle size={20} />
+                </button>
+              </div>
+              <div className="p-6 overflow-y-auto max-h-[calc(90vh-140px)]">
+                <div className="space-y-6">
+                  {payouts.map((supplier) => (
+                    <div key={supplier.supplierId} className="rounded-lg border border-primary/10 overflow-hidden">
+                      <div className="px-4 py-3 bg-primary/5 flex items-center justify-between">
+                        <span className="font-semibold text-primary">{supplier.supplierName}</span>
+                        <span className={`font-bold ${supplier.payout > 0 ? 'text-green-600' : 'text-muted'}`}>
+                          Payout: £{supplier.payout.toFixed(2)}
+                        </span>
+                      </div>
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="text-left text-xs text-muted border-b border-primary/5">
+                            <th className="px-4 py-2 font-medium">Product</th>
+                            <th className="px-4 py-2 font-medium text-center">Ordered</th>
+                            <th className="px-4 py-2 font-medium text-center">Arrived</th>
+                            <th className="px-4 py-2 font-medium text-right">Unit Price</th>
+                            <th className="px-4 py-2 font-medium text-right">Value</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {supplier.tracking.map((item) => {
+                            const arrived = item.arrived ?? 0;
+                            const value = arrived * item.price;
+                            const isShort = item.arrived !== null && arrived < item.ordered;
+                            return (
+                              <tr key={item.productName} className={`border-t border-primary/5 ${isShort ? 'bg-amber-50' : ''}`}>
+                                <td className="px-4 py-2 text-primary">{item.productName}</td>
+                                <td className="px-4 py-2 text-center">{item.ordered}</td>
+                                <td className={`px-4 py-2 text-center font-medium ${isShort ? 'text-amber-600' : 'text-green-600'}`}>
+                                  {item.arrived ?? '—'}
+                                </td>
+                                <td className="px-4 py-2 text-right text-muted">£{item.price.toFixed(2)}</td>
+                                <td className="px-4 py-2 text-right font-medium text-primary">£{value.toFixed(2)}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                        <tfoot className="border-t border-primary/10 bg-primary/5">
+                          <tr>
+                            <td colSpan={4} className="px-4 py-2 text-right font-medium text-muted">Arrived Value:</td>
+                            <td className="px-4 py-2 text-right font-semibold text-primary">£{supplier.arrivedValue.toFixed(2)}</td>
+                          </tr>
+                          {supplier.refundDeduction > 0 && (
+                            <tr>
+                              <td colSpan={4} className="px-4 py-2 text-right font-medium text-red-600">
+                                Refund Deductions ({supplier.supplierRefunds.length}):
+                              </td>
+                              <td className="px-4 py-2 text-right font-semibold text-red-600">-£{supplier.refundDeduction.toFixed(2)}</td>
+                            </tr>
+                          )}
+                          <tr>
+                            <td colSpan={4} className="px-4 py-2 text-right font-bold text-primary">Final Payout:</td>
+                            <td className="px-4 py-2 text-right font-bold text-green-600">£{supplier.payout.toFixed(2)}</td>
+                          </tr>
+                        </tfoot>
+                      </table>
+                      {supplier.supplierRefunds.length > 0 && (
+                        <div className="px-4 py-2 bg-red-50 border-t border-red-200">
+                          <p className="text-xs font-semibold text-red-700 mb-1">Refunds affecting this supplier:</p>
+                          <ul className="text-xs text-red-600 space-y-0.5">
+                            {supplier.supplierRefunds.map((r, i) => (
+                              <li key={i}>
+                                • {r.productName}: £{r.refundAmount.toFixed(2)} ({r.paidBy === "supplier" ? "Supplier pays" : r.paidBy === "50-50" ? "50-50 split" : "Local pays"})
+                                {r.refundReason && <span className="text-red-500"> - {r.refundReason}</span>}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="px-6 py-4 border-t border-primary/10 flex items-center justify-between bg-primary/5">
+                <span className="font-bold text-primary">Total Payouts:</span>
+                <span className="text-xl font-bold text-green-600">£{totalPayout.toFixed(2)}</span>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

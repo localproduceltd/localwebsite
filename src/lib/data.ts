@@ -1561,6 +1561,8 @@ export interface DeliveryStockTracking {
   checkedInAt: string | null;
 }
 
+export type RefundPaidBy = "local" | "supplier" | "50-50";
+
 export interface OrderItemRefund {
   id: string;
   orderId: string;
@@ -1569,6 +1571,8 @@ export interface OrderItemRefund {
   refundAmount: number;
   refundReason: string | null;
   refundedAt: string;
+  paidBy: RefundPaidBy;
+  supplierId: string | null;
 }
 
 export async function getDeliveryStockTracking(deliveryDay: string): Promise<DeliveryStockTracking[]> {
@@ -1626,6 +1630,8 @@ export async function getOrderItemRefunds(orderId: string): Promise<OrderItemRef
     refundAmount: Number(d.refund_amount),
     refundReason: d.refund_reason,
     refundedAt: d.refunded_at,
+    paidBy: (d.paid_by as RefundPaidBy) || "local",
+    supplierId: d.supplier_id,
   }));
 }
 
@@ -1652,6 +1658,8 @@ export async function getRefundsForDeliveryDay(deliveryDay: string): Promise<Ord
     refundAmount: Number(d.refund_amount),
     refundReason: d.refund_reason,
     refundedAt: d.refunded_at,
+    paidBy: (d.paid_by as RefundPaidBy) || "local",
+    supplierId: d.supplier_id,
   }));
 }
 
@@ -1660,7 +1668,9 @@ export async function createOrderItemRefund(
   productName: string,
   quantityRefunded: number,
   refundAmount: number,
-  refundReason: string | null
+  refundReason: string | null,
+  paidBy: RefundPaidBy,
+  supplierId: string | null
 ): Promise<void> {
   const { error } = await supabase
     .from("order_item_refunds")
@@ -1670,6 +1680,8 @@ export async function createOrderItemRefund(
       quantity_refunded: quantityRefunded,
       refund_amount: refundAmount,
       refund_reason: refundReason,
+      paid_by: paidBy,
+      supplier_id: supplierId,
     });
   if (error) throw error;
 }
