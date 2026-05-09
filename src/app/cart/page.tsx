@@ -8,11 +8,7 @@ import { useUser } from "@clerk/nextjs";
 import { useCart } from "@/lib/cart-context";
 import { type DeliveryDay, type DeliveryWindow, type DeliveryZone, getActiveDeliveryDays, getCustomerProfile, getLiveDeliveryZones, getDeliveryZones, submitExpansionRequest } from "@/lib/data";
 import { lookupPostcode, isWithinDeliveryZones } from "@/lib/postcode";
-
-const BOX_DEPOSIT = 10;
-const BOTTLE_DEPOSIT = 1;
-const MINIMUM_ORDER = 25;
-const DELIVERY_FEE = 2.99;
+import { BOX_DEPOSIT, BOTTLE_DEPOSIT, MINIMUM_ORDER, DELIVERY_FEE } from "@/lib/constants";
 
 export default function CartPage() {
   const { items, updateQuantity, removeItem, totalPrice, getProduct, clearCart, topUpOrder, clearTopUpOrder } = useCart();
@@ -242,7 +238,7 @@ export default function CartPage() {
             bottleDepositPaid: hasGlassBottles && hasOwnBottles === false,
             bottleDepositQty: hasGlassBottles && hasOwnBottles === false ? bottleDepositQty : 0,
             total: finalTotal,
-            address: `${addressForm.addressLine1}${addressForm.addressLine2 ? ", " + addressForm.addressLine2 : ""}, ${addressForm.city}, ${addressForm.postcode}`,
+            address: addressForm,
           }),
         });
 

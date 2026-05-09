@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { stripe } from "@/lib/stripe";
-import { addItemsToOrder, getOrder, getProduct, getSupplier, type OrderItem } from "@/lib/data";
+import { addItemsToOrder, getOrder, getSupplier, isTopUpSessionProcessed, markTopUpSessionProcessed, parseItemsFromMetadata, rollbackTopUpSession, type OrderItem } from "@/lib/data";
 import { sendOrderConfirmation, sendSupplierNewOrder } from "@/lib/email";
 import { auth } from "@clerk/nextjs/server";
 
@@ -14,6 +14,18 @@ export async function POST(request: NextRequest) {
     const { sessionId } = await request.json();
     if (!sessionId) {
       return NextResponse.json({ error: "No session ID" }, { status: 400 });
+    }
+
+    // IDEMPOTENCY CHECK: Return early if this session was already processed
+    const alreadyProcessed = await isTopUpSessionProcessed(sessionId);
+    if (alreadyProcessed) {
+      const existingOrder = await getOrder(alreadyProcessed.orderId);
+      return NextResponse.json({ 
+        success: true, 
+        orderId: alreadyProcessed.orderId, 
+        orderNumber: existingOrder?.orderNumber ?? 0,
+        alreadyProcessed: true 
+      });
     }
 
     // Retrieve the session from Stripe
@@ -38,38 +50,29 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "No order ID in session" }, { status: 400 });
     }
 
+    // Mark session as processed BEFORE adding items (prevents race conditions)
+    await markTopUpSessionProcessed(sessionId, orderId);
+
     // Get the existing order
     const existingOrder = await getOrder(orderId);
     if (!existingOrder) {
+      // Rollback the session marker so it can be retried
+      await rollbackTopUpSession(sessionId);
       return NextResponse.json({ error: "Order not found" }, { status: 404 });
     }
 
-    // Parse the items from metadata
-    let allItemsStr = "";
-    for (let i = 0; ; i++) {
-      const chunk = metadata[`items${i}`];
-      if (!chunk) break;
-      allItemsStr = allItemsStr ? `${allItemsStr},${chunk}` : chunk;
-    }
-
-    const items: OrderItem[] = await Promise.all(
-      allItemsStr.split(",").filter(Boolean).map(async (itemStr) => {
-        const [productId, quantityStr, supplierId] = itemStr.split(":");
-        const product = await getProduct(productId);
-        return {
-          productId,
-          productName: product?.name || "Unknown Product",
-          quantity: parseInt(quantityStr, 10),
-          price: product?.price || 0,
-          supplierId,
-        };
-      })
-    );
-
+    // Parse items using shared helper
+    const items: OrderItem[] = await parseItemsFromMetadata(metadata);
     const topUpTotal = parseFloat(metadata.total);
 
-    // Add items to the existing order
-    await addItemsToOrder(orderId, items, topUpTotal);
+    // Add items to the existing order - rollback session marker if this fails
+    try {
+      await addItemsToOrder(orderId, items, topUpTotal);
+    } catch (addError) {
+      console.error("Failed to add items to order, rolling back session marker:", addError);
+      await rollbackTopUpSession(sessionId);
+      throw addError;
+    }
 
     // Send emails
     const customerEmail = session.customer_email;

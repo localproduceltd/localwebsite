@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { stripe } from "@/lib/stripe";
 import { auth } from "@clerk/nextjs/server";
-import { type DeliveryWindow } from "@/lib/data";
+import { type DeliveryWindow, type OrderAddress } from "@/lib/data";
+import { BOX_DEPOSIT_PENCE, BOTTLE_DEPOSIT_PENCE, DELIVERY_FEE_PENCE } from "@/lib/constants";
 
 interface CartItem {
   productId: string;
@@ -24,7 +25,7 @@ interface CheckoutRequest {
   bottleDepositPaid: boolean;
   bottleDepositQty: number;
   total: number;
-  address: string;
+  address: OrderAddress;
 }
 
 export async function POST(request: NextRequest) {
@@ -62,7 +63,7 @@ export async function POST(request: NextRequest) {
           name: "Delivery Fee",
           description: "Home delivery",
         },
-        unit_amount: 299, // £2.99
+        unit_amount: DELIVERY_FEE_PENCE,
       },
       quantity: 1,
     });
@@ -76,7 +77,7 @@ export async function POST(request: NextRequest) {
             name: "Returnable Box Deposit",
             description: "Refunded when box is returned",
           },
-          unit_amount: 1000, // £10
+          unit_amount: BOX_DEPOSIT_PENCE,
         },
         quantity: 1,
       });
@@ -91,7 +92,7 @@ export async function POST(request: NextRequest) {
             name: "Returnable Bottle Deposit",
             description: `${bottleDepositQty} bottle${bottleDepositQty > 1 ? "s" : ""} – refunded when returned`,
           },
-          unit_amount: 100, // £1 per bottle
+          unit_amount: BOTTLE_DEPOSIT_PENCE,
         },
         quantity: bottleDepositQty,
       });
@@ -114,7 +115,10 @@ export async function POST(request: NextRequest) {
         boxDepositPaid: boxDepositPaid ? "true" : "false",
         bottleDepositPaid: bottleDepositPaid ? "true" : "false",
         bottleDepositQty: bottleDepositQty.toString(),
-        address: address || "",
+        addressLine1: address.addressLine1 || "",
+        addressLine2: address.addressLine2 || "",
+        city: address.city || "",
+        postcode: address.postcode || "",
         total: total.toString(),
         itemCount: items.length.toString(),
         // Split items across multiple metadata fields to stay under 500 char limit per field

@@ -8,7 +8,7 @@ import UserAvatar from "@/components/UserAvatar";
 
 const adminLinks = [
   { href: "/admin", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/admin/orders", label: "Orders", icon: ShoppingCart },
+  { href: "/admin/orders", label: "Order Management", icon: ShoppingCart },
   { href: "/admin/customers", label: "Customers", icon: UserCircle },
   { href: "/admin/delivery", label: "Delivery Zones", icon: MapPin },
   { href: "/admin/delivery-days", label: "Delivery Days", icon: Calendar },

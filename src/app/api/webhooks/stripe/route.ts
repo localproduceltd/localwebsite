@@ -1,10 +1,82 @@
 import { NextRequest, NextResponse } from "next/server";
 import { stripe } from "@/lib/stripe";
-import { createOrder, getOrderByStripeSession, type DeliveryWindow, type OrderItem, getSupplier, getProduct, setCustomerOutstandingBox } from "@/lib/data";
-import { sendOrderConfirmation, sendSupplierNewOrder } from "@/lib/email";
+import { addItemsToOrder, createOrder, getOrder, getOrderByStripeSession, isTopUpSessionProcessed, markTopUpSessionProcessed, parseItemsFromMetadata, type DeliveryWindow, type OrderItem, setCustomerOutstandingBox } from "@/lib/data";
+import { sendOrderConfirmation } from "@/lib/email";
 import Stripe from "stripe";
 
 const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+
+// Handle top-up orders as webhook backup (in case confirm endpoint fails)
+async function handleTopUpWebhook(
+  session: Stripe.Checkout.Session,
+  sessionId: string,
+  metadata: Stripe.Metadata
+): Promise<NextResponse> {
+  // Check if already processed
+  const alreadyProcessed = await isTopUpSessionProcessed(sessionId);
+  if (alreadyProcessed) {
+    console.log(`Top-up session ${sessionId} already processed, skipping`);
+    return NextResponse.json({ received: true, status: "topup_already_processed" });
+  }
+
+  const orderId = metadata.orderId;
+  if (!orderId) {
+    console.error("No orderId in top-up session metadata");
+    return NextResponse.json({ error: "No orderId" }, { status: 400 });
+  }
+
+  try {
+    // Mark as processed first (idempotency)
+    await markTopUpSessionProcessed(sessionId, orderId);
+
+    // Get the existing order
+    const existingOrder = await getOrder(orderId);
+    if (!existingOrder) {
+      console.error(`Order ${orderId} not found for top-up`);
+      return NextResponse.json({ error: "Order not found" }, { status: 404 });
+    }
+
+    // Parse and add items
+    const items: OrderItem[] = await parseItemsFromMetadata(metadata);
+    const topUpTotal = parseFloat(metadata.total);
+    await addItemsToOrder(orderId, items, topUpTotal);
+
+    console.log(`Top-up items added to order ${existingOrder.orderNumber} via webhook`);
+
+    // Send emails
+    const customerEmail = session.customer_email;
+    if (customerEmail) {
+      const deliveryDayFormatted = new Date(existingOrder.deliveryDay + "T00:00:00").toLocaleDateString("en-GB", {
+        weekday: "long", day: "numeric", month: "long"
+      });
+
+      try {
+        await sendOrderConfirmation({
+          customerEmail,
+          customerName: "Customer",
+          orderNumber: existingOrder.orderNumber,
+          deliveryDay: deliveryDayFormatted,
+          items: items.map((item) => ({
+            productName: item.productName,
+            quantity: item.quantity,
+            price: item.price,
+          })),
+          total: topUpTotal,
+          isTopUp: true,
+        });
+      } catch (emailError) {
+        console.error("Webhook: Failed to send top-up confirmation email:", emailError);
+      }
+
+      // Supplier emails disabled - they receive a summary at cutoff instead
+    }
+
+    return NextResponse.json({ received: true, status: "topup_processed", orderNumber: existingOrder.orderNumber });
+  } catch (error) {
+    console.error("Webhook top-up error:", error);
+    return NextResponse.json({ error: "Failed to process top-up" }, { status: 500 });
+  }
+}
 
 export async function POST(request: NextRequest) {
   const body = await request.text();
@@ -47,55 +119,19 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "No metadata" }, { status: 400 });
     }
 
+    // Handle top-up orders separately
+    if (metadata.isTopUp === "true") {
+      return await handleTopUpWebhook(session, sessionId, metadata);
+    }
+
     try {
-      // Parse items from metadata
-      let allItemsStr = "";
-      for (let i = 0; ; i++) {
-        const chunk = metadata[`items${i}`];
-        if (!chunk) break;
-        allItemsStr = allItemsStr ? `${allItemsStr},${chunk}` : chunk;
-      }
-
-      // Handle old format
-      let parsedItems: OrderItem[] | undefined;
-      if (!allItemsStr && metadata.items) {
-        try {
-          const oldItems = JSON.parse(metadata.items);
-          parsedItems = await Promise.all(
-            oldItems.map(async (item: { p: string; q: number; s: string } | { productId: string; productName: string; quantity: number; price: number; supplierId: string }) => {
-              if ("p" in item) {
-                const product = await getProduct(item.p);
-                return { productId: item.p, productName: product?.name || "Unknown Product", quantity: item.q, price: product?.price || 0, supplierId: item.s };
-              } else {
-                return { productId: item.productId, productName: item.productName, quantity: item.quantity, price: item.price, supplierId: item.supplierId };
-              }
-            })
-          );
-          allItemsStr = "OLD_FORMAT";
-        } catch {
-          allItemsStr = "";
-        }
-      }
-
-      const items: OrderItem[] = allItemsStr === "OLD_FORMAT" && parsedItems ? parsedItems : await Promise.all(
-        allItemsStr.split(",").filter(Boolean).map(async (itemStr) => {
-          const [productId, quantityStr, supplierId] = itemStr.split(":");
-          const product = await getProduct(productId);
-          return {
-            productId,
-            productName: product?.name || "Unknown Product",
-            quantity: parseInt(quantityStr, 10),
-            price: product?.price || 0,
-            supplierId,
-          };
-        })
-      );
-
+      // Parse items using shared helper
+      const items: OrderItem[] = await parseItemsFromMetadata(metadata);
       const total = parseFloat(metadata.total);
       const boxDepositPaid = metadata.boxDepositPaid === "true";
       const bottleDepositPaid = metadata.bottleDepositPaid === "true";
 
-      // Create the order
+      // Create the order (including address data)
       const order = await createOrder({
         userId: metadata.userId,
         customerEmail: session.customer_email || "",
@@ -108,6 +144,12 @@ export async function POST(request: NextRequest) {
         boxDepositPaid,
         bottleDepositPaid,
         stripeSessionId: sessionId,
+        address: metadata.addressLine1 ? {
+          addressLine1: metadata.addressLine1,
+          addressLine2: metadata.addressLine2 || undefined,
+          city: metadata.city,
+          postcode: metadata.postcode,
+        } : undefined,
       });
 
       console.log(`Order ${order.orderNumber} created via webhook for session ${sessionId}`);
@@ -132,7 +174,7 @@ export async function POST(request: NextRequest) {
             orderNumber: order.orderNumber,
             deliveryDay: deliveryDayFormatted,
             deliveryWindow,
-            address: metadata.address || undefined,
+            address: metadata.addressLine1 ? `${metadata.addressLine1}${metadata.addressLine2 ? ", " + metadata.addressLine2 : ""}, ${metadata.city}, ${metadata.postcode}` : undefined,
             willBeIn: metadata.willBeIn === "true",
             safePlace: metadata.safePlace || undefined,
             boxDepositPaid,
@@ -148,38 +190,7 @@ export async function POST(request: NextRequest) {
           console.error("Webhook: Failed to send customer email:", emailError);
         }
 
-        // Send supplier emails
-        const supplierItems = new Map<string, OrderItem[]>();
-        for (const item of items) {
-          if (item.supplierId) {
-            const existing = supplierItems.get(item.supplierId) || [];
-            existing.push(item);
-            supplierItems.set(item.supplierId, existing);
-          }
-        }
-
-        for (const [supplierId, supplierOrderItems] of supplierItems) {
-          try {
-            const supplier = await getSupplier(supplierId);
-            if (supplier?.email) {
-              const subtotal = supplierOrderItems.reduce((sum, i) => sum + i.price * i.quantity, 0);
-              await sendSupplierNewOrder({
-                supplierEmail: supplier.email,
-                supplierName: supplier.name,
-                orderNumber: order.orderNumber,
-                deliveryDay: deliveryDayFormatted,
-                items: supplierOrderItems.map((item) => ({
-                  productName: item.productName,
-                  quantity: item.quantity,
-                  price: item.price,
-                })),
-                subtotal,
-              });
-            }
-          } catch (emailError) {
-            console.error(`Webhook: Failed to send supplier email for ${supplierId}:`, emailError);
-          }
-        }
+        // Supplier emails disabled - they receive a summary at cutoff instead
       }
 
       return NextResponse.json({ received: true, orderNumber: order.orderNumber });

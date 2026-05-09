@@ -75,6 +75,7 @@ export interface Order {
   orderNumber: number;
   userId: string;
   customerEmail: string | null;
+  customerName: string | null;
   items: OrderItem[];
   total: number;
   status: "pending" | "confirmed" | "delivered" | "cancelled";
@@ -85,6 +86,7 @@ export interface Order {
   safePlace: string | null;
   boxDepositPaid: boolean;
   bottleDepositPaid: boolean;
+  address: OrderAddress | null;
 }
 
 export interface DeliveryDay {
@@ -327,6 +329,7 @@ export async function getOrders(userId?: string): Promise<Order[]> {
     orderNumber: o.order_number,
     userId: o.user_id,
     customerEmail: o.customer_email ?? null,
+    customerName: o.customer_name ?? null,
     items: (o.order_items as Array<{ product_id: string; product_name: string; quantity: number; price: number; supplier_id?: string; supplier_status?: string; suppliers?: { name: string } | null }>).map((item) => ({
       productId: item.product_id,
       productName: item.product_name,
@@ -345,6 +348,12 @@ export async function getOrders(userId?: string): Promise<Order[]> {
     safePlace: o.safe_place ?? null,
     boxDepositPaid: o.box_deposit_paid ?? false,
     bottleDepositPaid: o.bottle_deposit_paid ?? false,
+    address: o.address_line1 ? {
+      addressLine1: o.address_line1,
+      addressLine2: o.address_line2 ?? undefined,
+      city: o.city,
+      postcode: o.postcode,
+    } : null,
   }));
 }
 
@@ -581,6 +590,7 @@ export async function getOrdersByDeliveryDay(deliveryDate: string): Promise<Orde
     orderNumber: o.order_number,
     userId: o.user_id,
     customerEmail: o.customer_email ?? null,
+    customerName: o.customer_name ?? null,
     items: (o.order_items as Array<{ product_id: string; product_name: string; quantity: number; price: number; supplier_id?: string; supplier_status?: string; suppliers?: { name: string } | null }>).map((item) => ({
       productId: item.product_id,
       productName: item.product_name,
@@ -599,12 +609,26 @@ export async function getOrdersByDeliveryDay(deliveryDate: string): Promise<Orde
     safePlace: o.safe_place ?? null,
     boxDepositPaid: o.box_deposit_paid ?? false,
     bottleDepositPaid: o.bottle_deposit_paid ?? false,
+    address: o.address_line1 ? {
+      addressLine1: o.address_line1,
+      addressLine2: o.address_line2 ?? undefined,
+      city: o.city,
+      postcode: o.postcode,
+    } : null,
   }));
+}
+
+export interface OrderAddress {
+  addressLine1: string;
+  addressLine2?: string;
+  city: string;
+  postcode: string;
 }
 
 export interface CreateOrderOptions {
   userId: string;
   customerEmail: string;
+  customerName?: string;
   total: number;
   deliveryDay: string;
   items: OrderItem[];
@@ -614,6 +638,7 @@ export interface CreateOrderOptions {
   boxDepositPaid: boolean;
   bottleDepositPaid: boolean;
   stripeSessionId?: string;
+  address?: OrderAddress;
 }
 
 export async function getOrderByStripeSession(sessionId: string): Promise<Order | null> {
@@ -628,6 +653,7 @@ export async function getOrderByStripeSession(sessionId: string): Promise<Order 
     orderNumber: data.order_number,
     userId: data.user_id,
     customerEmail: data.customer_email ?? null,
+    customerName: data.customer_name ?? null,
     items: (data.order_items as Array<{ product_id: string; product_name: string; quantity: number; price: number; supplier_id?: string; supplier_status?: string; suppliers?: { name: string } | null }>).map((item) => ({
       productId: item.product_id,
       productName: item.product_name,
@@ -646,6 +672,12 @@ export async function getOrderByStripeSession(sessionId: string): Promise<Order 
     safePlace: data.safe_place ?? null,
     boxDepositPaid: data.box_deposit_paid ?? false,
     bottleDepositPaid: data.bottle_deposit_paid ?? false,
+    address: data.address_line1 ? {
+      addressLine1: data.address_line1,
+      addressLine2: data.address_line2 ?? undefined,
+      city: data.city,
+      postcode: data.postcode,
+    } : null,
   };
 }
 
@@ -655,6 +687,7 @@ export async function createOrder(options: CreateOrderOptions): Promise<Order> {
     .insert({
       user_id: options.userId,
       customer_email: options.customerEmail,
+      customer_name: options.customerName ?? null,
       total: options.total,
       status: "pending",
       delivery_day: options.deliveryDay,
@@ -664,6 +697,10 @@ export async function createOrder(options: CreateOrderOptions): Promise<Order> {
       box_deposit_paid: options.boxDepositPaid,
       bottle_deposit_paid: options.bottleDepositPaid,
       stripe_session_id: options.stripeSessionId ?? null,
+      address_line1: options.address?.addressLine1 ?? null,
+      address_line2: options.address?.addressLine2 ?? null,
+      city: options.address?.city ?? null,
+      postcode: options.address?.postcode ?? null,
     })
     .select()
     .single();
@@ -680,13 +717,20 @@ export async function createOrder(options: CreateOrderOptions): Promise<Order> {
       supplier_status: "order_placed",
     }))
   );
-  if (itemsError) throw itemsError;
+  
+  // If items insert fails, delete the orphaned order to maintain consistency
+  if (itemsError) {
+    console.error("Failed to insert order items, rolling back order:", itemsError);
+    await supabase.from("orders").delete().eq("id", order.id);
+    throw new Error(`Failed to create order items: ${itemsError.message}`);
+  }
 
   return {
     id: order.id,
     orderNumber: order.order_number,
     userId: order.user_id,
     customerEmail: order.customer_email ?? null,
+    customerName: order.customer_name ?? null,
     items: options.items,
     total: Number(order.total),
     status: order.status as Order["status"],
@@ -697,6 +741,7 @@ export async function createOrder(options: CreateOrderOptions): Promise<Order> {
     safePlace: order.safe_place ?? null,
     boxDepositPaid: order.box_deposit_paid ?? false,
     bottleDepositPaid: order.bottle_deposit_paid ?? false,
+    address: options.address ?? null,
   };
 }
 
@@ -789,6 +834,7 @@ export async function getOrder(orderId: string): Promise<Order | null> {
     orderNumber: data.order_number,
     userId: data.user_id,
     customerEmail: data.customer_email ?? null,
+    customerName: data.customer_name ?? null,
     items: (data.order_items as Array<{ product_id: string; product_name: string; quantity: number; price: number; supplier_id?: string; supplier_status?: string; suppliers?: { name: string } | null }>).map((item) => ({
       productId: item.product_id,
       productName: item.product_name,
@@ -807,6 +853,12 @@ export async function getOrder(orderId: string): Promise<Order | null> {
     safePlace: data.safe_place ?? null,
     boxDepositPaid: data.box_deposit_paid ?? false,
     bottleDepositPaid: data.bottle_deposit_paid ?? false,
+    address: data.address_line1 ? {
+      addressLine1: data.address_line1,
+      addressLine2: data.address_line2 ?? undefined,
+      city: data.city,
+      postcode: data.postcode,
+    } : null,
   };
 }
 
@@ -1247,6 +1299,20 @@ export async function saveCustomerPostcode(
   if (error) throw error;
 }
 
+export async function getCustomerBoxStatuses(userIds: string[]): Promise<Map<string, boolean>> {
+  if (userIds.length === 0) return new Map();
+  const { data, error } = await supabase
+    .from("customer_profiles")
+    .select("clerk_user_id, has_outstanding_box")
+    .in("clerk_user_id", userIds);
+  if (error) throw error;
+  const map = new Map<string, boolean>();
+  for (const row of data ?? []) {
+    map.set(row.clerk_user_id, row.has_outstanding_box ?? false);
+  }
+  return map;
+}
+
 // ─── Delivery Zones ─────────────────────────────────────────────────────────
 
 export type ZoneStatus = "live" | "not_live";
@@ -1369,6 +1435,104 @@ export async function getAverageRatings(): Promise<Record<string, { avg: number;
   return result;
 }
 
+// ─── Top-up Session Tracking (Idempotency) ───────────────────────────────────
+
+export async function isTopUpSessionProcessed(sessionId: string): Promise<{ orderId: string } | null> {
+  const { data, error } = await supabase
+    .from("topup_sessions")
+    .select("order_id")
+    .eq("stripe_session_id", sessionId)
+    .single();
+  if (error || !data) return null;
+  return { orderId: data.order_id };
+}
+
+export async function markTopUpSessionProcessed(sessionId: string, orderId: string): Promise<void> {
+  const { error } = await supabase
+    .from("topup_sessions")
+    .insert({ stripe_session_id: sessionId, order_id: orderId });
+  if (error && error.code !== "23505") throw error; // Ignore duplicate key errors
+}
+
+// ─── Shared Checkout Helpers ─────────────────────────────────────────────────
+
+/**
+ * Parse order items from Stripe metadata.
+ * Items are stored as "productId:quantity:supplierId" strings, split across items0, items1, etc.
+ * Also handles legacy format where items were JSON in a single "items" field.
+ */
+export async function parseItemsFromMetadata(metadata: Record<string, string>): Promise<OrderItem[]> {
+  // Collect item chunks from items0, items1, etc.
+  let allItemsStr = "";
+  for (let i = 0; ; i++) {
+    const chunk = metadata[`items${i}`];
+    if (!chunk) break;
+    allItemsStr = allItemsStr ? `${allItemsStr},${chunk}` : chunk;
+  }
+
+  // Handle legacy format with single "items" JSON field
+  if (!allItemsStr && metadata.items) {
+    try {
+      const oldItems = JSON.parse(metadata.items);
+      const parsedItems = await Promise.all(
+        oldItems.map(async (item: { p: string; q: number; s: string } | { productId: string; productName: string; quantity: number; price: number; supplierId: string }) => {
+          if ("p" in item) {
+            const product = await getProduct(item.p);
+            return { 
+              productId: item.p, 
+              productName: product?.name || "Unknown Product", 
+              quantity: item.q, 
+              price: product?.price || 0, 
+              supplierId: item.s 
+            };
+          } else {
+            return { 
+              productId: item.productId, 
+              productName: item.productName, 
+              quantity: item.quantity, 
+              price: item.price, 
+              supplierId: item.supplierId 
+            };
+          }
+        })
+      );
+      return parsedItems;
+    } catch {
+      return [];
+    }
+  }
+
+  // Parse current format: "productId:quantity:supplierId,productId:quantity:supplierId,..."
+  if (!allItemsStr) return [];
+  
+  const items: OrderItem[] = await Promise.all(
+    allItemsStr.split(",").filter(Boolean).map(async (itemStr) => {
+      const [productId, quantityStr, supplierId] = itemStr.split(":");
+      const product = await getProduct(productId);
+      return {
+        productId,
+        productName: product?.name || "Unknown Product",
+        quantity: parseInt(quantityStr, 10),
+        price: product?.price || 0,
+        supplierId,
+      };
+    })
+  );
+  
+  return items;
+}
+
+/**
+ * Rollback a processed top-up session if adding items fails.
+ * This allows the session to be retried.
+ */
+export async function rollbackTopUpSession(sessionId: string): Promise<void> {
+  await supabase
+    .from("topup_sessions")
+    .delete()
+    .eq("stripe_session_id", sessionId);
+}
+
 // ─── Email Signups ───────────────────────────────────────────────────────────
 
 export async function submitEmailSignup(email: string): Promise<void> {
@@ -1382,4 +1546,138 @@ export async function submitEmailSignup(email: string): Promise<void> {
     }
     throw error;
   }
+}
+
+// ─── Delivery Tracking ──────────────────────────────────────────────────────
+
+export interface DeliveryStockTracking {
+  id: string;
+  deliveryDay: string;
+  supplierId: string;
+  productName: string;
+  quantityOrdered: number;
+  quantityArrived: number | null;
+  arrivalNotes: string | null;
+  checkedInAt: string | null;
+}
+
+export interface OrderItemRefund {
+  id: string;
+  orderId: string;
+  productName: string;
+  quantityRefunded: number;
+  refundAmount: number;
+  refundReason: string | null;
+  refundedAt: string;
+}
+
+export async function getDeliveryStockTracking(deliveryDay: string): Promise<DeliveryStockTracking[]> {
+  const { data, error } = await supabase
+    .from("delivery_stock_tracking")
+    .select("*")
+    .eq("delivery_day", deliveryDay);
+  if (error) throw error;
+  return (data ?? []).map((d) => ({
+    id: d.id,
+    deliveryDay: d.delivery_day,
+    supplierId: d.supplier_id,
+    productName: d.product_name,
+    quantityOrdered: d.quantity_ordered,
+    quantityArrived: d.quantity_arrived,
+    arrivalNotes: d.arrival_notes,
+    checkedInAt: d.checked_in_at,
+  }));
+}
+
+export async function upsertDeliveryStockTracking(
+  deliveryDay: string,
+  supplierId: string,
+  productName: string,
+  quantityOrdered: number,
+  quantityArrived: number | null,
+  arrivalNotes: string | null
+): Promise<void> {
+  const { error } = await supabase
+    .from("delivery_stock_tracking")
+    .upsert({
+      delivery_day: deliveryDay,
+      supplier_id: supplierId,
+      product_name: productName,
+      quantity_ordered: quantityOrdered,
+      quantity_arrived: quantityArrived,
+      arrival_notes: arrivalNotes,
+      checked_in_at: quantityArrived !== null ? new Date().toISOString() : null,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: "delivery_day,supplier_id,product_name" });
+  if (error) throw error;
+}
+
+export async function getOrderItemRefunds(orderId: string): Promise<OrderItemRefund[]> {
+  const { data, error } = await supabase
+    .from("order_item_refunds")
+    .select("*")
+    .eq("order_id", orderId);
+  if (error) throw error;
+  return (data ?? []).map((d) => ({
+    id: d.id,
+    orderId: d.order_id,
+    productName: d.product_name,
+    quantityRefunded: d.quantity_refunded,
+    refundAmount: Number(d.refund_amount),
+    refundReason: d.refund_reason,
+    refundedAt: d.refunded_at,
+  }));
+}
+
+export async function getRefundsForDeliveryDay(deliveryDay: string): Promise<OrderItemRefund[]> {
+  // Get all orders for this delivery day, then get their refunds
+  const { data: orders, error: ordersError } = await supabase
+    .from("orders")
+    .select("id")
+    .eq("delivery_day", deliveryDay);
+  if (ordersError) throw ordersError;
+  if (!orders || orders.length === 0) return [];
+  
+  const orderIds = orders.map(o => o.id);
+  const { data, error } = await supabase
+    .from("order_item_refunds")
+    .select("*")
+    .in("order_id", orderIds);
+  if (error) throw error;
+  return (data ?? []).map((d) => ({
+    id: d.id,
+    orderId: d.order_id,
+    productName: d.product_name,
+    quantityRefunded: d.quantity_refunded,
+    refundAmount: Number(d.refund_amount),
+    refundReason: d.refund_reason,
+    refundedAt: d.refunded_at,
+  }));
+}
+
+export async function createOrderItemRefund(
+  orderId: string,
+  productName: string,
+  quantityRefunded: number,
+  refundAmount: number,
+  refundReason: string | null
+): Promise<void> {
+  const { error } = await supabase
+    .from("order_item_refunds")
+    .insert({
+      order_id: orderId,
+      product_name: productName,
+      quantity_refunded: quantityRefunded,
+      refund_amount: refundAmount,
+      refund_reason: refundReason,
+    });
+  if (error) throw error;
+}
+
+export async function deleteOrderItemRefund(refundId: string): Promise<void> {
+  const { error } = await supabase
+    .from("order_item_refunds")
+    .delete()
+    .eq("id", refundId);
+  if (error) throw error;
 }

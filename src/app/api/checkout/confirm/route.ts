@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { stripe } from "@/lib/stripe";
-import { createOrder, getOrderByStripeSession, type DeliveryWindow, type OrderItem, getSupplier, getProduct, setCustomerOutstandingBox } from "@/lib/data";
-import { sendOrderConfirmation, sendSupplierNewOrder } from "@/lib/email";
+import { createOrder, getOrderByStripeSession, parseItemsFromMetadata, type DeliveryWindow, type OrderItem, setCustomerOutstandingBox } from "@/lib/data";
+import { sendOrderConfirmation } from "@/lib/email";
 import { auth } from "@clerk/nextjs/server";
 
 export async function POST(request: NextRequest) {
@@ -44,50 +44,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "User mismatch" }, { status: 403 });
     }
 
-    // Parse the items from metadata
-    // Items are split across items0, items1, etc. as "productId:quantity:supplierId" strings
-    let allItemsStr = "";
-    for (let i = 0; ; i++) {
-      const chunk = metadata[`items${i}`];
-      if (!chunk) break;
-      allItemsStr = allItemsStr ? `${allItemsStr},${chunk}` : chunk;
-    }
-    
-    // Also handle old format with single "items" field
-    let parsedItems: OrderItem[] | undefined;
-    if (!allItemsStr && metadata.items) {
-      try {
-        const oldItems = JSON.parse(metadata.items);
-        parsedItems = await Promise.all(
-          oldItems.map(async (item: { p: string; q: number; s: string } | { productId: string; productName: string; quantity: number; price: number; supplierId: string }) => {
-            if ("p" in item) {
-              const product = await getProduct(item.p);
-              return { productId: item.p, productName: product?.name || "Unknown Product", quantity: item.q, price: product?.price || 0, supplierId: item.s };
-            } else {
-              return { productId: item.productId, productName: item.productName, quantity: item.quantity, price: item.price, supplierId: item.supplierId };
-            }
-          })
-        );
-        allItemsStr = "OLD_FORMAT";
-      } catch {
-        allItemsStr = "";
-      }
-    }
-
-    const items: OrderItem[] = allItemsStr === "OLD_FORMAT" && parsedItems ? parsedItems : await Promise.all(
-      allItemsStr.split(",").filter(Boolean).map(async (itemStr) => {
-        const [productId, quantityStr, supplierId] = itemStr.split(":");
-        const product = await getProduct(productId);
-        return {
-          productId,
-          productName: product?.name || "Unknown Product",
-          quantity: parseInt(quantityStr, 10),
-          price: product?.price || 0,
-          supplierId,
-        };
-      })
-    );
-
+    // Parse items using shared helper
+    const items: OrderItem[] = await parseItemsFromMetadata(metadata);
     const total = parseFloat(metadata.total);
     const boxDepositPaid = metadata.boxDepositPaid === "true";
     const bottleDepositPaid = metadata.bottleDepositPaid === "true";
@@ -105,6 +63,12 @@ export async function POST(request: NextRequest) {
       boxDepositPaid,
       bottleDepositPaid,
       stripeSessionId: sessionId,
+      address: metadata.addressLine1 ? {
+        addressLine1: metadata.addressLine1,
+        addressLine2: metadata.addressLine2 || undefined,
+        city: metadata.city,
+        postcode: metadata.postcode,
+      } : undefined,
     });
 
     // If box deposit was paid, update customer profile
@@ -128,7 +92,7 @@ export async function POST(request: NextRequest) {
           orderNumber: order.orderNumber,
           deliveryDay: deliveryDayFormatted,
           deliveryWindow,
-          address: metadata.address || undefined,
+          address: metadata.addressLine1 ? `${metadata.addressLine1}${metadata.addressLine2 ? ", " + metadata.addressLine2 : ""}, ${metadata.city}, ${metadata.postcode}` : undefined,
           willBeIn: metadata.willBeIn === "true",
           safePlace: metadata.safePlace || undefined,
           boxDepositPaid,
@@ -144,38 +108,7 @@ export async function POST(request: NextRequest) {
         console.error("Failed to send customer confirmation email:", emailError);
       }
 
-      // Send emails to suppliers
-      const supplierItems = new Map<string, OrderItem[]>();
-      for (const item of items) {
-        if (item.supplierId) {
-          const existing = supplierItems.get(item.supplierId) || [];
-          existing.push(item);
-          supplierItems.set(item.supplierId, existing);
-        }
-      }
-
-      for (const [supplierId, supplierOrderItems] of supplierItems) {
-        try {
-          const supplier = await getSupplier(supplierId);
-          if (supplier?.email) {
-            const subtotal = supplierOrderItems.reduce((sum, i) => sum + i.price * i.quantity, 0);
-            await sendSupplierNewOrder({
-              supplierEmail: supplier.email,
-              supplierName: supplier.name,
-              orderNumber: order.orderNumber,
-              deliveryDay: deliveryDayFormatted,
-              items: supplierOrderItems.map((item) => ({
-                productName: item.productName,
-                quantity: item.quantity,
-                price: item.price,
-              })),
-              subtotal,
-            });
-          }
-        } catch (emailError) {
-          console.error(`Failed to send supplier email for ${supplierId}:`, emailError);
-        }
-      }
+      // Supplier emails disabled - they receive a summary at cutoff instead
     }
 
     return NextResponse.json({ success: true, orderId: order.id, orderNumber: order.orderNumber });

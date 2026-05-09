@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Package, Search, Mail, MapPin, ShoppingBag, Calendar, CheckCircle, XCircle, X, Loader2, CreditCard, AlertCircle } from "lucide-react";
+import { Package, Search, Mail, MapPin, ShoppingBag, Calendar, CheckCircle, X, Loader2, CreditCard, AlertCircle } from "lucide-react";
 import { type CustomerSummary, getAllCustomers, setCustomerOutstandingBox } from "@/lib/data";
 
 export default function AdminCustomersPage() {
@@ -90,26 +90,10 @@ export default function AdminCustomersPage() {
     }
   };
 
-  const toggleBoxStatus = async (clerkUserId: string, currentStatus: boolean) => {
-    // If marking as returned (currentStatus is true), show refund modal
-    if (currentStatus) {
-      const customer = customers.find(c => c.clerkUserId === clerkUserId);
-      if (customer) {
-        openRefundModal(customer);
-        return;
-      }
-    }
-
-    // Otherwise just toggle (marking as outstanding)
-    try {
-      await setCustomerOutstandingBox(clerkUserId, !currentStatus);
-      setCustomers((prev) =>
-        prev.map((c) =>
-          c.clerkUserId === clerkUserId ? { ...c, hasOutstandingBox: !currentStatus } : c
-        )
-      );
-    } catch (error) {
-      console.error("Failed to toggle box status:", error);
+  const handleMarkReturned = (clerkUserId: string) => {
+    const customer = customers.find(c => c.clerkUserId === clerkUserId);
+    if (customer) {
+      openRefundModal(customer);
     }
   };
 
@@ -293,26 +277,13 @@ export default function AdminCustomersPage() {
                       )}
                     </td>
                     <td className="px-4 py-3 text-center">
-                      {(customer.hasOutstandingBox || customer.boxDepositOrders > 0) && (
+                      {customer.hasOutstandingBox && (
                         <button
-                          onClick={() => toggleBoxStatus(customer.clerkUserId, customer.hasOutstandingBox)}
-                          className={`inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-semibold transition ${
-                            customer.hasOutstandingBox
-                              ? "bg-green-100 text-green-700 hover:bg-green-200"
-                              : "bg-amber-100 text-amber-700 hover:bg-amber-200"
-                          }`}
+                          onClick={() => handleMarkReturned(customer.clerkUserId)}
+                          className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-semibold transition bg-green-100 text-green-700 hover:bg-green-200"
                         >
-                          {customer.hasOutstandingBox ? (
-                            <>
-                              <CheckCircle size={12} />
-                              Mark Returned
-                            </>
-                          ) : (
-                            <>
-                              <XCircle size={12} />
-                              Mark Outstanding
-                            </>
-                          )}
+                          <CheckCircle size={12} />
+                          Mark Returned
                         </button>
                       )}
                     </td>

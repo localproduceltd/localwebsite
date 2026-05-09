@@ -302,6 +302,16 @@ const statusMessages = {
 export async function sendOrderStatusUpdate(data: OrderStatusUpdateData) {
   const config = statusMessages[data.status];
   
+  const feedbackSection = data.status === "delivered" ? `
+        <div style="background: #fef3c7; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #f59e0b;">
+          <h3 style="margin: 0 0 10px 0; color: #92400e;">⭐ How was your order?</h3>
+          <p style="margin: 0 0 15px 0; color: #78350f;">We'd love to hear your feedback! Rate your products and help other customers discover great local produce.</p>
+          <a href="https://www.localproduce.ltd/account" style="display: inline-block; background: #f59e0b; color: white; padding: 10px 20px; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 14px;">
+            Rate Your Products
+          </a>
+        </div>
+  ` : "";
+
   const { error } = await resend.emails.send({
     from: FROM_EMAIL,
     to: data.customerEmail,
@@ -317,8 +327,10 @@ export async function sendOrderStatusUpdate(data: OrderStatusUpdateData) {
           <p style="margin: 8px 0 0 0;"><strong>Delivery Day:</strong> ${data.deliveryDay}</p>
         </div>
         
+        ${feedbackSection}
+        
         <p>
-          <a href="https://localproduce.ltd/account" style="display: inline-block; background: #A30E4E; color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: bold;">
+          <a href="https://www.localproduce.ltd/account" style="display: inline-block; background: #A30E4E; color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: bold;">
             View Order
           </a>
         </p>

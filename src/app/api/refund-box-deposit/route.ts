@@ -3,8 +3,7 @@ import { stripe } from "@/lib/stripe";
 import { supabase } from "@/lib/supabase";
 import { setCustomerOutstandingBox } from "@/lib/data";
 import { sendBoxDepositRefund } from "@/lib/email";
-
-const BOX_DEPOSIT_PENCE = 1000; // £10
+import { BOX_DEPOSIT_PENCE, BOX_DEPOSIT } from "@/lib/constants";
 
 export async function POST(request: NextRequest) {
   try {
@@ -71,7 +70,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       refundId: refund.id,
-      amount: BOX_DEPOSIT_PENCE / 100,
+      amount: BOX_DEPOSIT,
     });
   } catch (error) {
     console.error("Refund error:", error);
