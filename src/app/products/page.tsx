@@ -129,14 +129,9 @@ export default function ProductsPage() {
   })();
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
-      <div>
-        <h1 className="text-3xl font-bold text-primary">Products</h1>
-        <p className="mt-1 text-secondary">Browse fresh produce from our local suppliers. Click Carrie the carrot if there's a product you'd like to see!</p>
-      </div>
-
-      {/* Search & Filters */}
-      <div className="mt-6 flex flex-col gap-4">
+    <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+      {/* Sticky Search Bar - top-[72px] to sit below navbar (h-18 = 72px) */}
+      <div className="sticky top-[72px] z-30 -mx-4 px-4 sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8 bg-background pt-4 pb-3 shadow-sm">
         <div className="relative">
           <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
           <input
@@ -147,6 +142,10 @@ export default function ProductsPage() {
             className="w-full rounded-lg border border-primary/20 bg-surface py-3.5 pl-10 pr-4 text-base outline-none transition focus:border-secondary focus:ring-2 focus:ring-secondary/20"
           />
         </div>
+      </div>
+
+      {/* Filters (not sticky) */}
+      <div className="flex flex-col gap-4 mt-2">
         <div className="flex items-center gap-3">
           <label htmlFor="category-select" className="text-sm font-semibold text-muted">
             Category:
