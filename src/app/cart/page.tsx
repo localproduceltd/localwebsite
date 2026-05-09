@@ -418,7 +418,7 @@ export default function CartPage() {
                 setTrialError("");
               }}
               onKeyDown={(e) => e.key === "Enter" && handleTrialUnlock()}
-              className="flex-1 rounded-lg border border-primary/20 bg-white px-4 py-2.5 text-sm font-mono uppercase outline-none transition focus:border-secondary"
+              className="flex-1 rounded-lg border border-primary/20 bg-white px-4 py-2.5 text-base sm:text-sm font-mono uppercase outline-none transition focus:border-secondary"
             />
             <button
               onClick={handleTrialUnlock}
@@ -454,7 +454,7 @@ export default function CartPage() {
               placeholder="Address line 1"
               value={addressForm.addressLine1}
               onChange={(e) => setAddressForm({ ...addressForm, addressLine1: e.target.value })}
-              className="w-full rounded-lg border border-primary/20 bg-white px-4 py-2.5 text-sm outline-none transition focus:border-secondary"
+              className="w-full rounded-lg border border-primary/20 bg-white px-4 py-2.5 text-base sm:text-sm outline-none transition focus:border-secondary"
             />
           </div>
           <div>
@@ -463,7 +463,7 @@ export default function CartPage() {
               placeholder="Address line 2 (optional)"
               value={addressForm.addressLine2}
               onChange={(e) => setAddressForm({ ...addressForm, addressLine2: e.target.value })}
-              className="w-full rounded-lg border border-primary/20 bg-white px-4 py-2.5 text-sm outline-none transition focus:border-secondary"
+              className="w-full rounded-lg border border-primary/20 bg-white px-4 py-2.5 text-base sm:text-sm outline-none transition focus:border-secondary"
             />
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -472,7 +472,7 @@ export default function CartPage() {
               placeholder="City / Town"
               value={addressForm.city}
               onChange={(e) => setAddressForm({ ...addressForm, city: e.target.value })}
-              className="w-full rounded-lg border border-primary/20 bg-white px-4 py-2.5 text-sm outline-none transition focus:border-secondary"
+              className="w-full rounded-lg border border-primary/20 bg-white px-4 py-2.5 text-base sm:text-sm outline-none transition focus:border-secondary"
             />
             <div className="flex gap-2">
               <input
@@ -484,7 +484,7 @@ export default function CartPage() {
                   setDeliveryCheck(null);
                   setPostcodeError("");
                 }}
-                className="flex-1 rounded-lg border border-primary/20 bg-white px-4 py-2.5 text-sm outline-none transition focus:border-secondary"
+                className="flex-1 rounded-lg border border-primary/20 bg-white px-4 py-2.5 text-base sm:text-sm outline-none transition focus:border-secondary"
               />
               <button
                 onClick={handleCheckPostcode}

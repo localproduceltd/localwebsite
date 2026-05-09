@@ -505,7 +505,7 @@ function MapPageContent() {
                 value={postcodeInput}
                 onChange={(e) => setPostcodeInput(e.target.value.toUpperCase())}
                 onKeyDown={(e) => e.key === "Enter" && checkPostcode()}
-                className="flex-1 rounded-lg border border-primary/20 bg-white px-4 py-2.5 text-sm outline-none transition focus:border-secondary focus:ring-2 focus:ring-secondary/20"
+                className="flex-1 rounded-lg border border-primary/20 bg-white px-4 py-2.5 text-base sm:text-sm outline-none transition focus:border-secondary focus:ring-2 focus:ring-secondary/20"
               />
               <button
                 onClick={checkPostcode}
