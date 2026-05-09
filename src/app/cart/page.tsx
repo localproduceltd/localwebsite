@@ -312,6 +312,15 @@ export default function CartPage() {
       </h1>
       <p className="mt-1 text-secondary">{items.length} item{items.length !== 1 ? "s" : ""} in your cart</p>
 
+      {/* Add more items note - only show for new orders, not top-ups */}
+      {!topUpOrder && (
+        <div className="mt-4 rounded-lg bg-sky-50 border border-sky-200 px-4 py-3">
+          <p className="text-sm text-sky-800">
+            💡 <strong>Don&apos;t worry!</strong> Once you checkout, you can add more items to your order from the <strong>My Account</strong> tab until the cutoff date.
+          </p>
+        </div>
+      )}
+
       {/* Top-up mode banner */}
       {topUpOrder && (
         <div className="mt-4 rounded-xl bg-secondary/20 border border-secondary/30 p-4">

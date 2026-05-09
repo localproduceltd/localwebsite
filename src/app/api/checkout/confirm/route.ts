@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { stripe } from "@/lib/stripe";
-import { createOrder, getOrderByStripeSession, parseItemsFromMetadata, type DeliveryWindow, type OrderItem, setCustomerOutstandingBox } from "@/lib/data";
+import { createOrder, getOrderByStripeSession, parseItemsFromMetadata, type DeliveryWindow, type OrderItem, setCustomerOutstandingBox, getActiveDeliveryDays } from "@/lib/data";
 import { sendOrderConfirmation } from "@/lib/email";
 import { auth } from "@clerk/nextjs/server";
+import { DELIVERY_FEE } from "@/lib/constants";
 
 export async function POST(request: NextRequest) {
   try {
@@ -86,6 +87,14 @@ export async function POST(request: NextRequest) {
       // Send customer confirmation email
       try {
         const deliveryWindow = metadata.deliveryWindow as "morning" | "afternoon" | undefined;
+        
+        // Get cutoff day for this delivery
+        const deliveryDays = await getActiveDeliveryDays();
+        const thisDelivery = deliveryDays.find(d => d.deliveryDate === metadata.deliveryDay);
+        const cutoffFormatted = thisDelivery?.cutoffDate 
+          ? new Date(thisDelivery.cutoffDate + "T00:00:00").toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })
+          : undefined;
+        
         await sendOrderConfirmation({
           customerEmail,
           customerName: "Customer",
@@ -97,12 +106,14 @@ export async function POST(request: NextRequest) {
           safePlace: metadata.safePlace || undefined,
           boxDepositPaid,
           bottleDepositPaid,
+          deliveryFee: DELIVERY_FEE,
           items: items.map((item) => ({
             productName: item.productName,
             quantity: item.quantity,
             price: item.price,
           })),
           total,
+          cutoffDay: cutoffFormatted,
         });
       } catch (emailError) {
         console.error("Failed to send customer confirmation email:", emailError);

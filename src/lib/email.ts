@@ -17,9 +17,11 @@ interface OrderConfirmationData {
   safePlace?: string;
   boxDepositPaid?: boolean;
   bottleDepositPaid?: boolean;
+  deliveryFee?: number;
   items: Array<{ productName: string; quantity: number; price: number }>;
   total: number;
   isTopUp?: boolean;
+  cutoffDay?: string;
 }
 
 export async function sendOrderConfirmation(data: OrderConfirmationData) {
@@ -75,6 +77,24 @@ export async function sendOrderConfirmation(data: OrderConfirmationData) {
               <span>£${(item.price * item.quantity).toFixed(2)}</span>
             </div>
           `).join("")}
+          ${data.deliveryFee ? `
+          <div style="display: flex; justify-content: space-between; margin: 8px 0; color: #666;">
+            <span>Delivery Fee</span>
+            <span>£${data.deliveryFee.toFixed(2)}</span>
+          </div>
+          ` : ""}
+          ${data.boxDepositPaid ? `
+          <div style="display: flex; justify-content: space-between; margin: 8px 0; color: #666;">
+            <span>Box Deposit (refundable)</span>
+            <span>£10.00</span>
+          </div>
+          ` : ""}
+          ${data.bottleDepositPaid ? `
+          <div style="display: flex; justify-content: space-between; margin: 8px 0; color: #666;">
+            <span>Bottle Deposit (refundable)</span>
+            <span>£1.00</span>
+          </div>
+          ` : ""}
           <hr style="border: none; border-top: 1px solid #ddd; margin: 15px 0;">
           <div style="display: flex; justify-content: space-between; font-weight: bold; font-size: 18px;">
             <span>Total</span>
@@ -86,6 +106,14 @@ export async function sendOrderConfirmation(data: OrderConfirmationData) {
         <div style="background: #fef3c7; padding: 16px 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #f59e0b;">
           <h4 style="margin: 0 0 10px 0; color: #92400e;">Reminders</h4>
           ${reminders.map(r => `<p style="margin: 8px 0; color: #78350f;">${r}</p>`).join("")}
+        </div>
+        ` : ""}
+        
+        ${!data.isTopUp && data.cutoffDay ? `
+        <div style="background: #e0f2fe; padding: 16px 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #0ea5e9;">
+          <p style="margin: 0; color: #0369a1;">
+            💡 <strong>Want to add more?</strong> You can add items to this order until ${data.cutoffDay}. Just visit your account and click "Add to this order".
+          </p>
         </div>
         ` : ""}
         

@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { stripe } from "@/lib/stripe";
-import { addItemsToOrder, createOrder, getOrder, getOrderByStripeSession, isTopUpSessionProcessed, markTopUpSessionProcessed, parseItemsFromMetadata, type DeliveryWindow, type OrderItem, setCustomerOutstandingBox } from "@/lib/data";
+import { addItemsToOrder, createOrder, getOrder, getOrderByStripeSession, isTopUpSessionProcessed, markTopUpSessionProcessed, parseItemsFromMetadata, type DeliveryWindow, type OrderItem, setCustomerOutstandingBox, getActiveDeliveryDays } from "@/lib/data";
 import { sendOrderConfirmation } from "@/lib/email";
+import { DELIVERY_FEE } from "@/lib/constants";
 import Stripe from "stripe";
 
 const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
@@ -168,6 +169,14 @@ export async function POST(request: NextRequest) {
 
         try {
           const deliveryWindow = metadata.deliveryWindow as "morning" | "afternoon" | undefined;
+          
+          // Get cutoff day for this delivery
+          const deliveryDays = await getActiveDeliveryDays();
+          const thisDelivery = deliveryDays.find(d => d.deliveryDate === metadata.deliveryDay);
+          const cutoffFormatted = thisDelivery?.cutoffDate 
+            ? new Date(thisDelivery.cutoffDate + "T00:00:00").toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })
+            : undefined;
+          
           await sendOrderConfirmation({
             customerEmail,
             customerName: "Customer",
@@ -179,12 +188,14 @@ export async function POST(request: NextRequest) {
             safePlace: metadata.safePlace || undefined,
             boxDepositPaid,
             bottleDepositPaid,
+            deliveryFee: DELIVERY_FEE,
             items: items.map((item) => ({
               productName: item.productName,
               quantity: item.quantity,
               price: item.price,
             })),
             total,
+            cutoffDay: cutoffFormatted,
           });
         } catch (emailError) {
           console.error("Webhook: Failed to send customer email:", emailError);
