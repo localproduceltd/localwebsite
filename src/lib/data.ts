@@ -1112,6 +1112,51 @@ export async function getSupplierReviews(supplierId: string): Promise<Array<{ pr
   }));
 }
 
+export async function getAllReviews(): Promise<Array<{ productName: string | null; stars: number | null; comment: string; createdAt: string; customerName: string | null; isOverall: boolean }>> {
+  // Get product reviews
+  const { data: productReviews, error: productError } = await supabase
+    .from("ratings")
+    .select("stars, comment, created_at, products!inner(name)")
+    .not("comment", "is", null)
+    .neq("comment", "")
+    .order("created_at", { ascending: false })
+    .limit(10);
+  if (productError) throw productError;
+
+  // Get overall order reviews from feedback
+  const { data: orderReviews, error: orderError } = await supabase
+    .from("feedback")
+    .select("name, message, created_at")
+    .eq("source", "order_review")
+    .order("created_at", { ascending: false })
+    .limit(10);
+  if (orderError) throw orderError;
+
+  // Combine and sort by date
+  const combined = [
+    ...(productReviews ?? []).map((r) => ({
+      productName: (r.products as any).name as string,
+      stars: r.stars as number,
+      comment: r.comment!,
+      createdAt: r.created_at,
+      customerName: null,
+      isOverall: false,
+    })),
+    ...(orderReviews ?? []).map((f) => ({
+      productName: null,
+      stars: null,
+      comment: f.message,
+      createdAt: f.created_at,
+      customerName: f.name,
+      isOverall: true,
+    })),
+  ];
+
+  // Sort by date descending and take top 10
+  combined.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  return combined.slice(0, 10);
+}
+
 // ─── Customer Profiles ──────────────────────────────────────────────────────
 
 export interface CustomerProfile {

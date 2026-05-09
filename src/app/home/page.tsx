@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { ArrowRight, Star, MapPinned, Loader2, CheckCircle } from "lucide-react";
-import { getApprovedProducts, getActiveSuppliers, getAverageRatings, getActiveDeliveryDays, submitEmailSignup } from "@/lib/data";
+import { getApprovedProducts, getActiveSuppliers, getAverageRatings, getActiveDeliveryDays, submitEmailSignup, getAllReviews } from "@/lib/data";
 import type { Product, Supplier, DeliveryDay } from "@/lib/data";
 import AboutJosie from "@/components/AboutJosie";
 import SupplierDistance from "@/components/SupplierDistance";
@@ -15,6 +15,7 @@ export default function Home() {
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [avgRatings, setAvgRatings] = useState<Record<string, { avg: number; count: number }>>({});
   const [deliveryDays, setDeliveryDays] = useState<DeliveryDay[]>([]);
+  const [reviews, setReviews] = useState<Array<{ productName: string | null; stars: number | null; comment: string; createdAt: string; customerName: string | null; isOverall: boolean }>>([]);
 
   // Email signup state
   const [signupEmail, setSignupEmail] = useState("");
@@ -39,11 +40,13 @@ export default function Home() {
       getActiveSuppliers(),
       getAverageRatings(),
       getActiveDeliveryDays(),
-    ]).then(([p, s, r, d]) => {
+      getAllReviews(),
+    ]).then(([p, s, r, d, rev]) => {
       setProducts(p);
       setSuppliers(s);
       setAvgRatings(r);
       setDeliveryDays(d);
+      setReviews(rev);
     }).catch(console.error);
   }, []);
 
@@ -236,6 +239,36 @@ export default function Home() {
           </div>
         </div>
       </section>
+
+      {/* Customer Reviews */}
+      {reviews.length > 0 && (
+        <section className="bg-secondary/5 px-4 py-12">
+          <div className="mx-auto max-w-4xl">
+            <h2 className="text-center text-2xl font-bold text-primary sm:text-3xl">What Our Customers Say</h2>
+            <div className="mt-8 grid gap-6 sm:grid-cols-2">
+              {reviews.slice(0, 4).map((review, i) => (
+                <div key={i} className="rounded-xl bg-white p-6 shadow-sm">
+                  {review.stars !== null && (
+                    <div className="flex items-center gap-1">
+                      {[1, 2, 3, 4, 5].map((s) => (
+                        <Star key={s} size={16} className={review.stars! >= s ? "fill-accent text-accent" : "text-gray-200"} />
+                      ))}
+                    </div>
+                  )}
+                  <p className={`${review.stars !== null ? "mt-3" : ""} text-sm text-primary italic`}>&ldquo;{review.comment}&rdquo;</p>
+                  <p className="mt-3 text-xs text-muted">
+                    {review.isOverall ? (
+                      <span className="font-semibold text-secondary">{review.customerName?.split(" ")[0] || "Customer"}</span>
+                    ) : (
+                      <>About <span className="font-semibold text-secondary">{review.productName}</span></>
+                    )}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* CTA */}
       <section className="bg-secondary px-4 py-16 text-center text-white">
