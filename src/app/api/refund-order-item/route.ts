@@ -31,32 +31,37 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Order not found" }, { status: 404 });
     }
 
+    let stripeRefundId: string | null = null;
+    let manualRefundRequired = false;
+
     if (!order.stripe_session_id) {
-      return NextResponse.json({ error: "No Stripe session found for this order" }, { status: 400 });
+      // No Stripe session - refund must be processed manually
+      manualRefundRequired = true;
+    } else {
+      // Get the payment intent from the Stripe session
+      const session = await stripe.checkout.sessions.retrieve(order.stripe_session_id);
+
+      if (!session.payment_intent) {
+        manualRefundRequired = true;
+      } else {
+        // Create the Stripe refund (amount in pence)
+        const refundAmountPence = Math.round(refundAmount * 100);
+        const refund = await stripe.refunds.create({
+          payment_intent: session.payment_intent as string,
+          amount: refundAmountPence,
+          reason: "requested_by_customer",
+          metadata: {
+            order_id: orderId,
+            order_number: order.order_number.toString(),
+            product_name: productName,
+            quantity: quantity.toString(),
+            paid_by: paidBy,
+            refund_reason: refundReason || "",
+          },
+        });
+        stripeRefundId = refund.id;
+      }
     }
-
-    // Get the payment intent from the Stripe session
-    const session = await stripe.checkout.sessions.retrieve(order.stripe_session_id);
-
-    if (!session.payment_intent) {
-      return NextResponse.json({ error: "No payment intent found" }, { status: 400 });
-    }
-
-    // Create the Stripe refund (amount in pence)
-    const refundAmountPence = Math.round(refundAmount * 100);
-    const refund = await stripe.refunds.create({
-      payment_intent: session.payment_intent as string,
-      amount: refundAmountPence,
-      reason: "requested_by_customer",
-      metadata: {
-        order_id: orderId,
-        order_number: order.order_number.toString(),
-        product_name: productName,
-        quantity: quantity.toString(),
-        paid_by: paidBy,
-        refund_reason: refundReason || "",
-      },
-    });
 
     // Record the refund in our database
     await createOrderItemRefund(
@@ -89,8 +94,9 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      refundId: refund.id,
+      refundId: stripeRefundId,
       amount: refundAmount,
+      manualRefundRequired,
     });
   } catch (error) {
     console.error("Refund error:", error);

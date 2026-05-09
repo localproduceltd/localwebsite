@@ -331,6 +331,11 @@ export default function AdminOrdersPage() {
         });
       }
       
+      // Show warning if manual Stripe refund is needed
+      if (data.manualRefundRequired) {
+        alert(`Refund recorded! ⚠️ This order doesn't have Stripe data - please process the £${amount.toFixed(2)} refund manually in Stripe dashboard.`);
+      }
+      
       setRefundModal(null);
       setRefundAmount("");
       setRefundReason("");
