@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { stripe } from "@/lib/stripe";
 import { supabase } from "@/lib/supabase";
 import { createOrderItemRefund, type RefundPaidBy } from "@/lib/data";
+import { sendOrderItemRefund } from "@/lib/email";
 
 export async function POST(request: NextRequest) {
   try {
@@ -22,7 +23,7 @@ export async function POST(request: NextRequest) {
     // Get the order to find the Stripe session
     const { data: order, error: orderError } = await supabase
       .from("orders")
-      .select("stripe_session_id, customer_email, order_number")
+      .select("stripe_session_id, customer_email, customer_name, order_number")
       .eq("id", orderId)
       .single();
 
@@ -67,6 +68,24 @@ export async function POST(request: NextRequest) {
       paidBy as RefundPaidBy,
       supplierId || null
     );
+
+    // Send refund confirmation email
+    if (order.customer_email) {
+      try {
+        await sendOrderItemRefund({
+          customerEmail: order.customer_email,
+          customerName: order.customer_name || "",
+          orderNumber: order.order_number,
+          productName,
+          quantity,
+          refundAmount,
+          reason: refundReason || null,
+        });
+      } catch (emailError) {
+        console.error("Failed to send refund email:", emailError);
+        // Don't fail the refund if email fails
+      }
+    }
 
     return NextResponse.json({
       success: true,

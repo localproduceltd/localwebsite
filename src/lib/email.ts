@@ -167,6 +167,51 @@ export async function sendBoxDepositRefund(data: BoxDepositRefundData) {
   }
 }
 
+interface OrderItemRefundData {
+  customerEmail: string;
+  customerName: string;
+  orderNumber: number;
+  productName: string;
+  quantity: number;
+  refundAmount: number;
+  reason: string | null;
+}
+
+export async function sendOrderItemRefund(data: OrderItemRefundData) {
+  const { error } = await resend.emails.send({
+    from: FROM_EMAIL,
+    to: data.customerEmail,
+    subject: `Refund Processed - Order #${data.orderNumber}`,
+    html: `
+      <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
+        <h1 style="color: #22c55e;">💰 Refund Processed</h1>
+        <p>Hi${data.customerName ? ` ${data.customerName}` : ""},</p>
+        <p>We're sorry that things didn't go as planned with your order. We've processed a refund for you.</p>
+        
+        <div style="background: #f9fafb; border-radius: 8px; padding: 20px; margin: 20px 0;">
+          <p style="margin: 0 0 10px 0;"><strong>Order:</strong> #${data.orderNumber}</p>
+          <p style="margin: 0 0 10px 0;"><strong>Item:</strong> ${data.productName} x${data.quantity}</p>
+          <p style="margin: 0 0 10px 0;"><strong>Refund Amount:</strong> £${data.refundAmount.toFixed(2)}</p>
+          ${data.reason ? `<p style="margin: 0;"><strong>Reason:</strong> ${data.reason}</p>` : ""}
+        </div>
+        
+        <p>The refund should appear in your account within <strong>5-10 business days</strong>, depending on your bank.</p>
+        
+        <p>We're really sorry for any inconvenience caused. If you have any questions, just reply to this email.</p>
+        
+        <p style="color: #666; font-size: 14px; margin-top: 30px;">
+          — The Local Produce Team
+        </p>
+      </div>
+    `,
+  });
+
+  if (error) {
+    console.error("Failed to send order item refund email:", error);
+    throw error;
+  }
+}
+
 interface ProductRejectionData {
   supplierEmail: string;
   supplierName: string;
