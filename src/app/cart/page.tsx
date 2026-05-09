@@ -408,7 +408,7 @@ export default function CartPage() {
           <p className="mt-1 text-sm text-muted">
             We&apos;re opening to our first 50 waitlist customers! Enter your Week 1 code to continue to checkout.
           </p>
-          <div className="mt-4 flex gap-2">
+          <div className="mt-4 flex flex-col sm:flex-row gap-2">
             <input
               type="text"
               placeholder="Enter Week 1 code"
@@ -423,7 +423,7 @@ export default function CartPage() {
             <button
               onClick={handleTrialUnlock}
               disabled={!trialCode.trim()}
-              className="inline-flex items-center gap-2 rounded-lg bg-primary px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-primary/90 disabled:opacity-50"
+              className="inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-primary/90 disabled:opacity-50"
             >
               <Unlock size={16} />
               Unlock
@@ -915,10 +915,7 @@ export default function CartPage() {
         {belowMinimum && (
           <div className="mt-4 rounded-lg bg-amber-50 border border-amber-200 px-4 py-3">
             <p className="text-sm font-medium text-amber-800">
-              Minimum order is £{MINIMUM_ORDER.toFixed(2)}
-            </p>
-            <p className="text-sm text-amber-700 mt-0.5">
-              Add £{amountToMinimum.toFixed(2)} more to checkout
+              Local&apos;s minimum delivery is £{MINIMUM_ORDER.toFixed(2)}
             </p>
           </div>
         )}

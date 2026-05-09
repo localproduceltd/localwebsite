@@ -3,7 +3,7 @@
 
 export const BOX_DEPOSIT = 10;
 export const BOTTLE_DEPOSIT = 1;
-export const DELIVERY_FEE = 2.99;
+export const DELIVERY_FEE = 3;
 export const MINIMUM_ORDER = 25;
 
 // Stripe amounts (in pence)
