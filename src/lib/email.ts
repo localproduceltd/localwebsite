@@ -506,3 +506,137 @@ export async function sendSupplierOrderSummary(data: SupplierOrderSummaryData) {
     throw error;
   }
 }
+
+// ─── Supplier Payout Email ───────────────────────────────────────────────────
+
+interface SupplierPayoutData {
+  supplierEmail: string;
+  supplierName: string;
+  deliveryDate: string;
+  items: Array<{
+    productName: string;
+    ordered: number;
+    arrived: number | null;
+    unitPrice: number;
+    value: number;
+  }>;
+  refunds: Array<{
+    productName: string;
+    amount: number;
+    paidBy: string;
+    reason: string | null;
+    deduction: number;
+  }>;
+  arrivedValue: number;
+  refundDeduction: number;
+  finalPayout: number;
+}
+
+export async function sendSupplierPayout(data: SupplierPayoutData) {
+  const formattedDate = new Date(data.deliveryDate + "T00:00:00").toLocaleDateString("en-GB", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+
+  const itemsHtml = data.items
+    .map((item) => {
+      const isShort = item.arrived !== null && item.arrived < item.ordered;
+      return `
+        <tr style="${isShort ? 'background: #fef3c7;' : ''}">
+          <td style="padding: 8px 12px; border-bottom: 1px solid #eee;">${item.productName}</td>
+          <td style="padding: 8px 12px; border-bottom: 1px solid #eee; text-align: center;">${item.ordered}</td>
+          <td style="padding: 8px 12px; border-bottom: 1px solid #eee; text-align: center; font-weight: bold; ${isShort ? 'color: #d97706;' : 'color: #16a34a;'}">${item.arrived ?? '—'}</td>
+          <td style="padding: 8px 12px; border-bottom: 1px solid #eee; text-align: right;">£${item.unitPrice.toFixed(2)}</td>
+          <td style="padding: 8px 12px; border-bottom: 1px solid #eee; text-align: right; font-weight: bold;">£${item.value.toFixed(2)}</td>
+        </tr>
+      `;
+    })
+    .join("");
+
+  const refundsHtml = data.refunds.length > 0
+    ? `
+      <div style="background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; padding: 16px; margin: 16px 0;">
+        <h3 style="margin: 0 0 12px 0; color: #dc2626; font-size: 14px;">⚠️ Refunds Affecting Your Payout</h3>
+        ${data.refunds.map((r) => `
+          <div style="font-size: 14px; margin: 8px 0; padding: 8px; background: white; border-radius: 4px;">
+            <strong>${r.productName}</strong>: £${r.amount.toFixed(2)} 
+            (${r.paidBy === 'supplier' ? 'You pay' : r.paidBy === '50-50' ? '50-50 split' : 'Local pays'})
+            ${r.reason ? `<br><span style="color: #666;">Reason: ${r.reason}</span>` : ''}
+            ${r.deduction > 0 ? `<br><span style="color: #dc2626; font-weight: bold;">Deducted: -£${r.deduction.toFixed(2)}</span>` : ''}
+          </div>
+        `).join("")}
+      </div>
+    `
+    : "";
+
+  const { error } = await resend.emails.send({
+    from: FROM_EMAIL,
+    to: data.supplierEmail,
+    subject: `Payout Summary for ${formattedDate}`,
+    html: `
+      <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
+        <h1 style="color: #A30E4E;">💰 Your Payout Summary</h1>
+        <p>Hi ${data.supplierName},</p>
+        <p>Here's your payout breakdown for <strong>${formattedDate}</strong>.</p>
+        
+        <table style="width: 100%; border-collapse: collapse; background: #fff; border: 1px solid #e5e5e5; border-radius: 8px; overflow: hidden; margin: 20px 0;">
+          <thead>
+            <tr style="background: #f3f4f6;">
+              <th style="padding: 10px 12px; text-align: left; font-size: 13px;">Product</th>
+              <th style="padding: 10px 12px; text-align: center; font-size: 13px;">Ordered</th>
+              <th style="padding: 10px 12px; text-align: center; font-size: 13px;">Arrived</th>
+              <th style="padding: 10px 12px; text-align: right; font-size: 13px;">Unit</th>
+              <th style="padding: 10px 12px; text-align: right; font-size: 13px;">Value</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${itemsHtml}
+          </tbody>
+        </table>
+        
+        ${refundsHtml}
+        
+        <div style="background: #f9f9f9; border: 1px solid #e5e5e5; border-radius: 8px; padding: 16px 20px; margin-top: 24px;">
+          <div style="display: flex; justify-content: space-between; font-size: 14px; margin-bottom: 8px;">
+            <span>Arrived Value</span>
+            <span>£${data.arrivedValue.toFixed(2)}</span>
+          </div>
+          ${data.refundDeduction > 0 ? `
+            <div style="display: flex; justify-content: space-between; font-size: 14px; color: #dc2626; margin-bottom: 8px;">
+              <span>Refund Deductions</span>
+              <span>-£${data.refundDeduction.toFixed(2)}</span>
+            </div>
+          ` : ''}
+          <div style="display: flex; justify-content: space-between; font-size: 14px; margin-bottom: 8px;">
+            <span>Subtotal</span>
+            <span>£${(data.arrivedValue - data.refundDeduction).toFixed(2)}</span>
+          </div>
+          <div style="display: flex; justify-content: space-between; font-size: 14px; color: #666; margin-bottom: 8px;">
+            <span>Commission (20%)</span>
+            <span>-£${((data.arrivedValue - data.refundDeduction) * 0.2).toFixed(2)}</span>
+          </div>
+          <hr style="border: none; border-top: 2px solid #A30E4E; margin: 12px 0;">
+          <div style="display: flex; justify-content: space-between; font-size: 18px; font-weight: bold; color: #16a34a;">
+            <span>Your Payout</span>
+            <span>£${((data.arrivedValue - data.refundDeduction) * 0.8).toFixed(2)}</span>
+          </div>
+        </div>
+        
+        <p style="color: #666; font-size: 14px; margin-top: 24px;">
+          Payment will be sent within 7 days. If you have any questions about this payout, please reply to this email.
+        </p>
+        
+        <p style="color: #666; font-size: 14px; margin-top: 30px;">
+          — The Local Produce Team
+        </p>
+      </div>
+    `,
+  });
+
+  if (error) {
+    console.error("Failed to send supplier payout email:", error);
+    throw error;
+  }
+}

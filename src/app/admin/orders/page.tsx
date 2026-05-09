@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { type Order, type OrderItem, type DeliveryStockTracking, type OrderItemRefund, type RefundPaidBy, getOrders, updateOrderStatus, getCustomerBoxStatuses, getDeliveryStockTracking, upsertDeliveryStockTracking, getRefundsForDeliveryDay, deleteOrderItemRefund } from "@/lib/data";
-import { Package, Clock, CheckCircle, XCircle, Calendar, ChevronDown, ChevronRight, Home, MapPin, Download, Users, Truck, AlertTriangle, RefreshCw, FileText } from "lucide-react";
+import { Package, Clock, CheckCircle, XCircle, Calendar, ChevronDown, ChevronRight, Home, MapPin, Download, Users, Truck, AlertTriangle, RefreshCw, FileText, Mail } from "lucide-react";
 
 const statusConfig = {
   pending: { label: "Pending", icon: Clock, color: "text-amber-600 bg-amber-50" },
@@ -145,6 +145,7 @@ export default function AdminOrdersPage() {
   const [refundReason, setRefundReason] = useState("");
   const [refundPaidBy, setRefundPaidBy] = useState<RefundPaidBy>("local");
   const [payoutModal, setPayoutModal] = useState<string | null>(null); // delivery day
+  const [sendingPayouts, setSendingPayouts] = useState(false);
 
   const toggleSet = useCallback((setName: "packed" | "order", key: string) => {
     const setter = setName === "packed" ? setPackedItems : setOrderCheckedIn;
@@ -1164,10 +1165,66 @@ export default function AdminOrdersPage() {
                   <span className="font-bold text-primary">Total Payouts:</span>
                   <span className="text-xl font-bold text-green-600">£{totalPayout.toFixed(2)}</span>
                 </div>
-                <button
-                  onClick={() => {
-                    // Generate CSV with refund lines
-                    const headers = ["Supplier", "Product", "Ordered", "Arrived", "Unit Price", "Arrived Value", "Refund Amount", "Refund Paid By", "Refund Reason", "Supplier Deduction", "Final Payout"];
+                <div className="flex items-center gap-2">
+                  <button
+                    disabled={sendingPayouts}
+                    onClick={async () => {
+                      setSendingPayouts(true);
+                      try {
+                        const response = await fetch("/api/send-supplier-payouts", {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({
+                            deliveryDate: payoutModal,
+                            suppliers: payouts.map(s => ({
+                              supplierId: s.supplierId,
+                              supplierName: s.supplierName,
+                              items: s.tracking.map(t => ({
+                                productName: t.productName,
+                                ordered: t.ordered,
+                                arrived: t.arrived,
+                                unitPrice: t.price,
+                                value: (t.arrived ?? 0) * t.price,
+                              })),
+                              refunds: s.supplierRefunds.map(r => ({
+                                productName: r.productName,
+                                amount: r.refundAmount,
+                                paidBy: r.paidBy,
+                                reason: r.refundReason,
+                                deduction: r.paidBy === "supplier" ? r.refundAmount : r.paidBy === "50-50" ? r.refundAmount / 2 : 0,
+                              })),
+                              arrivedValue: s.arrivedValue,
+                              refundDeduction: s.refundDeduction,
+                              finalPayout: s.payout,
+                            })),
+                          }),
+                        });
+                        const data = await response.json();
+                        if (data.success) {
+                          const failed = data.results.filter((r: { success: boolean }) => !r.success);
+                          if (failed.length > 0) {
+                            alert(`Sent ${data.sent} emails. ${failed.length} failed:\n${failed.map((f: { supplierName: string; error: string }) => `• ${f.supplierName}: ${f.error}`).join("\n")}`);
+                          } else {
+                            alert(`✅ Sent payout emails to ${data.sent} suppliers!`);
+                          }
+                        } else {
+                          alert(`Error: ${data.error}`);
+                        }
+                      } catch (error) {
+                        alert(`Failed to send: ${error instanceof Error ? error.message : "Unknown error"}`);
+                      } finally {
+                        setSendingPayouts(false);
+                      }
+                    }}
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary/90 transition disabled:opacity-50"
+                  >
+                    <Mail size={16} />
+                    {sendingPayouts ? "Sending..." : "Send to Suppliers"}
+                  </button>
+                  <button
+                    onClick={() => {
+                      // Generate CSV with refund lines
+                      const headers = ["Supplier", "Product", "Ordered", "Arrived", "Unit Price", "Arrived Value", "Refund Amount", "Refund Paid By", "Refund Reason", "Supplier Deduction", "Final Payout"];
                     const rows: string[][] = [];
                     
                     for (const supplier of payouts) {
@@ -1225,8 +1282,9 @@ export default function AdminOrdersPage() {
                   className="inline-flex items-center gap-1.5 rounded-lg bg-secondary px-4 py-2 text-sm font-semibold text-white hover:bg-secondary/90 transition"
                 >
                   <Download size={16} />
-                  Export CSV
-                </button>
+                    Export CSV
+                  </button>
+                </div>
               </div>
             </div>
           </div>
