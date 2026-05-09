@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import Image from "next/image";
 import { Search, Check, Plus, Minus, Star, HelpCircle, X } from "lucide-react";
 import { useCart } from "@/lib/cart-context";
-import { LOCALITY_OPTIONS, getAverageRatings } from "@/lib/data";
+import { LOCALITY_OPTIONS, getAverageRatings, getProductOrderCounts } from "@/lib/data";
 import type { Locality, Product } from "@/lib/data";
 import { LOCALITY_COLORS } from "@/lib/locality";
 import { PRODUCT_CATEGORIES, PRODUCT_TAGS } from "@/lib/categories";
@@ -18,11 +18,13 @@ export default function ProductsPage() {
   const { addItem, updateQuantity, items, products } = useCart();
   const [justAdded, setJustAdded] = useState<string | null>(null);
   const [avgRatings, setAvgRatings] = useState<Record<string, { avg: number; count: number }>>({});
+  const [orderCounts, setOrderCounts] = useState<Record<string, number>>({});
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [showLocalityInfo, setShowLocalityInfo] = useState(false);
 
   useEffect(() => {
     getAverageRatings().then(setAvgRatings).catch(console.error);
+    getProductOrderCounts().then(setOrderCounts).catch(console.error);
   }, []);
 
   const categories = ["All", ...PRODUCT_CATEGORIES];
@@ -80,13 +82,31 @@ export default function ProductsPage() {
       });
     }
 
-    // No search: group by category, sorted by locality priority within each category
-    const byCategory = new Map<string, typeof matchingProducts>();
-    for (const p of matchingProducts) {
+    // No search: sort by popularity/ratings first, then locality for unordered items
+    // Split into products with orders/ratings vs without
+    const withActivity = matchingProducts.filter(p => orderCounts[p.id] || avgRatings[p.id]);
+    const withoutActivity = matchingProducts.filter(p => !orderCounts[p.id] && !avgRatings[p.id]);
+
+    // Sort products with activity by: locality (international last), then orders (desc), then rating (desc)
+    withActivity.sort((a, b) => {
+      // International goes to bottom
+      const aIsIntl = a.locality === "International" ? 1 : 0;
+      const bIsIntl = b.locality === "International" ? 1 : 0;
+      if (aIsIntl !== bIsIntl) return aIsIntl - bIsIntl;
+      const orderDiff = (orderCounts[b.id] || 0) - (orderCounts[a.id] || 0);
+      if (orderDiff !== 0) return orderDiff;
+      const ratingDiff = (avgRatings[b.id]?.avg || 0) - (avgRatings[a.id]?.avg || 0);
+      if (ratingDiff !== 0) return ratingDiff;
+      return a.name.localeCompare(b.name);
+    });
+
+    // For products without activity: group by category, sort by locality, then interleave
+    const byCategory = new Map<string, typeof withoutActivity>();
+    for (const p of withoutActivity) {
       if (!byCategory.has(p.category)) byCategory.set(p.category, []);
       byCategory.get(p.category)!.push(p);
     }
-    // Sort each category by locality priority, then by name
+    // Sort each category by locality priority
     for (const [, prods] of byCategory) {
       prods.sort((a, b) => {
         const localityDiff = (localityPriority[a.locality] ?? 9) - (localityPriority[b.locality] ?? 9);
@@ -94,17 +114,18 @@ export default function ProductsPage() {
         return a.name.localeCompare(b.name);
       });
     }
-
-    // Round-robin interleave categories
+    // Round-robin interleave categories to mix it up
     const categoryArrays = Array.from(byCategory.values());
-    const result: typeof matchingProducts = [];
-    let maxLen = Math.max(...categoryArrays.map((arr) => arr.length), 0);
+    const interleavedRest: typeof withoutActivity = [];
+    const maxLen = Math.max(...categoryArrays.map((arr) => arr.length), 0);
     for (let i = 0; i < maxLen; i++) {
       for (const arr of categoryArrays) {
-        if (i < arr.length) result.push(arr[i]);
+        if (i < arr.length) interleavedRest.push(arr[i]);
       }
     }
-    return result;
+
+    // Popular/rated products first, then interleaved rest
+    return [...withActivity, ...interleavedRest];
   })();
 
   return (

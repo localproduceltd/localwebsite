@@ -1441,6 +1441,18 @@ export async function getAverageRatings(): Promise<Record<string, { avg: number;
   return result;
 }
 
+export async function getProductOrderCounts(): Promise<Record<string, number>> {
+  const { data, error } = await supabase
+    .from("order_items")
+    .select("product_id, quantity");
+  if (error) throw error;
+  const counts: Record<string, number> = {};
+  for (const item of data ?? []) {
+    counts[item.product_id] = (counts[item.product_id] || 0) + item.quantity;
+  }
+  return counts;
+}
+
 // ─── Top-up Session Tracking (Idempotency) ───────────────────────────────────
 
 export async function isTopUpSessionProcessed(sessionId: string): Promise<{ orderId: string } | null> {
