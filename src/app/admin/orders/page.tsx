@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo, useCallback } from "react";
-import { type Order, type OrderItem, type DeliveryStockTracking, type OrderItemRefund, type RefundPaidBy, getOrders, updateOrderStatus, getCustomerBoxStatuses, getDeliveryStockTracking, upsertDeliveryStockTracking, getRefundsForDeliveryDay, deleteOrderItemRefund } from "@/lib/data";
+import { type Order, type OrderItem, type DeliveryStockTracking, type OrderItemRefund, type RefundPaidBy, type RefundReasonType, getOrders, updateOrderStatus, getCustomerBoxStatuses, getDeliveryStockTracking, upsertDeliveryStockTracking, getRefundsForDeliveryDay, deleteOrderItemRefund } from "@/lib/data";
 import { Package, Clock, CheckCircle, XCircle, Calendar, ChevronDown, ChevronRight, Home, MapPin, Download, Users, Truck, AlertTriangle, RefreshCw, FileText, Mail } from "lucide-react";
 
 const statusConfig = {
@@ -12,6 +12,14 @@ const statusConfig = {
 };
 
 const statusOptions: Order["status"][] = ["pending", "confirmed", "delivered", "cancelled"];
+
+const refundReasonConfig: Record<RefundReasonType, { label: string; itemArrived: boolean; defaultPaidBy: RefundPaidBy }> = {
+  didnt_arrive: { label: "Didn't arrive", itemArrived: false, defaultPaidBy: "supplier" }, // Always stored as "supplier" for records
+  quality: { label: "Quality issue", itemArrived: true, defaultPaidBy: "supplier" },
+  damaged: { label: "Damaged in transit", itemArrived: true, defaultPaidBy: "50-50" },
+  changed_mind: { label: "Customer changed mind", itemArrived: true, defaultPaidBy: "local" },
+  other: { label: "Other", itemArrived: true, defaultPaidBy: "local" },
+};
 
 function formatDeliveryDate(dateStr: string) {
   if (!dateStr) return "No date";
@@ -142,8 +150,9 @@ export default function AdminOrdersPage() {
   const [refunds, setRefunds] = useState<Map<string, OrderItemRefund[]>>(new Map());
   const [refundModal, setRefundModal] = useState<{ orderId: string; orderNumber: number; productName: string; price: number; quantity: number; supplierId: string } | null>(null);
   const [refundAmount, setRefundAmount] = useState("");
+  const [refundReasonType, setRefundReasonType] = useState<RefundReasonType>("didnt_arrive");
   const [refundReason, setRefundReason] = useState("");
-  const [refundPaidBy, setRefundPaidBy] = useState<RefundPaidBy>("local");
+  const [refundPaidBy, setRefundPaidBy] = useState<RefundPaidBy>("supplier");
   const [payoutModal, setPayoutModal] = useState<string | null>(null); // delivery day
   const [sendingPayouts, setSendingPayouts] = useState(false);
 
@@ -296,6 +305,10 @@ export default function AdminOrdersPage() {
     setRefundLoading(true);
     setRefundError(null);
     
+    // Get itemArrived from reason type config
+    const reasonConfig = refundReasonConfig[refundReasonType];
+    const itemArrived = reasonConfig.itemArrived;
+    
     try {
       const response = await fetch("/api/refund-order-item", {
         method: "POST",
@@ -305,7 +318,9 @@ export default function AdminOrdersPage() {
           productName: refundModal.productName,
           quantity: refundModal.quantity,
           refundAmount: amount,
+          reasonType: refundReasonType,
           refundReason: refundReason || null,
+          itemArrived,
           paidBy: refundPaidBy,
           supplierId: refundModal.supplierId,
         }),
@@ -339,8 +354,9 @@ export default function AdminOrdersPage() {
       
       setRefundModal(null);
       setRefundAmount("");
+      setRefundReasonType("didnt_arrive");
       setRefundReason("");
-      setRefundPaidBy("local");
+      setRefundPaidBy("supplier");
     } catch (error) {
       setRefundError(error instanceof Error ? error.message : "Failed to process refund");
     } finally {
@@ -966,41 +982,67 @@ export default function AdminOrdersPage() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-muted mb-1">Reason (optional)</label>
+                <label className="block text-sm font-medium text-muted mb-1">Reason</label>
+                <div className="flex flex-wrap gap-2">
+                  {(Object.keys(refundReasonConfig) as RefundReasonType[]).map((type) => (
+                    <button
+                      key={type}
+                      type="button"
+                      onClick={() => {
+                        setRefundReasonType(type);
+                        setRefundPaidBy(refundReasonConfig[type].defaultPaidBy);
+                      }}
+                      className={`rounded-lg px-3 py-1.5 text-sm font-medium transition ${refundReasonType === type ? "bg-secondary text-white" : "border border-primary/20 text-muted hover:bg-primary/5"}`}
+                    >
+                      {refundReasonConfig[type].label}
+                    </button>
+                  ))}
+                </div>
+                {!refundReasonConfig[refundReasonType].itemArrived && (
+                  <p className="mt-2 text-xs text-amber-600 bg-amber-50 rounded px-2 py-1">
+                    ⚠️ Item didn&apos;t arrive — supplier won&apos;t be paid for it, so no additional deduction applies.
+                  </p>
+                )}
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-muted mb-1">Additional notes (optional)</label>
                 <input
                   type="text"
                   value={refundReason}
                   onChange={(e) => setRefundReason(e.target.value)}
-                  placeholder="e.g., Item not delivered, damaged, etc."
+                  placeholder="e.g., 1x garlic bulb missing"
                   className="w-full rounded-lg border border-primary/20 px-3 py-2 text-sm focus:border-secondary focus:outline-none"
                 />
               </div>
-              <div>
-                <label className="block text-sm font-medium text-muted mb-1">Who pays?</label>
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setRefundPaidBy("local")}
-                    className={`flex-1 rounded-lg px-3 py-2 text-sm font-medium transition ${refundPaidBy === "local" ? "bg-primary text-white" : "border border-primary/20 text-muted hover:bg-primary/5"}`}
-                  >
-                    Local
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setRefundPaidBy("supplier")}
-                    className={`flex-1 rounded-lg px-3 py-2 text-sm font-medium transition ${refundPaidBy === "supplier" ? "bg-primary text-white" : "border border-primary/20 text-muted hover:bg-primary/5"}`}
-                  >
-                    Supplier
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setRefundPaidBy("50-50")}
-                    className={`flex-1 rounded-lg px-3 py-2 text-sm font-medium transition ${refundPaidBy === "50-50" ? "bg-primary text-white" : "border border-primary/20 text-muted hover:bg-primary/5"}`}
-                  >
-                    50-50
-                  </button>
+              {/* Only show "Who pays?" if item arrived - otherwise it doesn't affect payout */}
+              {refundReasonConfig[refundReasonType].itemArrived && (
+                <div>
+                  <label className="block text-sm font-medium text-muted mb-1">Who pays?</label>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setRefundPaidBy("local")}
+                      className={`flex-1 rounded-lg px-3 py-2 text-sm font-medium transition ${refundPaidBy === "local" ? "bg-primary text-white" : "border border-primary/20 text-muted hover:bg-primary/5"}`}
+                    >
+                      Local
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setRefundPaidBy("supplier")}
+                      className={`flex-1 rounded-lg px-3 py-2 text-sm font-medium transition ${refundPaidBy === "supplier" ? "bg-primary text-white" : "border border-primary/20 text-muted hover:bg-primary/5"}`}
+                    >
+                      Supplier
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setRefundPaidBy("50-50")}
+                      className={`flex-1 rounded-lg px-3 py-2 text-sm font-medium transition ${refundPaidBy === "50-50" ? "bg-primary text-white" : "border border-primary/20 text-muted hover:bg-primary/5"}`}
+                    >
+                      50-50
+                    </button>
+                  </div>
                 </div>
-              </div>
+              )}
               {refundError && (
                 <div className="rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">
                   {refundError}
@@ -1036,38 +1078,49 @@ export default function AdminOrdersPage() {
         // Calculate payouts per supplier
         const payouts = daySummaries.map(supplier => {
           // Get stock tracking for this supplier
-          const supplierTracking: Array<{ productName: string; ordered: number; arrived: number | null; price: number }> = [];
+          const supplierTracking: Array<{ productName: string; ordered: number; arrived: number | null; price: number; orderedValue: number; arrivedValue: number }> = [];
           for (const item of supplier.items) {
             const tracking = stockTracking.get(`${payoutModal}-${supplier.supplierId}-${item.productName}`);
+            const arrived = tracking?.quantityArrived ?? null;
             supplierTracking.push({
               productName: item.productName,
               ordered: item.quantity,
-              arrived: tracking?.quantityArrived ?? null,
+              arrived,
               price: item.price,
+              orderedValue: item.quantity * item.price,
+              arrivedValue: (arrived ?? 0) * item.price,
             });
           }
           
           // Get refunds for this supplier
           const supplierRefunds = dayRefunds.filter(r => r.supplierId === supplier.supplierId);
-          const refundsBySupplier = supplierRefunds.filter(r => r.paidBy === "supplier").reduce((sum, r) => sum + r.refundAmount, 0);
-          const refunds5050 = supplierRefunds.filter(r => r.paidBy === "50-50").reduce((sum, r) => sum + r.refundAmount, 0);
-          const supplierRefundDeduction = refundsBySupplier + (refunds5050 / 2);
           
-          // Calculate arrived value (only pay for what arrived)
-          const arrivedValue = supplierTracking.reduce((sum, item) => {
-            const arrivedQty = item.arrived ?? 0;
-            return sum + (arrivedQty * item.price);
-          }, 0);
+          // Calculate supplier refund deduction based on itemArrived flag
+          // If item didn't arrive (itemArrived=false), no deduction - supplier already not paid
+          let supplierRefundDeduction = 0;
+          for (const refund of supplierRefunds) {
+            if (refund.paidBy === "local") continue; // Local pays = no supplier deduction
+            if (!refund.itemArrived) continue; // Item didn't arrive = supplier already not paid
+            
+            // Item arrived and supplier/50-50 pays - deduct from payout
+            const deduction = refund.paidBy === "supplier" ? refund.refundAmount : refund.refundAmount / 2;
+            supplierRefundDeduction += deduction;
+          }
           
-          // Final payout
-          const payout = Math.max(0, arrivedValue - supplierRefundDeduction);
+          // Calculate totals
+          const orderedTotal = supplierTracking.reduce((sum, item) => sum + item.orderedValue, 0);
+          const arrivedTotal = supplierTracking.reduce((sum, item) => sum + item.arrivedValue, 0);
+          
+          // Final payout: (arrivedTotal - supplierRefundDeduction) * 0.8
+          const payout = Math.max(0, (arrivedTotal - supplierRefundDeduction) * 0.8);
           
           return {
             ...supplier,
             tracking: supplierTracking,
             supplierRefunds,
-            refundDeduction: supplierRefundDeduction,
-            arrivedValue,
+            supplierRefundDeduction,
+            orderedTotal,
+            arrivedTotal,
             payout,
           };
         });
@@ -1126,33 +1179,51 @@ export default function AdminOrdersPage() {
                         </tbody>
                         <tfoot className="border-t border-primary/10 bg-primary/5">
                           <tr>
-                            <td colSpan={4} className="px-4 py-2 text-right font-medium text-muted">Arrived Value:</td>
-                            <td className="px-4 py-2 text-right font-semibold text-primary">£{supplier.arrivedValue.toFixed(2)}</td>
+                            <td colSpan={4} className="px-4 py-2 text-right font-medium text-muted">Ordered Total:</td>
+                            <td className="px-4 py-2 text-right text-muted">£{supplier.orderedTotal.toFixed(2)}</td>
                           </tr>
-                          {supplier.refundDeduction > 0 && (
+                          <tr>
+                            <td colSpan={4} className="px-4 py-2 text-right font-medium text-muted">Arrived at Depot:</td>
+                            <td className="px-4 py-2 text-right font-semibold text-primary">£{supplier.arrivedTotal.toFixed(2)}</td>
+                          </tr>
+                          {supplier.supplierRefundDeduction > 0 && (
                             <tr>
                               <td colSpan={4} className="px-4 py-2 text-right font-medium text-red-600">
-                                Refund Deductions ({supplier.supplierRefunds.length}):
+                                Refunded by Supplier:
                               </td>
-                              <td className="px-4 py-2 text-right font-semibold text-red-600">-£{supplier.refundDeduction.toFixed(2)}</td>
+                              <td className="px-4 py-2 text-right font-semibold text-red-600">-£{supplier.supplierRefundDeduction.toFixed(2)}</td>
                             </tr>
                           )}
                           <tr>
-                            <td colSpan={4} className="px-4 py-2 text-right font-bold text-primary">Final Payout:</td>
+                            <td colSpan={4} className="px-4 py-2 text-right font-medium text-muted">Total Before Commission:</td>
+                            <td className="px-4 py-2 text-right font-semibold text-primary">£{(supplier.arrivedTotal - supplier.supplierRefundDeduction).toFixed(2)}</td>
+                          </tr>
+                          <tr>
+                            <td colSpan={4} className="px-4 py-2 text-right font-medium text-muted">Commission (20%):</td>
+                            <td className="px-4 py-2 text-right text-muted">-£{((supplier.arrivedTotal - supplier.supplierRefundDeduction) * 0.2).toFixed(2)}</td>
+                          </tr>
+                          <tr>
+                            <td colSpan={4} className="px-4 py-2 text-right font-bold text-primary">Payout:</td>
                             <td className="px-4 py-2 text-right font-bold text-green-600">£{supplier.payout.toFixed(2)}</td>
                           </tr>
                         </tfoot>
                       </table>
                       {supplier.supplierRefunds.length > 0 && (
                         <div className="px-4 py-2 bg-red-50 border-t border-red-200">
-                          <p className="text-xs font-semibold text-red-700 mb-1">Refunds affecting this supplier:</p>
+                          <p className="text-xs font-semibold text-red-700 mb-1">Refunds for this supplier:</p>
                           <ul className="text-xs text-red-600 space-y-0.5">
-                            {supplier.supplierRefunds.map((r, i) => (
-                              <li key={i}>
-                                • {r.productName}: £{r.refundAmount.toFixed(2)} ({r.paidBy === "supplier" ? "Supplier pays" : r.paidBy === "50-50" ? "50-50 split" : "Local pays"})
-                                {r.refundReason && <span className="text-red-500"> - {r.refundReason}</span>}
-                              </li>
-                            ))}
+                            {supplier.supplierRefunds.map((r, i) => {
+                              const reasonLabel = refundReasonConfig[r.reasonType]?.label || r.reasonType;
+                              const deducted = r.itemArrived && r.paidBy !== "local";
+                              return (
+                                <li key={i} className={!deducted ? "text-amber-600" : ""}>
+                                  • {r.productName}: £{r.refundAmount.toFixed(2)} — {reasonLabel}
+                                  {r.paidBy === "supplier" ? " (Supplier pays)" : r.paidBy === "50-50" ? " (50-50)" : " (Local pays)"}
+                                  {!r.itemArrived && <span className="text-amber-500"> [No deduction - didn&apos;t arrive]</span>}
+                                  {r.refundReason && <span className="text-red-500"> - {r.refundReason}</span>}
+                                </li>
+                              );
+                            })}
                           </ul>
                         </div>
                       )}
@@ -1184,17 +1255,26 @@ export default function AdminOrdersPage() {
                                 ordered: t.ordered,
                                 arrived: t.arrived,
                                 unitPrice: t.price,
-                                value: (t.arrived ?? 0) * t.price,
+                                orderedValue: t.orderedValue,
+                                arrivedValue: t.arrivedValue,
                               })),
-                              refunds: s.supplierRefunds.map(r => ({
-                                productName: r.productName,
-                                amount: r.refundAmount,
-                                paidBy: r.paidBy,
-                                reason: r.refundReason,
-                                deduction: r.paidBy === "supplier" ? r.refundAmount : r.paidBy === "50-50" ? r.refundAmount / 2 : 0,
-                              })),
-                              arrivedValue: s.arrivedValue,
-                              refundDeduction: s.refundDeduction,
+                              refunds: s.supplierRefunds.map(r => {
+                                // Only deduct if item arrived AND supplier/50-50 pays
+                                let deduction = 0;
+                                if (r.itemArrived && r.paidBy !== "local") {
+                                  deduction = r.paidBy === "supplier" ? r.refundAmount : r.refundAmount / 2;
+                                }
+                                return {
+                                  productName: r.productName,
+                                  amount: r.refundAmount,
+                                  paidBy: r.paidBy,
+                                  reason: r.refundReason,
+                                  deduction,
+                                };
+                              }),
+                              orderedTotal: s.orderedTotal,
+                              arrivedTotal: s.arrivedTotal,
+                              supplierRefundDeduction: s.supplierRefundDeduction,
                               finalPayout: s.payout,
                             })),
                           }),
@@ -1261,9 +1341,9 @@ export default function AdminOrdersPage() {
                         supplier.supplierName,
                         "TOTAL",
                         "", "", "",
-                        `£${supplier.arrivedValue.toFixed(2)}`,
+                        `£${supplier.arrivedTotal.toFixed(2)}`,
                         "", "",
-                        supplier.refundDeduction > 0 ? `-£${supplier.refundDeduction.toFixed(2)}` : "",
+                        supplier.supplierRefundDeduction > 0 ? `-£${supplier.supplierRefundDeduction.toFixed(2)}` : "",
                         "",
                         `£${supplier.payout.toFixed(2)}`
                       ]);

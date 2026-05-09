@@ -518,7 +518,8 @@ interface SupplierPayoutData {
     ordered: number;
     arrived: number | null;
     unitPrice: number;
-    value: number;
+    orderedValue: number;
+    arrivedValue: number;
   }>;
   refunds: Array<{
     productName: string;
@@ -527,8 +528,9 @@ interface SupplierPayoutData {
     reason: string | null;
     deduction: number;
   }>;
-  arrivedValue: number;
-  refundDeduction: number;
+  orderedTotal: number;
+  arrivedTotal: number;
+  supplierRefundDeduction: number;
   finalPayout: number;
 }
 
@@ -549,27 +551,34 @@ export async function sendSupplierPayout(data: SupplierPayoutData) {
           <td style="padding: 8px 12px; border-bottom: 1px solid #eee; text-align: center;">${item.ordered}</td>
           <td style="padding: 8px 12px; border-bottom: 1px solid #eee; text-align: center; font-weight: bold; ${isShort ? 'color: #d97706;' : 'color: #16a34a;'}">${item.arrived ?? '—'}</td>
           <td style="padding: 8px 12px; border-bottom: 1px solid #eee; text-align: right;">£${item.unitPrice.toFixed(2)}</td>
-          <td style="padding: 8px 12px; border-bottom: 1px solid #eee; text-align: right; font-weight: bold;">£${item.value.toFixed(2)}</td>
+          <td style="padding: 8px 12px; border-bottom: 1px solid #eee; text-align: right; font-weight: bold;">£${item.arrivedValue.toFixed(2)}</td>
         </tr>
       `;
     })
     .join("");
 
-  const refundsHtml = data.refunds.length > 0
+  // Only show refunds that affect the supplier (supplier pays or 50-50)
+  const supplierRefunds = data.refunds.filter(r => r.deduction > 0);
+  const refundsHtml = supplierRefunds.length > 0
     ? `
       <div style="background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; padding: 16px; margin: 16px 0;">
-        <h3 style="margin: 0 0 12px 0; color: #dc2626; font-size: 14px;">⚠️ Refunds Affecting Your Payout</h3>
-        ${data.refunds.map((r) => `
+        <h3 style="margin: 0 0 12px 0; color: #dc2626; font-size: 14px;">⚠️ Refunds Deducted From Your Payout</h3>
+        ${supplierRefunds.map((r) => `
           <div style="font-size: 14px; margin: 8px 0; padding: 8px; background: white; border-radius: 4px;">
-            <strong>${r.productName}</strong>: £${r.amount.toFixed(2)} 
-            (${r.paidBy === 'supplier' ? 'You pay' : r.paidBy === '50-50' ? '50-50 split' : 'Local pays'})
+            <strong>${r.productName}</strong>: £${r.amount.toFixed(2)} refund
+            (${r.paidBy === 'supplier' ? 'You pay full amount' : '50-50 split'})
             ${r.reason ? `<br><span style="color: #666;">Reason: ${r.reason}</span>` : ''}
-            ${r.deduction > 0 ? `<br><span style="color: #dc2626; font-weight: bold;">Deducted: -£${r.deduction.toFixed(2)}</span>` : ''}
+            <br><span style="color: #dc2626; font-weight: bold;">Deducted: -£${r.deduction.toFixed(2)}</span>
           </div>
         `).join("")}
       </div>
     `
     : "";
+
+  // Calculate totals
+  const subtotalBeforeCommission = data.arrivedTotal - data.supplierRefundDeduction;
+  const commission = subtotalBeforeCommission * 0.2;
+  const payout = subtotalBeforeCommission * 0.8;
 
   const { error } = await resend.emails.send({
     from: FROM_EMAIL,
@@ -600,27 +609,31 @@ export async function sendSupplierPayout(data: SupplierPayoutData) {
         
         <div style="background: #f9f9f9; border: 1px solid #e5e5e5; border-radius: 8px; padding: 16px 20px; margin-top: 24px;">
           <div style="display: flex; justify-content: space-between; font-size: 14px; margin-bottom: 8px;">
-            <span>Arrived Value</span>
-            <span>£${data.arrivedValue.toFixed(2)}</span>
+            <span>Ordered Total</span>
+            <span>£${data.orderedTotal.toFixed(2)}</span>
           </div>
-          ${data.refundDeduction > 0 ? `
+          <div style="display: flex; justify-content: space-between; font-size: 14px; margin-bottom: 8px;">
+            <span>Arrived at Depot Total</span>
+            <span>£${data.arrivedTotal.toFixed(2)}</span>
+          </div>
+          ${data.supplierRefundDeduction > 0 ? `
             <div style="display: flex; justify-content: space-between; font-size: 14px; color: #dc2626; margin-bottom: 8px;">
-              <span>Refund Deductions</span>
-              <span>-£${data.refundDeduction.toFixed(2)}</span>
+              <span>Refunded by Supplier</span>
+              <span>-£${data.supplierRefundDeduction.toFixed(2)}</span>
             </div>
           ` : ''}
-          <div style="display: flex; justify-content: space-between; font-size: 14px; margin-bottom: 8px;">
-            <span>Subtotal</span>
-            <span>£${(data.arrivedValue - data.refundDeduction).toFixed(2)}</span>
+          <div style="display: flex; justify-content: space-between; font-size: 14px; margin-bottom: 8px; font-weight: 600;">
+            <span>Total Before Commission</span>
+            <span>£${subtotalBeforeCommission.toFixed(2)}</span>
           </div>
           <div style="display: flex; justify-content: space-between; font-size: 14px; color: #666; margin-bottom: 8px;">
             <span>Commission (20%)</span>
-            <span>-£${((data.arrivedValue - data.refundDeduction) * 0.2).toFixed(2)}</span>
+            <span>-£${commission.toFixed(2)}</span>
           </div>
           <hr style="border: none; border-top: 2px solid #A30E4E; margin: 12px 0;">
           <div style="display: flex; justify-content: space-between; font-size: 18px; font-weight: bold; color: #16a34a;">
             <span>Your Payout</span>
-            <span>£${((data.arrivedValue - data.refundDeduction) * 0.8).toFixed(2)}</span>
+            <span>£${payout.toFixed(2)}</span>
           </div>
         </div>
         

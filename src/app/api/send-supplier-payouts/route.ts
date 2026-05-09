@@ -10,7 +10,8 @@ interface PayoutSupplier {
     ordered: number;
     arrived: number | null;
     unitPrice: number;
-    value: number;
+    orderedValue: number;
+    arrivedValue: number;
   }>;
   refunds: Array<{
     productName: string;
@@ -19,8 +20,9 @@ interface PayoutSupplier {
     reason: string | null;
     deduction: number;
   }>;
-  arrivedValue: number;
-  refundDeduction: number;
+  orderedTotal: number;
+  arrivedTotal: number;
+  supplierRefundDeduction: number;
   finalPayout: number;
 }
 
@@ -59,8 +61,9 @@ export async function POST(request: NextRequest) {
           deliveryDate,
           items: supplier.items,
           refunds: supplier.refunds,
-          arrivedValue: supplier.arrivedValue,
-          refundDeduction: supplier.refundDeduction,
+          orderedTotal: supplier.orderedTotal,
+          arrivedTotal: supplier.arrivedTotal,
+          supplierRefundDeduction: supplier.supplierRefundDeduction,
           finalPayout: supplier.finalPayout,
         });
 

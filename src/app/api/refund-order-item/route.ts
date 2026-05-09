@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { stripe } from "@/lib/stripe";
 import { supabase } from "@/lib/supabase";
-import { createOrderItemRefund, type RefundPaidBy } from "@/lib/data";
+import { createOrderItemRefund, type RefundPaidBy, type RefundReasonType } from "@/lib/data";
 import { sendOrderItemRefund } from "@/lib/email";
 
 export async function POST(request: NextRequest) {
@@ -10,8 +10,10 @@ export async function POST(request: NextRequest) {
       orderId, 
       productName, 
       quantity, 
-      refundAmount, 
-      refundReason, 
+      refundAmount,
+      reasonType,
+      refundReason,
+      itemArrived,
       paidBy, 
       supplierId 
     } = await request.json();
@@ -69,7 +71,9 @@ export async function POST(request: NextRequest) {
       productName,
       quantity,
       refundAmount,
+      (reasonType as RefundReasonType) || "other",
       refundReason || null,
+      itemArrived ?? true,
       paidBy as RefundPaidBy,
       supplierId || null
     );

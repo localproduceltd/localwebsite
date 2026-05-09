@@ -1568,6 +1568,7 @@ export interface DeliveryStockTracking {
 }
 
 export type RefundPaidBy = "local" | "supplier" | "50-50";
+export type RefundReasonType = "didnt_arrive" | "quality" | "damaged" | "changed_mind" | "other";
 
 export interface OrderItemRefund {
   id: string;
@@ -1575,7 +1576,9 @@ export interface OrderItemRefund {
   productName: string;
   quantityRefunded: number;
   refundAmount: number;
+  reasonType: RefundReasonType;
   refundReason: string | null;
+  itemArrived: boolean;
   refundedAt: string;
   paidBy: RefundPaidBy;
   supplierId: string | null;
@@ -1634,7 +1637,9 @@ export async function getOrderItemRefunds(orderId: string): Promise<OrderItemRef
     productName: d.product_name,
     quantityRefunded: d.quantity_refunded,
     refundAmount: Number(d.refund_amount),
+    reasonType: (d.reason_type as RefundReasonType) || "other",
     refundReason: d.refund_reason,
+    itemArrived: d.item_arrived ?? true,
     refundedAt: d.refunded_at,
     paidBy: (d.paid_by as RefundPaidBy) || "local",
     supplierId: d.supplier_id,
@@ -1662,7 +1667,9 @@ export async function getRefundsForDeliveryDay(deliveryDay: string): Promise<Ord
     productName: d.product_name,
     quantityRefunded: d.quantity_refunded,
     refundAmount: Number(d.refund_amount),
+    reasonType: (d.reason_type as RefundReasonType) || "other",
     refundReason: d.refund_reason,
+    itemArrived: d.item_arrived ?? true,
     refundedAt: d.refunded_at,
     paidBy: (d.paid_by as RefundPaidBy) || "local",
     supplierId: d.supplier_id,
@@ -1674,7 +1681,9 @@ export async function createOrderItemRefund(
   productName: string,
   quantityRefunded: number,
   refundAmount: number,
+  reasonType: RefundReasonType,
   refundReason: string | null,
+  itemArrived: boolean,
   paidBy: RefundPaidBy,
   supplierId: string | null
 ): Promise<void> {
@@ -1685,7 +1694,9 @@ export async function createOrderItemRefund(
       product_name: productName,
       quantity_refunded: quantityRefunded,
       refund_amount: refundAmount,
+      reason_type: reasonType,
       refund_reason: refundReason,
+      item_arrived: itemArrived,
       paid_by: paidBy,
       supplier_id: supplierId,
     });
