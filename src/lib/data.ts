@@ -87,6 +87,7 @@ export interface Order {
   boxDepositPaid: boolean;
   bottleDepositPaid: boolean;
   address: OrderAddress | null;
+  stripeSessionId: string | null;
 }
 
 export interface DeliveryDay {
@@ -354,6 +355,7 @@ export async function getOrders(userId?: string): Promise<Order[]> {
       city: o.city,
       postcode: o.postcode,
     } : null,
+    stripeSessionId: o.stripe_session_id ?? null,
   }));
 }
 
@@ -615,6 +617,7 @@ export async function getOrdersByDeliveryDay(deliveryDate: string): Promise<Orde
       city: o.city,
       postcode: o.postcode,
     } : null,
+    stripeSessionId: o.stripe_session_id ?? null,
   }));
 }
 
@@ -678,6 +681,7 @@ export async function getOrderByStripeSession(sessionId: string): Promise<Order 
       city: data.city,
       postcode: data.postcode,
     } : null,
+    stripeSessionId: data.stripe_session_id ?? null,
   };
 }
 
@@ -742,6 +746,7 @@ export async function createOrder(options: CreateOrderOptions): Promise<Order> {
     boxDepositPaid: order.box_deposit_paid ?? false,
     bottleDepositPaid: order.bottle_deposit_paid ?? false,
     address: options.address ?? null,
+    stripeSessionId: order.stripe_session_id ?? null,
   };
 }
 
@@ -859,6 +864,7 @@ export async function getOrder(orderId: string): Promise<Order | null> {
       city: data.city,
       postcode: data.postcode,
     } : null,
+    stripeSessionId: data.stripe_session_id ?? null,
   };
 }
 

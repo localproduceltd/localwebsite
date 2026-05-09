@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo, useCallback } from "react";
-import { type Order, type OrderItem, type DeliveryStockTracking, type OrderItemRefund, type RefundPaidBy, getOrders, updateOrderStatus, getCustomerBoxStatuses, getDeliveryStockTracking, upsertDeliveryStockTracking, getRefundsForDeliveryDay, createOrderItemRefund, deleteOrderItemRefund } from "@/lib/data";
+import { type Order, type OrderItem, type DeliveryStockTracking, type OrderItemRefund, type RefundPaidBy, getOrders, updateOrderStatus, getCustomerBoxStatuses, getDeliveryStockTracking, upsertDeliveryStockTracking, getRefundsForDeliveryDay, deleteOrderItemRefund } from "@/lib/data";
 import { Package, Clock, CheckCircle, XCircle, Calendar, ChevronDown, ChevronRight, Home, MapPin, Download, Users, Truck, AlertTriangle, RefreshCw, FileText } from "lucide-react";
 
 const statusConfig = {
@@ -284,40 +284,62 @@ export default function AdminOrdersPage() {
     });
   };
 
+  const [refundLoading, setRefundLoading] = useState(false);
+  const [refundError, setRefundError] = useState<string | null>(null);
+
   const handleCreateRefund = async () => {
     if (!refundModal) return;
     const amount = parseFloat(refundAmount);
     if (isNaN(amount) || amount <= 0) return;
     
-    await createOrderItemRefund(
-      refundModal.orderId,
-      refundModal.productName,
-      refundModal.quantity,
-      amount,
-      refundReason || null,
-      refundPaidBy,
-      refundModal.supplierId
-    );
+    setRefundLoading(true);
+    setRefundError(null);
     
-    // Refresh refunds for this order
-    const order = orderList.find(o => o.id === refundModal.orderId);
-    if (order) {
-      const dayRefunds = await getRefundsForDeliveryDay(order.deliveryDay);
-      setRefunds(prev => {
-        const next = new Map(prev);
-        for (const r of dayRefunds) {
-          const key = r.orderId;
-          if (!next.has(key)) next.set(key, []);
-          else next.set(key, dayRefunds.filter(ref => ref.orderId === key));
-        }
-        return next;
+    try {
+      const response = await fetch("/api/refund-order-item", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          orderId: refundModal.orderId,
+          productName: refundModal.productName,
+          quantity: refundModal.quantity,
+          refundAmount: amount,
+          refundReason: refundReason || null,
+          paidBy: refundPaidBy,
+          supplierId: refundModal.supplierId,
+        }),
       });
+      
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to process refund");
+      }
+      
+      // Refresh refunds for this order
+      const order = orderList.find(o => o.id === refundModal.orderId);
+      if (order) {
+        const dayRefunds = await getRefundsForDeliveryDay(order.deliveryDay);
+        setRefunds(prev => {
+          const next = new Map(prev);
+          for (const r of dayRefunds) {
+            const key = r.orderId;
+            if (!next.has(key)) next.set(key, []);
+            else next.set(key, dayRefunds.filter(ref => ref.orderId === key));
+          }
+          return next;
+        });
+      }
+      
+      setRefundModal(null);
+      setRefundAmount("");
+      setRefundReason("");
+      setRefundPaidBy("local");
+    } catch (error) {
+      setRefundError(error instanceof Error ? error.message : "Failed to process refund");
+    } finally {
+      setRefundLoading(false);
     }
-    
-    setRefundModal(null);
-    setRefundAmount("");
-    setRefundReason("");
-    setRefundPaidBy("local");
   };
 
   const handleDeleteRefund = async (refundId: string, orderId: string) => {
@@ -973,19 +995,25 @@ export default function AdminOrdersPage() {
                   </button>
                 </div>
               </div>
+              {refundError && (
+                <div className="rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">
+                  {refundError}
+                </div>
+              )}
               <div className="flex gap-3 pt-2">
                 <button
-                  onClick={() => setRefundModal(null)}
-                  className="flex-1 rounded-lg border border-primary/20 px-4 py-2 text-sm font-medium text-muted hover:bg-primary/5 transition"
+                  onClick={() => { setRefundModal(null); setRefundError(null); }}
+                  disabled={refundLoading}
+                  className="flex-1 rounded-lg border border-primary/20 px-4 py-2 text-sm font-medium text-muted hover:bg-primary/5 transition disabled:opacity-50"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={handleCreateRefund}
-                  disabled={!refundAmount || parseFloat(refundAmount) <= 0}
+                  disabled={!refundAmount || parseFloat(refundAmount) <= 0 || refundLoading}
                   className="flex-1 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  Issue Refund
+                  {refundLoading ? "Processing..." : "Issue Refund via Stripe"}
                 </button>
               </div>
             </div>
@@ -1127,8 +1155,73 @@ export default function AdminOrdersPage() {
                 </div>
               </div>
               <div className="px-6 py-4 border-t border-primary/10 flex items-center justify-between bg-primary/5">
-                <span className="font-bold text-primary">Total Payouts:</span>
-                <span className="text-xl font-bold text-green-600">£{totalPayout.toFixed(2)}</span>
+                <div className="flex items-center gap-4">
+                  <span className="font-bold text-primary">Total Payouts:</span>
+                  <span className="text-xl font-bold text-green-600">£{totalPayout.toFixed(2)}</span>
+                </div>
+                <button
+                  onClick={() => {
+                    // Generate CSV with refund lines
+                    const headers = ["Supplier", "Product", "Ordered", "Arrived", "Unit Price", "Arrived Value", "Refund Amount", "Refund Paid By", "Refund Reason", "Supplier Deduction", "Final Payout"];
+                    const rows: string[][] = [];
+                    
+                    for (const supplier of payouts) {
+                      // Add product rows
+                      for (const item of supplier.tracking) {
+                        const arrived = item.arrived ?? 0;
+                        const value = arrived * item.price;
+                        rows.push([
+                          supplier.supplierName,
+                          item.productName,
+                          item.ordered.toString(),
+                          (item.arrived ?? "—").toString(),
+                          `£${item.price.toFixed(2)}`,
+                          `£${value.toFixed(2)}`,
+                          "", "", "", "", ""
+                        ]);
+                      }
+                      // Add refund rows
+                      for (const r of supplier.supplierRefunds) {
+                        const deduction = r.paidBy === "supplier" ? r.refundAmount : r.paidBy === "50-50" ? r.refundAmount / 2 : 0;
+                        rows.push([
+                          supplier.supplierName,
+                          r.productName,
+                          "", "", "", "",
+                          `£${r.refundAmount.toFixed(2)}`,
+                          r.paidBy === "supplier" ? "Supplier" : r.paidBy === "50-50" ? "50-50" : "Local",
+                          r.refundReason || "",
+                          deduction > 0 ? `-£${deduction.toFixed(2)}` : "",
+                          ""
+                        ]);
+                      }
+                      // Add supplier total row
+                      rows.push([
+                        supplier.supplierName,
+                        "TOTAL",
+                        "", "", "",
+                        `£${supplier.arrivedValue.toFixed(2)}`,
+                        "", "",
+                        supplier.refundDeduction > 0 ? `-£${supplier.refundDeduction.toFixed(2)}` : "",
+                        "",
+                        `£${supplier.payout.toFixed(2)}`
+                      ]);
+                      rows.push(["", "", "", "", "", "", "", "", "", "", ""]); // Empty row between suppliers
+                    }
+                    
+                    const csv = [headers.join(","), ...rows.map(r => r.map(c => `"${c}"`).join(","))].join("\n");
+                    const blob = new Blob([csv], { type: "text/csv" });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement("a");
+                    a.href = url;
+                    a.download = `supplier-payouts-${payoutModal}.csv`;
+                    a.click();
+                    URL.revokeObjectURL(url);
+                  }}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-secondary px-4 py-2 text-sm font-semibold text-white hover:bg-secondary/90 transition"
+                >
+                  <Download size={16} />
+                  Export CSV
+                </button>
               </div>
             </div>
           </div>
