@@ -79,12 +79,12 @@ export default function Home() {
         </div>
       </section>
 
-      {/* Trial Week Banner */}
+      {/* Week 1 Banner */}
       <section className="bg-primary px-4 py-10">
         <div className="mx-auto max-w-2xl text-center">
-          <h2 className="text-3xl font-extrabold text-white sm:text-4xl">🎉 Trial Week</h2>
+          <h2 className="text-3xl font-extrabold text-white sm:text-4xl">🎉 Week 1 Orders Open</h2>
           <p className="mt-3 text-lg text-white/90">
-            We&apos;re launching with a small group of trial customers. Enter your email below to stay up to date and to hear about when you can order.
+            We&apos;re open to a small group of waitlist customers. Enter your email below to join the waitlist and hear when we open to more.
           </p>
           {signupDone ? (
             <div className="mt-6 inline-flex items-center gap-2 text-white">

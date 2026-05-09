@@ -398,20 +398,20 @@ export default function CartPage() {
         })()}
       </div>
 
-      {/* Trial Access Lock - hide in top-up mode */}
+      {/* Week 1 Access Lock - hide in top-up mode */}
       {!topUpOrder && !trialUnlocked && (
         <div className="mt-8 rounded-xl bg-primary/5 border-2 border-primary/20 p-6">
           <div className="flex items-center gap-2">
             <Lock size={20} className="text-primary" />
-            <h2 className="text-lg font-semibold text-primary">Trial Access</h2>
+            <h2 className="text-lg font-semibold text-primary">Week 1 Access</h2>
           </div>
           <p className="mt-1 text-sm text-muted">
-            We&apos;re currently in a limited trial. Enter your access code to continue to checkout.
+            We&apos;re opening to our first 50 waitlist customers! Enter your Week 1 code to continue to checkout.
           </p>
           <div className="mt-4 flex gap-2">
             <input
               type="text"
-              placeholder="Enter trial code"
+              placeholder="Enter Week 1 code"
               value={trialCode}
               onChange={(e) => {
                 setTrialCode(e.target.value.toUpperCase());
@@ -433,7 +433,7 @@ export default function CartPage() {
             <p className="mt-2 text-sm text-red-600">{trialError}</p>
           )}
           <p className="mt-3 text-xs text-muted">
-            Don&apos;t have a code? We&apos;ll be opening to everyone soon!
+            Don&apos;t have a code? We&apos;ll be opening to more customers soon!
           </p>
         </div>
       )}
