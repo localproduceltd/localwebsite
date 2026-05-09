@@ -103,6 +103,56 @@ export async function sendOrderConfirmation(data: OrderConfirmationData) {
     console.error("Failed to send order confirmation email:", error);
     throw error;
   }
+
+  // Also send admin notification
+  await sendAdminOrderNotification(data);
+}
+
+// ─── Admin Emails ─────────────────────────────────────────────────────────────
+
+const ADMIN_EMAIL = "josie@localproduce.ltd";
+
+async function sendAdminOrderNotification(data: OrderConfirmationData) {
+  const subject = data.isTopUp 
+    ? `🛒 Top-up Added - Order #${data.orderNumber}` 
+    : `🛒 New Order #${data.orderNumber} - £${data.total.toFixed(2)}`;
+
+  const { error } = await resend.emails.send({
+    from: FROM_EMAIL,
+    to: ADMIN_EMAIL,
+    subject,
+    html: `
+      <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
+        <h1 style="color: #A30E4E;">${data.isTopUp ? "Top-up Added" : "New Order"} 🎉</h1>
+        <p><strong>Order #${data.orderNumber}</strong></p>
+        <p><strong>Customer:</strong> ${data.customerEmail}</p>
+        <p><strong>Delivery:</strong> ${data.deliveryDay}</p>
+        ${data.address ? `<p><strong>Address:</strong> ${data.address}</p>` : ""}
+        
+        <div style="background: #f9f9f9; padding: 20px; border-radius: 8px; margin: 20px 0;">
+          <h3 style="margin-top: 0; color: #333;">Items</h3>
+          ${data.items.map((item) => `
+            <div style="display: flex; justify-content: space-between; margin: 8px 0;">
+              <span>${item.productName} x${item.quantity}</span>
+              <span>£${(item.price * item.quantity).toFixed(2)}</span>
+            </div>
+          `).join("")}
+          <hr style="border: none; border-top: 1px solid #ddd; margin: 15px 0;">
+          <div style="display: flex; justify-content: space-between; font-weight: bold; font-size: 18px;">
+            <span>Total</span>
+            <span>£${data.total.toFixed(2)}</span>
+          </div>
+        </div>
+        
+        <p><a href="https://localproduce.ltd/admin/orders" style="background: #A30E4E; color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; display: inline-block;">View in Admin</a></p>
+      </div>
+    `,
+  });
+
+  if (error) {
+    console.error("Failed to send admin order notification:", error);
+    // Don't throw - admin notification failure shouldn't break the order flow
+  }
 }
 
 // ─── Supplier Emails ─────────────────────────────────────────────────────────
