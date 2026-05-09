@@ -90,14 +90,14 @@ export default function CarrieFeedback() {
                 placeholder="Your name (optional)"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                className="mt-4 w-full rounded-lg border border-primary/20 bg-surface px-3 py-2 text-sm outline-none focus:border-secondary"
+                className="mt-4 w-full rounded-lg border border-primary/20 bg-surface px-3 py-2 text-base sm:text-sm outline-none focus:border-secondary"
               />
               <textarea
                 placeholder="Request a local supplier or product, suggest a feature, or tell us how we're doing!"
                 value={feedback}
                 onChange={(e) => setFeedback(e.target.value)}
                 rows={3}
-                className="mt-2 w-full rounded-lg border border-primary/20 bg-surface px-3 py-2 text-sm outline-none focus:border-secondary resize-none"
+                className="mt-2 w-full rounded-lg border border-primary/20 bg-surface px-3 py-2 text-base sm:text-sm outline-none focus:border-secondary resize-none"
               />
               <button
                 onClick={handleSubmit}

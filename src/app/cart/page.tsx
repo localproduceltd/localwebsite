@@ -536,7 +536,7 @@ export default function CartPage() {
                       placeholder="Your email (optional)"
                       value={expansionEmail}
                       onChange={(e) => setExpansionEmail(e.target.value)}
-                      className="flex-1 rounded-lg border border-amber-300 bg-white px-3 py-2 text-sm outline-none focus:border-amber-500"
+                      className="flex-1 rounded-lg border border-amber-300 bg-white px-3 py-2 text-base sm:text-sm outline-none focus:border-amber-500"
                     />
                     <button
                       onClick={handleExpansionRequest}
@@ -574,7 +574,7 @@ export default function CartPage() {
                       placeholder="Your email (optional)"
                       value={expansionEmail}
                       onChange={(e) => setExpansionEmail(e.target.value)}
-                      className="flex-1 rounded-lg border border-red-300 bg-white px-3 py-2 text-sm outline-none focus:border-red-500"
+                      className="flex-1 rounded-lg border border-red-300 bg-white px-3 py-2 text-base sm:text-sm outline-none focus:border-red-500"
                     />
                     <button
                       onClick={handleExpansionRequest}

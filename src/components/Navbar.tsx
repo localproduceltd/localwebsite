@@ -72,10 +72,10 @@ export default function Navbar() {
         <div className="flex items-center gap-4">
           {!isHoldingPage && (
             <>
-              <Link href="/cart" className="flex items-center gap-2 rounded-full bg-surface px-3 py-2 transition hover:bg-surface/90">
-                <ShoppingCart size={20} className="text-secondary" />
+              <Link href="/cart" className="flex flex-col sm:flex-row items-center gap-0.5 sm:gap-2 rounded-full bg-surface px-2.5 sm:px-3 py-1.5 sm:py-2 transition hover:bg-surface/90">
+                <ShoppingCart size={18} className="text-secondary sm:w-5 sm:h-5" />
                 {totalItems > 0 && (
-                  <span className="text-sm font-semibold text-primary">£{totalPrice.toFixed(2)}</span>
+                  <span className="text-xs sm:text-sm font-semibold text-primary">£{totalPrice.toFixed(2)}</span>
                 )}
               </Link>
 
