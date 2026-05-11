@@ -1,7 +1,10 @@
 "use client";
 
-import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from "react";
+import { createContext, useContext, useState, useEffect, useCallback, useRef, type ReactNode } from "react";
 import { type Product, getApprovedProducts } from "@/lib/data";
+
+const CART_STORAGE_KEY = "local-produce-cart";
+const TOPUP_STORAGE_KEY = "local-produce-topup";
 
 export interface CartItem {
   productId: string;
@@ -37,6 +40,57 @@ export function CartProvider({ children }: { children: ReactNode }) {
   const [items, setItems] = useState<CartItem[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [topUpOrder, setTopUpOrder] = useState<TopUpOrder | null>(null);
+  const initialized = useRef(false);
+
+  // Load cart from localStorage on mount
+  useEffect(() => {
+    if (initialized.current) return;
+    initialized.current = true;
+    
+    try {
+      const savedCart = localStorage.getItem(CART_STORAGE_KEY);
+      if (savedCart) {
+        const parsed = JSON.parse(savedCart);
+        if (Array.isArray(parsed)) {
+          setItems(parsed);
+        }
+      }
+      
+      const savedTopUp = localStorage.getItem(TOPUP_STORAGE_KEY);
+      if (savedTopUp) {
+        const parsed = JSON.parse(savedTopUp);
+        if (parsed && parsed.orderId) {
+          setTopUpOrder(parsed);
+        }
+      }
+    } catch (e) {
+      console.error("Failed to load cart from localStorage:", e);
+    }
+  }, []);
+
+  // Save cart to localStorage whenever it changes
+  useEffect(() => {
+    if (!initialized.current) return;
+    try {
+      localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(items));
+    } catch (e) {
+      console.error("Failed to save cart to localStorage:", e);
+    }
+  }, [items]);
+
+  // Save topUpOrder to localStorage whenever it changes
+  useEffect(() => {
+    if (!initialized.current) return;
+    try {
+      if (topUpOrder) {
+        localStorage.setItem(TOPUP_STORAGE_KEY, JSON.stringify(topUpOrder));
+      } else {
+        localStorage.removeItem(TOPUP_STORAGE_KEY);
+      }
+    } catch (e) {
+      console.error("Failed to save topUpOrder to localStorage:", e);
+    }
+  }, [topUpOrder]);
 
   useEffect(() => {
     getApprovedProducts().then(setProducts).catch(console.error);
