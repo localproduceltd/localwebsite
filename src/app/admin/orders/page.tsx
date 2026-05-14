@@ -442,8 +442,8 @@ export default function AdminOrdersPage() {
   }, [orderList.length, grouped]);
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
-      <h1 className="text-3xl font-bold text-primary">Order Management</h1>
+    <div className="mx-auto max-w-7xl px-3 py-6 sm:px-6 sm:py-10 lg:px-8">
+      <h1 className="text-2xl sm:text-3xl font-bold text-primary">Order Management</h1>
       <p className="mt-1 text-muted">{orderList.length} total orders</p>
 
       {grouped.map(([deliveryDay, orders]) => {
@@ -523,7 +523,7 @@ export default function AdminOrdersPage() {
 
                 {/* SUPPLIERS SECTION */}
                 <div className="rounded-xl bg-surface shadow-sm overflow-hidden">
-                  <div className="flex items-center justify-between border-b border-primary/5 px-6 py-4">
+                  <div className="flex items-center justify-between border-b border-primary/5 px-3 sm:px-6 py-3 sm:py-4">
                     <div className="flex items-center gap-2">
                       <Truck size={18} className="text-secondary" />
                       <h3 className="font-bold text-primary">Suppliers</h3>
@@ -545,21 +545,21 @@ export default function AdminOrdersPage() {
                         <div key={supplier.supplierId}>
                           <button
                             onClick={() => toggleExpand("suppliers", key)}
-                            className="flex w-full items-center justify-between px-6 py-3 text-left hover:bg-primary/5 transition"
+                            className="flex w-full items-center justify-between px-3 sm:px-6 py-3 text-left hover:bg-primary/5 transition"
                           >
-                            <div className="flex items-center gap-3">
-                              {isExpanded ? <ChevronDown size={16} className="text-muted" /> : <ChevronRight size={16} className="text-muted" />}
-                              <span className="font-medium text-primary">{supplier.supplierName}</span>
+                            <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+                              {isExpanded ? <ChevronDown size={16} className="text-muted flex-shrink-0" /> : <ChevronRight size={16} className="text-muted flex-shrink-0" />}
+                              <span className="font-medium text-primary truncate">{supplier.supplierName}</span>
                             </div>
-                            <div className="flex items-center gap-4 text-sm">
-                              <span className="text-muted">{supplier.totalItems} items</span>
+                            <div className="flex items-center gap-2 sm:gap-4 text-sm flex-shrink-0">
+                              <span className="text-muted hidden sm:inline">{supplier.totalItems} items</span>
                               <span className="font-semibold text-primary">£{supplier.totalPrice.toFixed(2)}</span>
                             </div>
                           </button>
                           {isExpanded && (
-                            <div className="bg-primary/5 px-6 py-4 space-y-4">
+                            <div className="bg-primary/5 px-3 sm:px-6 py-4 space-y-4">
                               {/* STOCK ARRIVALS - Persistent tracking */}
-                              <div className="rounded-lg border border-primary/10 bg-surface overflow-hidden">
+                              <div className="rounded-lg border border-primary/10 bg-surface overflow-x-auto">
                                 <div className="px-3 py-2 border-b border-primary/10 flex items-center justify-between">
                                   <span className="text-xs font-semibold text-muted uppercase">Stock Arrivals</span>
                                   <div className="flex items-center gap-2">
@@ -697,7 +697,7 @@ export default function AdminOrdersPage() {
 
                 {/* CUSTOMERS SECTION */}
                 <div className="rounded-xl bg-surface shadow-sm overflow-hidden">
-                  <div className="flex items-center justify-between border-b border-primary/5 px-6 py-4">
+                  <div className="flex items-center justify-between border-b border-primary/5 px-3 sm:px-6 py-3 sm:py-4">
                     <div className="flex items-center gap-2">
                       <Users size={18} className="text-secondary" />
                       <h3 className="font-bold text-primary">Customers</h3>
@@ -705,23 +705,23 @@ export default function AdminOrdersPage() {
                     </div>
                     <button
                       onClick={() => exportCustomersCSV(orders, boxStatuses, deliveryDay)}
-                      className="inline-flex items-center gap-1.5 rounded-lg bg-secondary/20 px-3 py-1.5 text-xs font-semibold text-secondary hover:bg-secondary/30 transition"
+                      className="inline-flex items-center gap-1.5 rounded-lg bg-secondary/20 px-2 sm:px-3 py-1.5 text-xs font-semibold text-secondary hover:bg-secondary/30 transition"
                     >
                       <Download size={14} />
-                      Export CSV
+                      <span className="hidden sm:inline">Export CSV</span>
                     </button>
                   </div>
                   <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
+                    <table className="w-full text-sm min-w-[600px]">
                       <thead>
                         <tr className="text-left text-xs text-muted border-b border-primary/5">
-                          <th className="px-4 py-3 font-medium">#</th>
-                          <th className="px-4 py-3 font-medium">Customer</th>
-                          <th className="px-4 py-3 font-medium">Created</th>
-                          <th className="px-4 py-3 font-medium">Address</th>
-                          <th className="px-4 py-3 font-medium text-center">Box</th>
-                          <th className="px-4 py-3 font-medium text-center">Delivery</th>
-                          <th className="px-4 py-3 font-medium text-center">Status</th>
+                          <th className="px-2 sm:px-4 py-3 font-medium">#</th>
+                          <th className="px-2 sm:px-4 py-3 font-medium">Customer</th>
+                          <th className="px-2 sm:px-4 py-3 font-medium hidden sm:table-cell">Created</th>
+                          <th className="px-2 sm:px-4 py-3 font-medium hidden md:table-cell">Address</th>
+                          <th className="px-2 sm:px-4 py-3 font-medium text-center hidden sm:table-cell">Box</th>
+                          <th className="px-2 sm:px-4 py-3 font-medium text-center">Delivery</th>
+                          <th className="px-2 sm:px-4 py-3 font-medium text-center">Status</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-primary/5">
@@ -738,14 +738,14 @@ export default function AdminOrdersPage() {
                                 onClick={() => toggleExpand("customers", key)}
                                 className="cursor-pointer hover:bg-primary/5 transition"
                               >
-                                <td className="px-4 py-3">
+                                <td className="px-2 sm:px-4 py-3">
                                   <span className="font-semibold text-primary">{order.orderNumber}</span>
                                   {(() => {
                                     const orderRefunds = refunds.get(order.id) || [];
                                     const totalRefunded = orderRefunds.reduce((sum, r) => sum + r.refundAmount, 0);
                                     if (totalRefunded > 0) {
                                       return (
-                                        <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-semibold text-red-600" title={`Refund: £${totalRefunded.toFixed(2)}`}>
+                                        <span className="ml-1 sm:ml-2 inline-flex items-center gap-1 rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-semibold text-red-600" title={`Refund: £${totalRefunded.toFixed(2)}`}>
                                           -£{totalRefunded.toFixed(2)}
                                         </span>
                                       );
@@ -753,20 +753,20 @@ export default function AdminOrdersPage() {
                                     return null;
                                   })()}
                                 </td>
-                                <td className="px-4 py-3">
+                                <td className="px-2 sm:px-4 py-3">
                                   <div className="flex items-center gap-2">
                                     {isExpanded ? <ChevronDown size={14} className="text-muted" /> : <ChevronRight size={14} className="text-muted" />}
-                                    <div>
-                                      <p className="font-medium text-primary">{order.customerName || "—"}</p>
-                                      <p className="text-xs text-muted">{order.customerEmail}</p>
+                                    <div className="min-w-0">
+                                      <p className="font-medium text-primary truncate">{order.customerName || "—"}</p>
+                                      <p className="text-xs text-muted truncate max-w-[120px] sm:max-w-none">{order.customerEmail}</p>
                                     </div>
                                   </div>
                                 </td>
-                                <td className="px-4 py-3 text-muted">{order.createdAt}</td>
-                                <td className="px-4 py-3 text-muted max-w-[200px] truncate" title={formatAddress(order)}>
+                                <td className="px-2 sm:px-4 py-3 text-muted hidden sm:table-cell">{order.createdAt}</td>
+                                <td className="px-2 sm:px-4 py-3 text-muted max-w-[200px] truncate hidden md:table-cell" title={formatAddress(order)}>
                                   {formatAddress(order)}
                                 </td>
-                                <td className="px-4 py-3 text-center">
+                                <td className="px-2 sm:px-4 py-3 text-center hidden sm:table-cell">
                                   {(() => {
                                     // Box action logic:
                                     // - "new": paid deposit, no existing box → drop off only
@@ -791,11 +791,11 @@ export default function AdminOrdersPage() {
                                     return <span className="text-xs text-muted">—</span>;
                                   })()}
                                 </td>
-                                <td className="px-4 py-3 text-center">
+                                <td className="px-2 sm:px-4 py-3 text-center">
                                   <div className="flex flex-col items-center gap-0.5">
                                     {order.deliveryWindow && (
                                       <span className="text-xs text-muted">
-                                        {order.deliveryWindow === "morning" ? "9am–1pm" : "1pm–5pm"}
+                                        {order.deliveryWindow === "morning" ? "9–1" : "1–5"}
                                       </span>
                                     )}
                                     <span className="inline-flex items-center gap-1 text-[10px] text-muted">
@@ -807,18 +807,18 @@ export default function AdminOrdersPage() {
                                     </span>
                                   </div>
                                 </td>
-                                <td className="px-4 py-3 text-center">
+                                <td className="px-2 sm:px-4 py-3 text-center">
                                   <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${status.color}`}>
                                     <StatusIcon size={10} />
-                                    {status.label}
+                                    <span className="hidden sm:inline">{status.label}</span>
                                   </span>
                                 </td>
                               </tr>
                               {isExpanded && (
                                 <tr key={`${order.id}-details`}>
-                                  <td colSpan={7} className="bg-primary/5 px-6 py-4">
-                                    <div className="flex flex-wrap gap-6">
-                                      <div className="flex-1 min-w-[300px]">
+                                  <td colSpan={7} className="bg-primary/5 px-3 sm:px-6 py-4">
+                                    <div className="flex flex-wrap gap-4 sm:gap-6">
+                                      <div className="flex-1 min-w-0 sm:min-w-[300px]">
                                         <h4 className="text-xs font-semibold text-muted uppercase mb-2">Order Items</h4>
                                         <div className="space-y-3">
                                           {groupItemsBySupplier(order.items).map((supplierGroup) => {

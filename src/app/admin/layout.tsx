@@ -7,14 +7,14 @@ import { SignedIn } from "@clerk/nextjs";
 import UserAvatar from "@/components/UserAvatar";
 
 const adminLinks = [
-  { href: "/admin", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/admin/orders", label: "Order Management", icon: ShoppingCart },
-  { href: "/admin/customers", label: "Customers", icon: UserCircle },
-  { href: "/admin/delivery", label: "Delivery Zones", icon: MapPin },
-  { href: "/admin/delivery-days", label: "Delivery Days", icon: Calendar },
-  { href: "/admin/suppliers", label: "Suppliers", icon: Users },
-  { href: "/admin/products", label: "Products", icon: Package },
-  { href: "/admin/feedback", label: "Feedback", icon: MessageCircleHeart },
+  { href: "/admin", label: "Dashboard", mobileLabel: "Home", icon: LayoutDashboard, showOnMobile: true },
+  { href: "/admin/orders", label: "Order Management", mobileLabel: "Orders", icon: ShoppingCart, showOnMobile: true },
+  { href: "/admin/customers", label: "Customers", mobileLabel: "Customers", icon: UserCircle, showOnMobile: false },
+  { href: "/admin/delivery", label: "Delivery Zones", mobileLabel: "Zones", icon: MapPin, showOnMobile: false },
+  { href: "/admin/delivery-days", label: "Delivery Days", mobileLabel: "Days", icon: Calendar, showOnMobile: true },
+  { href: "/admin/suppliers", label: "Suppliers", mobileLabel: "Suppliers", icon: Users, showOnMobile: true },
+  { href: "/admin/products", label: "Products", mobileLabel: "Products", icon: Package, showOnMobile: true },
+  { href: "/admin/feedback", label: "Feedback", mobileLabel: "Feedback", icon: MessageCircleHeart, showOnMobile: false },
 ];
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
@@ -67,27 +67,27 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       </aside>
 
       {/* Mobile nav bar */}
-      <div className="fixed bottom-0 left-0 right-0 z-40 flex border-t border-primary/10 bg-surface lg:hidden">
-        {adminLinks.map((link) => {
+      <div className="fixed bottom-0 left-0 right-0 z-40 flex border-t border-primary/10 bg-surface lg:hidden safe-area-bottom">
+        {adminLinks.filter(link => link.showOnMobile).map((link) => {
           const Icon = link.icon;
           const isActive = pathname === link.href;
           return (
             <Link
               key={link.href}
               href={link.href}
-              className={`flex flex-1 flex-col items-center gap-0.5 py-2 text-[10px] font-medium transition ${
+              className={`flex flex-1 flex-col items-center gap-1 py-3 text-[11px] font-medium transition ${
                 isActive ? "text-primary" : "text-muted"
               }`}
             >
-              <Icon size={18} />
-              {link.label}
+              <Icon size={20} />
+              {link.mobileLabel}
             </Link>
           );
         })}
       </div>
 
       {/* Main content */}
-      <div className="flex-1 pb-20 lg:pb-0">{children}</div>
+      <div className="flex-1 pb-20 lg:pb-0 overflow-x-hidden">{children}</div>
       </div>
     </div>
   );
