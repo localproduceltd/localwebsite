@@ -5,13 +5,14 @@ import { type Order, type OrderItem, type DeliveryStockTracking, type OrderItemR
 import { Package, Clock, CheckCircle, XCircle, Calendar, ChevronDown, ChevronRight, Home, MapPin, Download, Users, Truck, AlertTriangle, RefreshCw, FileText, Mail } from "lucide-react";
 
 const statusConfig = {
-  pending: { label: "Pending", icon: Clock, color: "text-amber-600 bg-amber-50" },
-  confirmed: { label: "Confirmed", icon: Package, color: "text-blue-600 bg-blue-50" },
+  ordered: { label: "Ordered", icon: Clock, color: "text-amber-600 bg-amber-50" },
+  prepped: { label: "Prepped", icon: Package, color: "text-blue-600 bg-blue-50" },
+  next_hour: { label: "Next Hour", icon: Truck, color: "text-purple-600 bg-purple-50" },
   delivered: { label: "Delivered", icon: CheckCircle, color: "text-green-600 bg-green-50" },
   cancelled: { label: "Cancelled", icon: XCircle, color: "text-red-600 bg-red-50" },
 };
 
-const statusOptions: Order["status"][] = ["pending", "confirmed", "delivered", "cancelled"];
+const statusOptions: Order["status"][] = ["ordered", "prepped", "next_hour", "delivered", "cancelled"];
 
 const refundReasonConfig: Record<RefundReasonType, { label: string; itemArrived: boolean; defaultPaidBy: RefundPaidBy }> = {
   didnt_arrive: { label: "Didn't arrive", itemArrived: false, defaultPaidBy: "supplier" }, // Always stored as "supplier" for records
@@ -383,7 +384,8 @@ export default function AdminOrdersPage() {
     const updated = await getOrders();
     setOrderList(updated);
 
-    if (order && order.customerEmail && ["confirmed", "delivered", "cancelled"].includes(newStatus)) {
+    // Send status update emails for prepped, next_hour, delivered, cancelled
+    if (order && order.customerEmail && ["prepped", "next_hour", "delivered", "cancelled"].includes(newStatus)) {
       fetch("/api/email", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -397,6 +399,7 @@ export default function AdminOrdersPage() {
             deliveryDay: order.deliveryDay
               ? new Date(order.deliveryDay + "T00:00:00").toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })
               : "Not set",
+            deliveryWindow: order.deliveryWindow,
           },
         }),
       }).catch(console.error);

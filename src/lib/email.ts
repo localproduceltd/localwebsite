@@ -394,17 +394,25 @@ interface OrderStatusUpdateData {
   customerEmail: string;
   customerName: string;
   orderNumber: number;
-  status: "confirmed" | "delivered" | "cancelled";
+  status: "prepped" | "next_hour" | "delivered" | "cancelled";
   deliveryDay: string;
+  deliveryWindow?: "morning" | "afternoon";
 }
 
 const statusMessages = {
-  confirmed: {
-    subject: "Order Confirmed",
-    emoji: "✓",
+  prepped: {
+    subject: "Your Order is Coming Tomorrow!",
+    emoji: "📦",
     color: "#3b82f6",
-    heading: "Your order is confirmed!",
-    message: "We're preparing your order and it will be delivered on your selected delivery day.",
+    heading: "Your order is prepped and ready!",
+    message: "Just to confirm, your order is coming tomorrow.",
+  },
+  next_hour: {
+    subject: "Your Order is Arriving Soon!",
+    emoji: "🚚",
+    color: "#9333ea",
+    heading: "Your order is on its way!",
+    message: "Your order will be with you in the next hour.",
   },
   delivered: {
     subject: "Order Delivered",
@@ -425,6 +433,13 @@ const statusMessages = {
 export async function sendOrderStatusUpdate(data: OrderStatusUpdateData) {
   const config = statusMessages[data.status];
   
+  const deliveryWindowText = data.deliveryWindow === "morning" ? "9am – 1pm" : data.deliveryWindow === "afternoon" ? "1pm – 5pm" : "";
+  
+  // Special message for prepped status including delivery window
+  const statusMessage = data.status === "prepped" && deliveryWindowText
+    ? `Just to confirm, your order is coming tomorrow between <strong>${deliveryWindowText}</strong>.`
+    : config.message;
+  
   const feedbackSection = data.status === "delivered" ? `
         <div style="background: #fef3c7; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #f59e0b;">
           <h3 style="margin: 0 0 10px 0; color: #92400e;">⭐ How was your order?</h3>
@@ -443,11 +458,12 @@ export async function sendOrderStatusUpdate(data: OrderStatusUpdateData) {
       <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
         <h1 style="color: ${config.color};">${config.emoji} ${config.heading}</h1>
         <p>Hi ${data.customerName},</p>
-        <p>${config.message}</p>
+        <p>${statusMessage}</p>
         
         <div style="background: #f9f9f9; padding: 20px; border-radius: 8px; margin: 20px 0;">
           <p style="margin: 0;"><strong>Order:</strong> #${data.orderNumber}</p>
           <p style="margin: 8px 0 0 0;"><strong>Delivery Day:</strong> ${data.deliveryDay}</p>
+          ${deliveryWindowText ? `<p style="margin: 8px 0 0 0;"><strong>Time Window:</strong> ${deliveryWindowText}</p>` : ""}
         </div>
         
         ${feedbackSection}

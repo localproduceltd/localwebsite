@@ -27,13 +27,15 @@ import {
   MessageSquare,
   RefreshCw,
   Plus,
+  Truck,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCart } from "@/lib/cart-context";
 
 const statusConfig = {
-  pending: { label: "Pending", icon: Clock, color: "text-amber-600 bg-amber-50" },
-  confirmed: { label: "Confirmed", icon: Package, color: "text-blue-600 bg-blue-50" },
+  ordered: { label: "Ordered", icon: Clock, color: "text-amber-600 bg-amber-50" },
+  prepped: { label: "Prepped", icon: Package, color: "text-blue-600 bg-blue-50" },
+  next_hour: { label: "Next Hour", icon: Truck, color: "text-purple-600 bg-purple-50" },
   delivered: { label: "Delivered", icon: CheckCircle, color: "text-green-600 bg-green-50" },
   cancelled: { label: "Cancelled", icon: XCircle, color: "text-red-600 bg-red-50" },
 };

@@ -78,7 +78,7 @@ export interface Order {
   customerName: string | null;
   items: OrderItem[];
   total: number;
-  status: "pending" | "confirmed" | "delivered" | "cancelled";
+  status: "ordered" | "prepped" | "next_hour" | "delivered" | "cancelled";
   createdAt: string;
   deliveryDay: string;
   deliveryWindow: DeliveryWindow | null;
@@ -693,7 +693,7 @@ export async function createOrder(options: CreateOrderOptions): Promise<Order> {
       customer_email: options.customerEmail,
       customer_name: options.customerName ?? null,
       total: options.total,
-      status: "pending",
+      status: "ordered",
       delivery_day: options.deliveryDay,
       delivery_window: options.deliveryWindow,
       will_be_in: options.willBeIn,
@@ -998,7 +998,7 @@ export async function getSupplierOrders(supplierId: string): Promise<SupplierOrd
       supplierStatus: (item.supplier_status as SupplierOrderStatus) ?? "order_placed",
       deliveryDay: order?.delivery_day ?? "",
       orderCreatedAt: order ? new Date(order.created_at).toISOString().split("T")[0] : "",
-      orderStatus: (order?.status as Order["status"]) ?? "pending",
+      orderStatus: (order?.status as Order["status"]) ?? "ordered",
     };
   });
 }
