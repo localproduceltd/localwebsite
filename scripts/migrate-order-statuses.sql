@@ -19,15 +19,22 @@ FROM orders
 GROUP BY status 
 ORDER BY status;
 
--- Migrate pending → ordered
+-- Step 1: Drop the old constraint
+ALTER TABLE orders DROP CONSTRAINT IF EXISTS orders_status_check;
+
+-- Step 2: Migrate pending → ordered
 UPDATE orders 
 SET status = 'ordered' 
 WHERE status = 'pending';
 
--- Migrate confirmed → ordered
+-- Step 3: Migrate confirmed → ordered
 UPDATE orders 
 SET status = 'ordered' 
 WHERE status = 'confirmed';
+
+-- Step 4: Add new constraint with updated values
+ALTER TABLE orders ADD CONSTRAINT orders_status_check 
+CHECK (status IN ('ordered', 'prepped', 'next_hour', 'delivered', 'cancelled'));
 
 -- Verify the migration
 SELECT status, COUNT(*) as count 

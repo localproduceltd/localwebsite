@@ -1,44 +1,85 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Package, Users, Calendar, ShoppingCart, MessageCircleHeart, ArrowLeft, MapPin, UserCircle } from "lucide-react";
+import { LayoutDashboard, Package, Users, Calendar, ShoppingCart, MessageCircleHeart, MapPin, UserCircle, Menu, X } from "lucide-react";
 import { SignedIn } from "@clerk/nextjs";
 import UserAvatar from "@/components/UserAvatar";
 
 const adminLinks = [
-  { href: "/admin", label: "Dashboard", mobileLabel: "Home", icon: LayoutDashboard, showOnMobile: true },
-  { href: "/admin/orders", label: "Order Management", mobileLabel: "Orders", icon: ShoppingCart, showOnMobile: true },
-  { href: "/admin/customers", label: "Customers", mobileLabel: "Customers", icon: UserCircle, showOnMobile: false },
-  { href: "/admin/delivery", label: "Delivery Zones", mobileLabel: "Zones", icon: MapPin, showOnMobile: false },
-  { href: "/admin/delivery-days", label: "Delivery Days", mobileLabel: "Days", icon: Calendar, showOnMobile: true },
-  { href: "/admin/suppliers", label: "Suppliers", mobileLabel: "Suppliers", icon: Users, showOnMobile: true },
-  { href: "/admin/products", label: "Products", mobileLabel: "Products", icon: Package, showOnMobile: true },
-  { href: "/admin/feedback", label: "Feedback", mobileLabel: "Feedback", icon: MessageCircleHeart, showOnMobile: false },
+  { href: "/admin", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/admin/orders", label: "Orders", icon: ShoppingCart },
+  { href: "/admin/customers", label: "Customers", icon: UserCircle },
+  { href: "/admin/delivery", label: "Delivery Zones", icon: MapPin },
+  { href: "/admin/delivery-days", label: "Delivery Days", icon: Calendar },
+  { href: "/admin/suppliers", label: "Suppliers", icon: Users },
+  { href: "/admin/products", label: "Products", icon: Package },
+  { href: "/admin/feedback", label: "Feedback", icon: MessageCircleHeart },
 ];
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  
+  const currentPage = adminLinks.find(link => link.href === pathname) || adminLinks[0];
+  const CurrentIcon = currentPage.icon;
 
   return (
     <div className="flex min-h-screen flex-col">
       {/* Admin header */}
       <header className="sticky top-0 z-50 bg-secondary text-white shadow-md">
         <div className="mx-auto flex h-14 max-w-full items-center justify-between px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center gap-6">
-            <Link href="/admin" className="flex items-center gap-2 text-sm font-medium text-white/70 hover:text-white">
-              <ArrowLeft size={16} /> Dashboard
-            </Link>
+          {/* Desktop: show title */}
+          <div className="hidden lg:flex items-center gap-6">
             <span className="text-lg font-bold">Admin Panel</span>
           </div>
+          
+          {/* Mobile: show current page with dropdown trigger */}
+          <button 
+            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            className="flex lg:hidden items-center gap-2 text-white"
+          >
+            {mobileMenuOpen ? <X size={20} /> : <Menu size={20} />}
+            <CurrentIcon size={18} />
+            <span className="font-semibold">{currentPage.label}</span>
+          </button>
+          
           <SignedIn>
             <UserAvatar size="h-8 w-8" bg="bg-primary" />
           </SignedIn>
         </div>
+        
+        {/* Mobile dropdown menu */}
+        {mobileMenuOpen && (
+          <div className="lg:hidden bg-secondary border-t border-white/10">
+            <nav className="px-4 py-2 space-y-1">
+              {adminLinks.map((link) => {
+                const Icon = link.icon;
+                const isActive = pathname === link.href;
+                return (
+                  <Link
+                    key={link.href}
+                    href={link.href}
+                    onClick={() => setMobileMenuOpen(false)}
+                    className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition ${
+                      isActive
+                        ? "bg-white/20 text-white"
+                        : "text-white/70 hover:bg-white/10 hover:text-white"
+                    }`}
+                  >
+                    <Icon size={18} />
+                    {link.label}
+                  </Link>
+                );
+              })}
+            </nav>
+          </div>
+        )}
       </header>
 
       <div className="flex flex-1">
-      {/* Sidebar */}
+      {/* Sidebar - desktop only */}
       <aside className="hidden w-64 flex-shrink-0 border-r border-primary/10 bg-surface p-6 lg:block">
         <div className="mb-6">
           <h2 className="text-lg font-bold text-primary">Admin Panel</h2>
@@ -66,28 +107,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         </nav>
       </aside>
 
-      {/* Mobile nav bar */}
-      <div className="fixed bottom-0 left-0 right-0 z-40 flex border-t border-primary/10 bg-surface lg:hidden safe-area-bottom">
-        {adminLinks.filter(link => link.showOnMobile).map((link) => {
-          const Icon = link.icon;
-          const isActive = pathname === link.href;
-          return (
-            <Link
-              key={link.href}
-              href={link.href}
-              className={`flex flex-1 flex-col items-center gap-1 py-3 text-[11px] font-medium transition ${
-                isActive ? "text-primary" : "text-muted"
-              }`}
-            >
-              <Icon size={20} />
-              {link.mobileLabel}
-            </Link>
-          );
-        })}
-      </div>
-
       {/* Main content */}
-      <div className="flex-1 pb-20 lg:pb-0 overflow-x-hidden">{children}</div>
+      <div className="flex-1 overflow-x-hidden">{children}</div>
       </div>
     </div>
   );

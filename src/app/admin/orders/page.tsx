@@ -714,16 +714,16 @@ export default function AdminOrdersPage() {
                       <span className="hidden sm:inline">Export CSV</span>
                     </button>
                   </div>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm min-w-[600px]">
+                  <div>
+                    <table className="w-full text-sm">
                       <thead>
                         <tr className="text-left text-xs text-muted border-b border-primary/5">
                           <th className="px-2 sm:px-4 py-3 font-medium">#</th>
                           <th className="px-2 sm:px-4 py-3 font-medium">Customer</th>
-                          <th className="px-2 sm:px-4 py-3 font-medium hidden sm:table-cell">Created</th>
-                          <th className="px-2 sm:px-4 py-3 font-medium hidden md:table-cell">Address</th>
-                          <th className="px-2 sm:px-4 py-3 font-medium text-center hidden sm:table-cell">Box</th>
-                          <th className="px-2 sm:px-4 py-3 font-medium text-center">Delivery</th>
+                          <th className="px-2 sm:px-4 py-3 font-medium hidden lg:table-cell">Created</th>
+                          <th className="px-2 sm:px-4 py-3 font-medium hidden lg:table-cell">Address</th>
+                          <th className="px-2 sm:px-4 py-3 font-medium text-center hidden lg:table-cell">Box</th>
+                          <th className="px-2 sm:px-4 py-3 font-medium text-center hidden sm:table-cell">Delivery</th>
                           <th className="px-2 sm:px-4 py-3 font-medium text-center">Status</th>
                         </tr>
                       </thead>
@@ -765,11 +765,11 @@ export default function AdminOrdersPage() {
                                     </div>
                                   </div>
                                 </td>
-                                <td className="px-2 sm:px-4 py-3 text-muted hidden sm:table-cell">{order.createdAt}</td>
-                                <td className="px-2 sm:px-4 py-3 text-muted max-w-[200px] truncate hidden md:table-cell" title={formatAddress(order)}>
+                                <td className="px-2 sm:px-4 py-3 text-muted hidden lg:table-cell">{order.createdAt}</td>
+                                <td className="px-2 sm:px-4 py-3 text-muted max-w-[200px] truncate hidden lg:table-cell" title={formatAddress(order)}>
                                   {formatAddress(order)}
                                 </td>
-                                <td className="px-2 sm:px-4 py-3 text-center hidden sm:table-cell">
+                                <td className="px-2 sm:px-4 py-3 text-center hidden lg:table-cell">
                                   {(() => {
                                     // Box action logic:
                                     // - "new": paid deposit, no existing box → drop off only
@@ -794,7 +794,7 @@ export default function AdminOrdersPage() {
                                     return <span className="text-xs text-muted">—</span>;
                                   })()}
                                 </td>
-                                <td className="px-2 sm:px-4 py-3 text-center">
+                                <td className="px-2 sm:px-4 py-3 text-center hidden sm:table-cell">
                                   <div className="flex flex-col items-center gap-0.5">
                                     {order.deliveryWindow && (
                                       <span className="text-xs text-muted">
@@ -819,9 +819,9 @@ export default function AdminOrdersPage() {
                               </tr>
                               {isExpanded && (
                                 <tr key={`${order.id}-details`}>
-                                  <td colSpan={7} className="bg-primary/5 px-3 sm:px-6 py-4">
-                                    <div className="flex flex-wrap gap-4 sm:gap-6">
-                                      <div className="flex-1 min-w-0 sm:min-w-[300px]">
+                                  <td colSpan={7} className="bg-primary/5 px-2 sm:px-6 py-4">
+                                    <div className="flex flex-col sm:flex-row gap-4 sm:gap-6">
+                                      <div className="flex-1 min-w-0">
                                         <h4 className="text-xs font-semibold text-muted uppercase mb-2">Order Items</h4>
                                         <div className="space-y-3">
                                           {groupItemsBySupplier(order.items).map((supplierGroup) => {
@@ -830,57 +830,54 @@ export default function AdminOrdersPage() {
                                             );
                                             return (
                                               <div key={supplierGroup.supplierId} className={`rounded-lg border ${allItemsPacked ? 'border-green-300 bg-green-50' : 'border-primary/10 bg-surface'} overflow-hidden`}>
-                                                <div className="px-3 py-2 border-b border-primary/10">
+                                                <div className="px-2 sm:px-3 py-2 border-b border-primary/10">
                                                   <span className="font-medium text-sm text-primary">{supplierGroup.supplierName}</span>
                                                 </div>
-                                                <table className="w-full text-sm">
-                                                  <tbody>
-                                                    {supplierGroup.items.map((item, i) => {
-                                                      const itemKey = `packed-${order.id}-${supplierGroup.supplierId}-${i}`;
-                                                      const isItemPacked = packedItems.has(itemKey);
-                                                      const itemRefunds = (refunds.get(order.id) || []).filter(r => r.productName === item.productName);
-                                                      const totalRefunded = itemRefunds.reduce((sum, r) => sum + r.refundAmount, 0);
-                                                      return (
-                                                        <tr key={i} className={`border-t border-primary/5 first:border-t-0 ${isItemPacked ? 'bg-green-50' : ''}`}>
-                                                          <td className="px-3 py-1.5" onClick={(e) => e.stopPropagation()}>
-                                                            <label className="flex items-center gap-2 cursor-pointer">
-                                                              <input
-                                                                type="checkbox"
-                                                                checked={isItemPacked}
-                                                                onChange={() => toggleSet("packed", itemKey)}
-                                                                className="w-4 h-4 rounded border-primary/30 text-green-600 focus:ring-green-500"
-                                                              />
-                                                              <span className={isItemPacked ? 'text-green-700 line-through' : 'text-primary'}>{item.productName}</span>
-                                                            </label>
-                                                          </td>
-                                                          <td className={`px-3 py-1.5 text-center ${isItemPacked ? 'text-green-600' : 'text-muted'}`}>x{item.quantity}</td>
-                                                          <td className={`px-3 py-1.5 text-right font-medium ${isItemPacked ? 'text-green-700' : 'text-primary'}`}>£{(item.quantity * item.price).toFixed(2)}</td>
-                                                          <td className="px-3 py-1.5 text-right" onClick={(e) => e.stopPropagation()}>
-                                                            {totalRefunded > 0 ? (
-                                                              <div className="flex items-center justify-end gap-1">
-                                                                <span className="text-xs text-red-600 font-medium">-£{totalRefunded.toFixed(2)}</span>
+                                                <div className="divide-y divide-primary/5">
+                                                  {supplierGroup.items.map((item, i) => {
+                                                    const itemKey = `packed-${order.id}-${supplierGroup.supplierId}-${i}`;
+                                                    const isItemPacked = packedItems.has(itemKey);
+                                                    const itemRefunds = (refunds.get(order.id) || []).filter(r => r.productName === item.productName);
+                                                    const totalRefunded = itemRefunds.reduce((sum, r) => sum + r.refundAmount, 0);
+                                                    return (
+                                                      <div key={i} className={`px-2 sm:px-3 py-2 ${isItemPacked ? 'bg-green-50' : ''}`} onClick={(e) => e.stopPropagation()}>
+                                                        <div className="flex items-start gap-2">
+                                                          <input
+                                                            type="checkbox"
+                                                            checked={isItemPacked}
+                                                            onChange={() => toggleSet("packed", itemKey)}
+                                                            className="w-4 h-4 mt-0.5 rounded border-primary/30 text-green-600 focus:ring-green-500 flex-shrink-0"
+                                                          />
+                                                          <div className="flex-1 min-w-0 overflow-hidden">
+                                                            <p className={`text-sm break-words ${isItemPacked ? 'text-green-700 line-through' : 'text-primary'}`}>{item.productName}</p>
+                                                            <div className="flex items-center justify-between mt-1">
+                                                              <span className={`text-sm font-medium ${isItemPacked ? 'text-green-700' : 'text-primary'}`}>x{item.quantity} = £{(item.quantity * item.price).toFixed(2)}</span>
+                                                              {totalRefunded > 0 ? (
+                                                                <div className="flex items-center gap-1">
+                                                                  <span className="text-xs text-red-600 font-medium">-£{totalRefunded.toFixed(2)}</span>
+                                                                  <button
+                                                                    onClick={() => itemRefunds.forEach(r => handleDeleteRefund(r.id, order.id))}
+                                                                    className="text-red-400 hover:text-red-600"
+                                                                    title="Remove refund"
+                                                                  >
+                                                                    <XCircle size={12} />
+                                                                  </button>
+                                                                </div>
+                                                              ) : (
                                                                 <button
-                                                                  onClick={() => itemRefunds.forEach(r => handleDeleteRefund(r.id, order.id))}
-                                                                  className="text-red-400 hover:text-red-600"
-                                                                  title="Remove refund"
+                                                                  onClick={() => setRefundModal({ orderId: order.id, orderNumber: order.orderNumber, productName: item.productName, price: item.price, quantity: item.quantity, supplierId: supplierGroup.supplierId })}
+                                                                  className="text-xs text-muted hover:text-red-600 transition"
                                                                 >
-                                                                  <XCircle size={12} />
+                                                                  Refund
                                                                 </button>
-                                                              </div>
-                                                            ) : (
-                                                              <button
-                                                                onClick={() => setRefundModal({ orderId: order.id, orderNumber: order.orderNumber, productName: item.productName, price: item.price, quantity: item.quantity, supplierId: supplierGroup.supplierId })}
-                                                                className="text-xs text-muted hover:text-red-600 transition"
-                                                              >
-                                                                Refund
-                                                              </button>
-                                                            )}
-                                                          </td>
-                                                        </tr>
-                                                      );
-                                                    })}
-                                                  </tbody>
-                                                </table>
+                                                              )}
+                                                            </div>
+                                                          </div>
+                                                        </div>
+                                                      </div>
+                                                    );
+                                                  })}
+                                                </div>
                                               </div>
                                             );
                                           })}
@@ -910,7 +907,7 @@ export default function AdminOrdersPage() {
                                           );
                                         })()}
                                       </div>
-                                      <div className="w-64">
+                                      <div className="w-full sm:w-64 flex-shrink-0">
                                         <h4 className="text-xs font-semibold text-muted uppercase mb-2">Delivery Details</h4>
                                         {order.address && (
                                           <p className="text-sm text-primary mb-2">
