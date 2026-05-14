@@ -1517,6 +1517,14 @@ export async function markTopUpSessionProcessed(sessionId: string, orderId: stri
   if (error && error.code !== "23505") throw error; // Ignore duplicate key errors
 }
 
+export async function getOrdersWithTopUps(): Promise<Set<string>> {
+  const { data, error } = await supabase
+    .from("topup_sessions")
+    .select("order_id");
+  if (error || !data) return new Set();
+  return new Set(data.map((row) => row.order_id));
+}
+
 // ─── Shared Checkout Helpers ─────────────────────────────────────────────────
 
 /**

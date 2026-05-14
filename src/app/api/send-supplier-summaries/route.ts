@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getOrdersByDeliveryDay, getSuppliers } from "@/lib/data";
+import { getOrdersByDeliveryDay, getSuppliers, getOrdersWithTopUps } from "@/lib/data";
 import { sendSupplierOrderSummary } from "@/lib/email";
 
 export async function POST(request: NextRequest) {
@@ -21,10 +21,13 @@ export async function POST(request: NextRequest) {
     const suppliers = await getSuppliers();
     const supplierMap = new Map(suppliers.map((s) => [s.id, s]));
 
+    // Get orders that have been topped up
+    const toppedUpOrderIds = await getOrdersWithTopUps();
+
     // Group order items by supplier
     const supplierOrders: Map<string, {
       supplier: { id: string; name: string; email: string | null };
-      orders: Map<number, { orderNumber: number; items: Array<{ productName: string; quantity: number; price: number }> }>;
+      orders: Map<number, { orderNumber: number; orderId: string; items: Array<{ productName: string; quantity: number; price: number }> }>;
       stockTotals: Map<string, { productName: string; totalQuantity: number }>;
     }> = new Map();
 
@@ -49,6 +52,7 @@ export async function POST(request: NextRequest) {
         if (!supplierData.orders.has(order.orderNumber)) {
           supplierData.orders.set(order.orderNumber, {
             orderNumber: order.orderNumber,
+            orderId: order.id,
             items: [],
           });
         }
@@ -87,6 +91,7 @@ export async function POST(request: NextRequest) {
         orderNumber: order.orderNumber,
         items: order.items,
         subtotal: order.items.reduce((sum, item) => sum + item.price * item.quantity, 0),
+        hasTopUp: toppedUpOrderIds.has(order.orderId),
       }));
 
       const grandTotal = ordersArray.reduce((sum, order) => sum + order.subtotal, 0);
