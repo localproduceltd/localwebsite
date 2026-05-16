@@ -138,7 +138,7 @@ export async function sendOrderConfirmation(data: OrderConfirmationData) {
 
 // ─── Admin Emails ─────────────────────────────────────────────────────────────
 
-const ADMIN_EMAIL = "josie@localproduce.ltd";
+const ADMIN_EMAIL = "orders@localproduce.ltd";
 
 async function sendAdminOrderNotification(data: OrderConfirmationData) {
   const subject = data.isTopUp 
