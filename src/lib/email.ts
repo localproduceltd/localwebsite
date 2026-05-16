@@ -753,3 +753,143 @@ export async function sendSupplierPayout(data: SupplierPayoutData) {
     throw error;
   }
 }
+
+// ─── Admin Payout Run Sheet ───────────────────────────────────────────────────
+
+interface PayoutSupplier {
+  supplierId: string;
+  supplierName: string;
+  items: Array<{
+    productName: string;
+    ordered: number;
+    arrived: number | null;
+    unitPrice: number;
+    orderedValue: number;
+    arrivedValue: number;
+  }>;
+  refunds: Array<{
+    productName: string;
+    amount: number;
+    paidBy: string;
+    reason: string | null;
+    deduction: number;
+  }>;
+  orderedTotal: number;
+  arrivedTotal: number;
+  supplierRefundDeduction: number;
+  finalPayout: number;
+}
+
+interface PayoutResult {
+  supplierId: string;
+  supplierName: string;
+  supplierEmail?: string;
+  success: boolean;
+  error?: string;
+}
+
+interface PayoutRunSheetData {
+  deliveryDate: string;
+  suppliers: PayoutSupplier[];
+  results: PayoutResult[];
+}
+
+export async function sendPayoutRunSheet(data: PayoutRunSheetData) {
+  const formattedDate = new Date(data.deliveryDate + "T00:00:00").toLocaleDateString("en-GB", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+
+  // Calculate grand total
+  const totalPayout = data.suppliers.reduce((sum, s) => sum + s.finalPayout, 0);
+
+  // Build a map of results by supplierId for easy lookup
+  const resultMap = new Map(data.results.map(r => [r.supplierId, r]));
+
+  // Sort suppliers alphabetically by name
+  const sortedSuppliers = [...data.suppliers].sort((a, b) =>
+    a.supplierName.localeCompare(b.supplierName)
+  );
+
+  // Build table rows
+  const tableRowsHtml = sortedSuppliers
+    .map((supplier) => {
+      const result = resultMap.get(supplier.supplierId);
+      const success = result?.success ?? false;
+      const hasEmail = !result?.error?.includes("No email");
+      const errorMsg = result?.error || "";
+      
+      // Flag rows that need attention (no email or send failed)
+      const needsAttention = !success;
+      const rowStyle = needsAttention
+        ? 'background: #fef2f2;'
+        : '';
+      
+      const statusHtml = success
+        ? '<span style="color: #16a34a;">✅ Sent</span>'
+        : `<span style="color: #dc2626;">❌ Failed — ${errorMsg}</span>`;
+
+      return `
+        <tr style="${rowStyle}">
+          <td style="padding: 10px 12px; border-bottom: 1px solid #e5e5e5; font-weight: 500;">${supplier.supplierName}</td>
+          <td style="padding: 10px 12px; border-bottom: 1px solid #e5e5e5;">${result?.supplierEmail || '<span style="color: #dc2626;">—</span>'}</td>
+          <td style="padding: 10px 12px; border-bottom: 1px solid #e5e5e5; text-align: right; font-weight: bold;">£${supplier.finalPayout.toFixed(2)}</td>
+          <td style="padding: 10px 12px; border-bottom: 1px solid #e5e5e5;">${statusHtml}</td>
+        </tr>
+      `;
+    })
+    .join("");
+
+  // Grand total row
+  const totalRowHtml = `
+    <tr style="background: #f3f4f6; font-weight: bold;">
+      <td style="padding: 12px; border-top: 2px solid #A30E4E;" colspan="2">Grand Total</td>
+      <td style="padding: 12px; border-top: 2px solid #A30E4E; text-align: right; color: #A30E4E; font-size: 16px;">£${totalPayout.toFixed(2)}</td>
+      <td style="padding: 12px; border-top: 2px solid #A30E4E;"></td>
+    </tr>
+  `;
+
+  const { error } = await resend.emails.send({
+    from: FROM_EMAIL,
+    to: ADMIN_EMAIL,
+    subject: `Payout run sheet — ${formattedDate} — £${totalPayout.toFixed(2)}`,
+    html: `
+      <div style="font-family: sans-serif; max-width: 700px; margin: 0 auto;">
+        <h1 style="color: #A30E4E;">💳 Payout Run Sheet</h1>
+        <p><strong>Delivery Date:</strong> ${formattedDate}</p>
+        
+        <table style="width: 100%; border-collapse: collapse; background: #fff; border: 1px solid #e5e5e5; border-radius: 8px; overflow: hidden; margin: 20px 0;">
+          <thead>
+            <tr style="background: #A30E4E; color: white;">
+              <th style="padding: 12px; text-align: left;">Supplier</th>
+              <th style="padding: 12px; text-align: left;">Email</th>
+              <th style="padding: 12px; text-align: right;">Final Payout (£)</th>
+              <th style="padding: 12px; text-align: left;">Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${tableRowsHtml}
+            ${totalRowHtml}
+          </tbody>
+        </table>
+        
+        <div style="background: #e0f2fe; border-left: 4px solid #0ea5e9; padding: 16px 20px; border-radius: 0 8px 8px 0; margin: 24px 0;">
+          <p style="margin: 0; color: #0369a1;">
+            <strong>What to do:</strong> Pay each supplier the amount shown above. Bank details are in your supplier records.
+          </p>
+        </div>
+        
+        <p style="color: #666; font-size: 14px; margin-top: 30px;">
+          — Local Produce Automated Payouts
+        </p>
+      </div>
+    `,
+  });
+
+  if (error) {
+    console.error("Failed to send payout run sheet email:", error);
+    throw error;
+  }
+}

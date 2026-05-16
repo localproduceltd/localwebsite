@@ -1221,18 +1221,17 @@ export default function AdminOrdersPage() {
                           </tr>
                         </tfoot>
                       </table>
-                      {supplier.supplierRefunds.length > 0 && (
+                      {supplier.supplierRefunds.filter(r => r.paidBy !== "local" && r.itemArrived).length > 0 && (
                         <div className="px-4 py-2 bg-red-50 border-t border-red-200">
-                          <p className="text-xs font-semibold text-red-700 mb-1">Refunds for this supplier:</p>
+                          <p className="text-xs font-semibold text-red-700 mb-1">Refunds deducted from payout:</p>
                           <ul className="text-xs text-red-600 space-y-0.5">
-                            {supplier.supplierRefunds.map((r, i) => {
+                            {supplier.supplierRefunds.filter(r => r.paidBy !== "local" && r.itemArrived).map((r, i) => {
                               const reasonLabel = refundReasonConfig[r.reasonType]?.label || r.reasonType;
-                              const deducted = r.itemArrived && r.paidBy !== "local";
+                              const deduction = r.paidBy === "supplier" ? r.refundAmount : r.refundAmount / 2;
                               return (
-                                <li key={i} className={!deducted ? "text-amber-600" : ""}>
-                                  • {r.productName}: £{r.refundAmount.toFixed(2)} — {reasonLabel}
-                                  {r.paidBy === "supplier" ? " (Supplier pays)" : r.paidBy === "50-50" ? " (50-50)" : " (Local pays)"}
-                                  {!r.itemArrived && <span className="text-amber-500"> [No deduction - didn&apos;t arrive]</span>}
+                                <li key={i}>
+                                  • {r.productName}: £{deduction.toFixed(2)} — {reasonLabel}
+                                  {r.paidBy === "supplier" ? " (Supplier pays)" : " (50-50)"}
                                   {r.refundReason && <span className="text-red-500"> - {r.refundReason}</span>}
                                 </li>
                               );

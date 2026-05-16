@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupplier } from "@/lib/data";
-import { sendSupplierPayout } from "@/lib/email";
+import { sendSupplierPayout, sendPayoutRunSheet } from "@/lib/email";
 
 interface PayoutSupplier {
   supplierId: string;
@@ -37,17 +37,20 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
     }
 
-    const results: Array<{ supplierId: string; supplierName: string; success: boolean; error?: string }> = [];
+    const results: Array<{ supplierId: string; supplierName: string; supplierEmail?: string; success: boolean; error?: string }> = [];
 
     for (const supplier of suppliers) {
+      let supplierEmail: string | undefined;
       try {
         // Get supplier email
         const supplierData = await getSupplier(supplier.supplierId);
+        supplierEmail = supplierData?.email ?? undefined;
         
         if (!supplierData?.email) {
           results.push({
             supplierId: supplier.supplierId,
             supplierName: supplier.supplierName,
+            supplierEmail: undefined,
             success: false,
             error: "No email address",
           });
@@ -70,12 +73,14 @@ export async function POST(request: NextRequest) {
         results.push({
           supplierId: supplier.supplierId,
           supplierName: supplier.supplierName,
+          supplierEmail,
           success: true,
         });
       } catch (error) {
         results.push({
           supplierId: supplier.supplierId,
           supplierName: supplier.supplierName,
+          supplierEmail,
           success: false,
           error: error instanceof Error ? error.message : "Failed to send",
         });
@@ -85,11 +90,26 @@ export async function POST(request: NextRequest) {
     const successCount = results.filter(r => r.success).length;
     const failedCount = results.filter(r => !r.success).length;
 
+    // Send admin summary email
+    let adminSummarySent = false;
+    try {
+      await sendPayoutRunSheet({
+        deliveryDate,
+        suppliers,
+        results,
+      });
+      adminSummarySent = true;
+    } catch (adminError) {
+      console.error("Failed to send admin payout run sheet:", adminError);
+      // Don't fail the request - supplier emails were the important bit
+    }
+
     return NextResponse.json({
       success: true,
       sent: successCount,
       failed: failedCount,
       results,
+      adminSummarySent,
     });
   } catch (error) {
     console.error("Send payouts error:", error);
