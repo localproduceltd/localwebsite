@@ -407,20 +407,20 @@ export default function CartPage() {
         })()}
       </div>
 
-      {/* Week 1 Access Lock - hide in top-up mode */}
+      {/* Week 2 Access Lock - hide in top-up mode */}
       {!topUpOrder && !trialUnlocked && (
         <div className="mt-8 rounded-xl bg-primary/5 border-2 border-primary/20 p-6">
           <div className="flex items-center gap-2">
             <Lock size={20} className="text-primary" />
-            <h2 className="text-lg font-semibold text-primary">Week 1 Access</h2>
+            <h2 className="text-lg font-semibold text-primary">Week 2 Access</h2>
           </div>
           <p className="mt-1 text-sm text-muted">
-            We&apos;re opening to our first 50 waitlist customers! Enter your Week 1 code to continue to checkout.
+            Enter your Week 2 code to continue to checkout.
           </p>
           <div className="mt-4 flex flex-col sm:flex-row gap-2">
             <input
               type="text"
-              placeholder="Enter Week 1 code"
+              placeholder="Enter Week 2 code"
               value={trialCode}
               onChange={(e) => {
                 setTrialCode(e.target.value.toUpperCase());
