@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSupplier } from "@/lib/data";
 import { sendSupplierPayout, sendPayoutRunSheet } from "@/lib/email";
 
+const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+
 interface PayoutSupplier {
   supplierId: string;
   supplierName: string;
@@ -39,7 +41,8 @@ export async function POST(request: NextRequest) {
 
     const results: Array<{ supplierId: string; supplierName: string; supplierEmail?: string; success: boolean; error?: string }> = [];
 
-    for (const supplier of suppliers) {
+    for (let i = 0; i < suppliers.length; i++) {
+      const supplier = suppliers[i];
       let supplierEmail: string | undefined;
       try {
         // Get supplier email
@@ -54,21 +57,46 @@ export async function POST(request: NextRequest) {
             success: false,
             error: "No email address",
           });
+          if (i < suppliers.length - 1) await sleep(250);
           continue;
         }
 
-        // Send payout email
-        await sendSupplierPayout({
-          supplierEmail: supplierData.email,
-          supplierName: supplier.supplierName,
-          deliveryDate,
-          items: supplier.items,
-          refunds: supplier.refunds,
-          orderedTotal: supplier.orderedTotal,
-          arrivedTotal: supplier.arrivedTotal,
-          supplierRefundDeduction: supplier.supplierRefundDeduction,
-          finalPayout: supplier.finalPayout,
-        });
+        // Send payout email with retry on rate limit
+        const sendWithRetry = async () => {
+          try {
+            await sendSupplierPayout({
+              supplierEmail: supplierData.email!,
+              supplierName: supplier.supplierName,
+              deliveryDate,
+              items: supplier.items,
+              refunds: supplier.refunds,
+              orderedTotal: supplier.orderedTotal,
+              arrivedTotal: supplier.arrivedTotal,
+              supplierRefundDeduction: supplier.supplierRefundDeduction,
+              finalPayout: supplier.finalPayout,
+            });
+          } catch (err) {
+            const isRateLimit = (err as { statusCode?: number; name?: string })?.statusCode === 429 ||
+              (err as { name?: string })?.name === "rate_limit_exceeded";
+            if (isRateLimit) {
+              await sleep(1000);
+              await sendSupplierPayout({
+                supplierEmail: supplierData.email!,
+                supplierName: supplier.supplierName,
+                deliveryDate,
+                items: supplier.items,
+                refunds: supplier.refunds,
+                orderedTotal: supplier.orderedTotal,
+                arrivedTotal: supplier.arrivedTotal,
+                supplierRefundDeduction: supplier.supplierRefundDeduction,
+                finalPayout: supplier.finalPayout,
+              });
+            } else {
+              throw err;
+            }
+          }
+        };
+        await sendWithRetry();
 
         results.push({
           supplierId: supplier.supplierId,
@@ -85,6 +113,8 @@ export async function POST(request: NextRequest) {
           error: error instanceof Error ? error.message : "Failed to send",
         });
       }
+      // Throttle: sleep after each iteration except the last
+      if (i < suppliers.length - 1) await sleep(250);
     }
 
     const successCount = results.filter(r => r.success).length;
@@ -93,6 +123,7 @@ export async function POST(request: NextRequest) {
     // Send admin summary email
     let adminSummarySent = false;
     try {
+      await sleep(250);
       await sendPayoutRunSheet({
         deliveryDate,
         suppliers,

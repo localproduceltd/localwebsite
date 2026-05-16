@@ -1,4 +1,5 @@
 import { supabase } from "@/lib/supabase";
+import { BOX_DEPOSIT } from "@/lib/constants";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -96,6 +97,21 @@ export interface DeliveryDay {
   deliveryDate: string;
   cutoffDate: string;
   cutoffTime: string;
+}
+
+// ─── Order Revenue Helpers ────────────────────────────────────────────────────
+
+export function orderRevenue(o: Order): number {
+  // Products + delivery fee. Excludes the refundable box deposit.
+  // NOTE: bottle deposits (£1 per bottle) aren't deducted because qty
+  // isn't stored on the order. The impact is small.
+  const boxDep = o.boxDepositPaid ? BOX_DEPOSIT : 0;
+  return o.total - boxDep;
+}
+
+export function orderBasket(o: Order): number {
+  // Products only. Excludes delivery fee and deposits.
+  return o.items.reduce((sum, item) => sum + item.quantity * item.price, 0);
 }
 
 // ─── Data access functions (powered by Supabase) ─────────────────────────────
@@ -1494,6 +1510,28 @@ export async function getAverageRatings(): Promise<Record<string, { avg: number;
     result[id] = { avg: total / count, count };
   }
   return result;
+}
+
+export async function getProductRatingAverages(): Promise<Array<{ productId: string; productName: string; avgStars: number; ratingCount: number }>> {
+  const { data, error } = await supabase
+    .from("ratings")
+    .select("product_id, stars, products!inner(name)");
+  if (error) throw error;
+  
+  const map: Record<string, { productName: string; total: number; count: number }> = {};
+  for (const r of data ?? []) {
+    const productName = (r.products as unknown as { name: string })?.name ?? "";
+    if (!map[r.product_id]) map[r.product_id] = { productName, total: 0, count: 0 };
+    map[r.product_id].total += r.stars;
+    map[r.product_id].count += 1;
+  }
+  
+  return Object.entries(map).map(([productId, { productName, total, count }]) => ({
+    productId,
+    productName,
+    avgStars: total / count,
+    ratingCount: count,
+  }));
 }
 
 export async function getProductOrderCounts(): Promise<Record<string, number>> {
