@@ -27,8 +27,8 @@ export async function POST(request: NextRequest) {
     // Group order items by supplier
     const supplierOrders: Map<string, {
       supplier: { id: string; name: string; email: string | null };
-      orders: Map<number, { orderNumber: number; orderId: string; items: Array<{ productName: string; quantity: number; price: number }> }>;
-      stockTotals: Map<string, { productName: string; totalQuantity: number }>;
+      orders: Map<number, { orderNumber: number; orderId: string; items: Array<{ productName: string; unit: string; quantity: number; price: number }> }>;
+      stockTotals: Map<string, { productName: string; unit: string; totalQuantity: number }>;
     }> = new Map();
 
     for (const order of orders) {
@@ -58,18 +58,21 @@ export async function POST(request: NextRequest) {
         }
         supplierData.orders.get(order.orderNumber)!.items.push({
           productName: item.productName,
+          unit: item.unit,
           quantity: item.quantity,
           price: item.price,
         });
 
-        // Add to stock totals
-        if (!supplierData.stockTotals.has(item.productName)) {
-          supplierData.stockTotals.set(item.productName, {
+        // Add to stock totals - key by productName + unit so different pack sizes don't merge
+        const stockKey = `${item.productName}|${item.unit || ""}`;
+        if (!supplierData.stockTotals.has(stockKey)) {
+          supplierData.stockTotals.set(stockKey, {
             productName: item.productName,
+            unit: item.unit,
             totalQuantity: 0,
           });
         }
-        supplierData.stockTotals.get(item.productName)!.totalQuantity += item.quantity;
+        supplierData.stockTotals.get(stockKey)!.totalQuantity += item.quantity;
       }
     }
 

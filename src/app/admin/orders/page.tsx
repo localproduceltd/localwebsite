@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo, useCallback } from "react";
-import { type Order, type OrderItem, type DeliveryStockTracking, type OrderItemRefund, type RefundPaidBy, type RefundReasonType, getOrders, updateOrderStatus, getCustomerBoxStatuses, getDeliveryStockTracking, upsertDeliveryStockTracking, getRefundsForDeliveryDay, deleteOrderItemRefund } from "@/lib/data";
+import { type Order, type OrderItem, type DeliveryStockTracking, type OrderItemRefund, type OrderItemCheckin, type RefundPaidBy, type RefundReasonType, getOrders, updateOrderStatus, getCustomerBoxStatuses, getDeliveryStockTracking, upsertDeliveryStockTracking, getRefundsForDeliveryDay, deleteOrderItemRefund, getOrderItemCheckins, toggleOrderItemCheckin, setCustomerOutstandingBox } from "@/lib/data";
 import { Package, Clock, CheckCircle, XCircle, Calendar, ChevronDown, ChevronRight, Home, MapPin, Download, Users, Truck, AlertTriangle, RefreshCw, FileText, Mail } from "lucide-react";
 
 const statusConfig = {
@@ -37,10 +37,14 @@ function isUpcoming(dateStr: string) {
   return d >= today;
 }
 
+function formatItemLine(name: string, unit: string, qty: number) {
+  return unit ? `${name} — ${unit} × ${qty}` : `${name} × ${qty}`;
+}
+
 interface SupplierOrderItems {
   orderId: string;
   orderNumber: number;
-  items: Array<{ productName: string; quantity: number }>;
+  items: Array<{ productName: string; unit: string; quantity: number }>;
 }
 
 interface SupplierSummary {
@@ -48,7 +52,7 @@ interface SupplierSummary {
   supplierName: string;
   totalItems: number;
   totalPrice: number;
-  items: Array<{ productName: string; quantity: number; price: number }>;
+  items: Array<{ productName: string; unit: string; quantity: number; price: number }>;
   orders: SupplierOrderItems[];
 }
 
@@ -64,11 +68,13 @@ function getSupplierSummaries(orders: Order[]): SupplierSummary[] {
       const summary = map.get(id)!;
       summary.totalItems += item.quantity;
       summary.totalPrice += item.quantity * item.price;
-      const existing = summary.items.find(i => i.productName === item.productName);
+      // De-duplicate by productName + unit so different pack sizes don't merge
+      const itemKey = `${item.productName}|${item.unit || ""}`;
+      const existing = summary.items.find(i => `${i.productName}|${i.unit || ""}` === itemKey);
       if (existing) {
         existing.quantity += item.quantity;
       } else {
-        summary.items.push({ productName: item.productName, quantity: item.quantity, price: item.price });
+        summary.items.push({ productName: item.productName, unit: item.unit, quantity: item.quantity, price: item.price });
       }
       // Track per-order items for this supplier
       let orderEntry = summary.orders.find(o => o.orderId === order.id);
@@ -76,7 +82,7 @@ function getSupplierSummaries(orders: Order[]): SupplierSummary[] {
         orderEntry = { orderId: order.id, orderNumber: order.orderNumber, items: [] };
         summary.orders.push(orderEntry);
       }
-      orderEntry.items.push({ productName: item.productName, quantity: item.quantity });
+      orderEntry.items.push({ productName: item.productName, unit: item.unit, quantity: item.quantity });
     }
   }
   // Sort orders by order number
@@ -143,11 +149,10 @@ export default function AdminOrdersPage() {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [expandedSuppliers, setExpandedSuppliers] = useState<Set<string>>(new Set());
   const [expandedCustomers, setExpandedCustomers] = useState<Set<string>>(new Set());
-  const [packedItems, setPackedItems] = useState<Set<string>>(new Set());
-  const [orderCheckedIn, setOrderCheckedIn] = useState<Set<string>>(new Set());
   
   // Persistent tracking data
   const [stockTracking, setStockTracking] = useState<Map<string, DeliveryStockTracking>>(new Map());
+  const [orderCheckins, setOrderCheckins] = useState<Map<string, OrderItemCheckin>>(new Map()); // Persisted check-ins
   const [refunds, setRefunds] = useState<Map<string, OrderItemRefund[]>>(new Map());
   const [refundModal, setRefundModal] = useState<{ orderId: string; orderNumber: number; productName: string; price: number; quantity: number; supplierId: string } | null>(null);
   const [refundAmount, setRefundAmount] = useState("");
@@ -157,51 +162,42 @@ export default function AdminOrdersPage() {
   const [payoutModal, setPayoutModal] = useState<string | null>(null); // delivery day
   const [sendingPayouts, setSendingPayouts] = useState(false);
 
-  const toggleSet = useCallback((setName: "packed" | "order", key: string) => {
-    const setter = setName === "packed" ? setPackedItems : setOrderCheckedIn;
-    setter((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  }, []);
-
-  // Handle order check-in with stock arrivals sync
+  // Handle order check-in - persisted to database
   const handleOrderCheckIn = async (
     deliveryDay: string,
     supplierId: string,
     orderId: string,
-    itemIndex: number,
     productName: string,
-    quantity: number,
-    totalOrderedForProduct: number
+    quantity: number
   ) => {
-    const itemKey = `order-${deliveryDay}-${supplierId}-${orderId}-${itemIndex}`;
-    const isCurrentlyChecked = orderCheckedIn.has(itemKey);
+    const checkinKey = `${orderId}-${supplierId}-${productName}`;
     
-    // Toggle the checkbox
-    setOrderCheckedIn(prev => {
-      const next = new Set(prev);
-      if (next.has(itemKey)) next.delete(itemKey);
-      else next.add(itemKey);
-      return next;
-    });
+    // Toggle in database
+    const isNowChecked = await toggleOrderItemCheckin(orderId, supplierId, productName, quantity);
     
-    // Calculate new arrived quantity based on all checked items for this product
-    const trackingKey = `${deliveryDay}-${supplierId}-${productName}`;
-    const currentTracking = stockTracking.get(trackingKey);
-    const currentArrived = currentTracking?.quantityArrived ?? 0;
+    // Update local state
+    if (isNowChecked) {
+      setOrderCheckins(prev => {
+        const next = new Map(prev);
+        next.set(checkinKey, {
+          id: "", // Will be set on next load
+          orderId,
+          supplierId,
+          productName,
+          quantity,
+          checkedInAt: new Date().toISOString(),
+        });
+        return next;
+      });
+    } else {
+      setOrderCheckins(prev => {
+        const next = new Map(prev);
+        next.delete(checkinKey);
+        return next;
+      });
+    }
     
-    // If checking, add quantity; if unchecking, subtract
-    const newArrived = isCurrentlyChecked 
-      ? Math.max(0, currentArrived - quantity)
-      : currentArrived + quantity;
-    
-    // Update stock tracking
-    await upsertDeliveryStockTracking(deliveryDay, supplierId, productName, totalOrderedForProduct, newArrived, null);
-    
-    // Refresh tracking data
+    // Refresh tracking data to get updated computed arrivals
     const tracking = await getDeliveryStockTracking(deliveryDay);
     setStockTracking(prev => {
       const next = new Map(prev);
@@ -211,6 +207,11 @@ export default function AdminOrdersPage() {
       return next;
     });
   };
+  
+  // Check if an order item is checked in (from persisted data)
+  const isOrderItemCheckedIn = useCallback((orderId: string, supplierId: string, productName: string) => {
+    return orderCheckins.has(`${orderId}-${supplierId}-${productName}`);
+  }, [orderCheckins]);
 
   const toggleExpand = useCallback((set: "suppliers" | "customers", key: string) => {
     const setter = set === "suppliers" ? setExpandedSuppliers : setExpandedCustomers;
@@ -224,6 +225,7 @@ export default function AdminOrdersPage() {
 
   const loadTrackingData = useCallback(async (deliveryDays: string[]) => {
     const trackingMap = new Map<string, DeliveryStockTracking>();
+    const checkinsMap = new Map<string, OrderItemCheckin>();
     const refundsMap = new Map<string, OrderItemRefund[]>();
     
     for (const day of deliveryDays) {
@@ -231,6 +233,13 @@ export default function AdminOrdersPage() {
       for (const t of tracking) {
         trackingMap.set(`${t.deliveryDay}-${t.supplierId}-${t.productName}`, t);
       }
+      
+      // Load persisted check-ins
+      const checkins = await getOrderItemCheckins(day);
+      for (const c of checkins) {
+        checkinsMap.set(`${c.orderId}-${c.supplierId}-${c.productName}`, c);
+      }
+      
       const dayRefunds = await getRefundsForDeliveryDay(day);
       for (const r of dayRefunds) {
         const key = r.orderId;
@@ -239,6 +248,7 @@ export default function AdminOrdersPage() {
       }
     }
     setStockTracking(trackingMap);
+    setOrderCheckins(checkinsMap);
     setRefunds(refundsMap);
   }, []);
 
@@ -381,6 +391,13 @@ export default function AdminOrdersPage() {
   const updateStatus = async (orderId: string, newStatus: Order["status"]) => {
     const order = orderList.find((o) => o.id === orderId);
     await updateOrderStatus(orderId, newStatus);
+    
+    // Set has_outstanding_box when order with box deposit is marked delivered
+    // This is when the customer physically receives the box
+    if (newStatus === "delivered" && order && order.boxDepositPaid) {
+      await setCustomerOutstandingBox(order.userId, true);
+    }
+    
     const updated = await getOrders();
     setOrderList(updated);
 
@@ -599,8 +616,11 @@ export default function AdminOrdersPage() {
                                       const isComplete = arrived !== null && arrived !== undefined && arrived >= item.quantity;
                                       
                                       return (
-                                        <tr key={item.productName} className={`border-t border-primary/5 ${isComplete ? 'bg-green-50' : hasShortage ? 'bg-amber-50' : ''}`}>
-                                          <td className="px-3 py-2 text-primary">{item.productName}</td>
+                                        <tr key={`${item.productName}|${item.unit}`} className={`border-t border-primary/5 ${isComplete ? 'bg-green-50' : hasShortage ? 'bg-amber-50' : ''}`}>
+                                          <td className="px-3 py-2">
+                                            <span className="text-primary">{item.productName}</span>
+                                            {item.unit && <span className="block text-xs text-muted">{item.unit}</span>}
+                                          </td>
                                           <td className="px-3 py-2 text-center font-semibold text-primary">{item.quantity}</td>
                                           <td className="px-3 py-2 text-center">
                                             <input
@@ -646,18 +666,18 @@ export default function AdminOrdersPage() {
                                 </table>
                               </div>
 
-                              {/* ORDER CHECK-IN - Session-based for packing */}
-                              <div className={`rounded-lg border ${supplier.orders.every(o => o.items.every((_, i) => orderCheckedIn.has(`order-${deliveryDay}-${supplier.supplierId}-${o.orderId}-${i}`))) ? 'border-green-300 bg-green-50' : 'border-primary/10 bg-surface'} overflow-hidden`}>
+                              {/* ORDER CHECK-IN - Persisted to database */}
+                              <div className={`rounded-lg border ${supplier.orders.every(o => o.items.every(item => isOrderItemCheckedIn(o.orderId, supplier.supplierId, item.productName))) ? 'border-green-300 bg-green-50' : 'border-primary/10 bg-surface'} overflow-hidden`}>
                                 <div className="px-3 py-2 border-b border-primary/10 flex items-center justify-between">
                                   <span className="text-xs font-semibold text-muted uppercase">Order Check-in (per-customer bags)</span>
-                                  {supplier.orders.every(o => o.items.every((_, i) => orderCheckedIn.has(`order-${deliveryDay}-${supplier.supplierId}-${o.orderId}-${i}`))) && (
+                                  {supplier.orders.every(o => o.items.every(item => isOrderItemCheckedIn(o.orderId, supplier.supplierId, item.productName))) && (
                                     <span className="text-xs font-semibold text-green-600">✓ Complete</span>
                                   )}
                                 </div>
                                 <div className="divide-y divide-primary/5">
                                   {supplier.orders.map((orderEntry) => {
-                                    const allItemsChecked = orderEntry.items.every((_, i) => 
-                                      orderCheckedIn.has(`order-${deliveryDay}-${supplier.supplierId}-${orderEntry.orderId}-${i}`)
+                                    const allItemsChecked = orderEntry.items.every(item => 
+                                      isOrderItemCheckedIn(orderEntry.orderId, supplier.supplierId, item.productName)
                                     );
                                     return (
                                       <div key={orderEntry.orderId} className={`${allItemsChecked ? 'bg-green-50' : ''}`}>
@@ -667,19 +687,17 @@ export default function AdminOrdersPage() {
                                         </div>
                                         <div className="px-3 pb-2 space-y-1">
                                           {orderEntry.items.map((item, i) => {
-                                            const itemKey = `order-${deliveryDay}-${supplier.supplierId}-${orderEntry.orderId}-${i}`;
-                                            const isItemChecked = orderCheckedIn.has(itemKey);
-                                            const totalOrderedForProduct = supplier.items.find(si => si.productName === item.productName)?.quantity ?? item.quantity;
+                                            const isItemChecked = isOrderItemCheckedIn(orderEntry.orderId, supplier.supplierId, item.productName);
                                             return (
                                               <label key={i} className="flex items-center gap-2 cursor-pointer pl-2">
                                                 <input
                                                   type="checkbox"
                                                   checked={isItemChecked}
-                                                  onChange={() => handleOrderCheckIn(deliveryDay, supplier.supplierId, orderEntry.orderId, i, item.productName, item.quantity, totalOrderedForProduct)}
+                                                  onChange={() => handleOrderCheckIn(deliveryDay, supplier.supplierId, orderEntry.orderId, item.productName, item.quantity)}
                                                   className="w-3.5 h-3.5 rounded border-primary/30 text-green-600 focus:ring-green-500"
                                                 />
                                                 <span className={`text-sm ${isItemChecked ? 'text-green-600 line-through' : 'text-muted'}`}>
-                                                  {item.productName} x{item.quantity}
+                                                  {formatItemLine(item.productName, item.unit, item.quantity)}
                                                 </span>
                                               </label>
                                             );
@@ -720,15 +738,25 @@ export default function AdminOrdersPage() {
                         <tr className="text-left text-xs text-muted border-b border-primary/5">
                           <th className="px-2 sm:px-4 py-3 font-medium">#</th>
                           <th className="px-2 sm:px-4 py-3 font-medium">Customer</th>
-                          <th className="px-2 sm:px-4 py-3 font-medium hidden lg:table-cell">Created</th>
-                          <th className="px-2 sm:px-4 py-3 font-medium hidden lg:table-cell">Address</th>
+                          <th className="px-2 sm:px-4 py-3 font-medium hidden md:table-cell">Address</th>
                           <th className="px-2 sm:px-4 py-3 font-medium text-center hidden lg:table-cell">Box</th>
                           <th className="px-2 sm:px-4 py-3 font-medium text-center hidden sm:table-cell">Delivery</th>
                           <th className="px-2 sm:px-4 py-3 font-medium text-center">Status</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-primary/5">
-                        {orders.map((order) => {
+                        {/* TODO: replace with explicit route_order field once we integrate with Spoke export */}
+                        {[...orders].sort((a, b) => {
+                          // Sort by delivery window: morning first, afternoon second, null/undefined last
+                          const windowOrder = { morning: 0, afternoon: 1 };
+                          const aWindow = a.deliveryWindow ? windowOrder[a.deliveryWindow] ?? 2 : 2;
+                          const bWindow = b.deliveryWindow ? windowOrder[b.deliveryWindow] ?? 2 : 2;
+                          if (aWindow !== bWindow) return aWindow - bWindow;
+                          // Then by postcode (clusters geographically)
+                          const aPostcode = a.address?.postcode || "";
+                          const bPostcode = b.address?.postcode || "";
+                          return aPostcode.localeCompare(bPostcode);
+                        }).map((order) => {
                           const key = `customer-${order.id}`;
                           const isExpanded = expandedCustomers.has(key);
                           const status = statusConfig[order.status];
@@ -765,9 +793,12 @@ export default function AdminOrdersPage() {
                                     </div>
                                   </div>
                                 </td>
-                                <td className="px-2 sm:px-4 py-3 text-muted hidden lg:table-cell">{order.createdAt}</td>
-                                <td className="px-2 sm:px-4 py-3 text-muted max-w-[200px] truncate hidden lg:table-cell" title={formatAddress(order)}>
-                                  {formatAddress(order)}
+                                <td className="px-2 sm:px-4 py-3 text-muted hidden md:table-cell" title={formatAddress(order)}>
+                                  <div className="max-w-[200px] lg:max-w-none">
+                                    {order.address ? (
+                                      <span className="text-sm">{order.address.addressLine1}, {order.address.postcode}</span>
+                                    ) : "—"}
+                                  </div>
                                 </td>
                                 <td className="px-2 sm:px-4 py-3 text-center hidden lg:table-cell">
                                   {(() => {
@@ -787,7 +818,7 @@ export default function AdminOrdersPage() {
                                       return (
                                         <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-semibold text-blue-700" title="Swap - drop off new, collect old">
                                           <Package size={10} />
-                                          � Swap
+                                          🔄 Swap
                                         </span>
                                       );
                                     }
@@ -811,76 +842,73 @@ export default function AdminOrdersPage() {
                                   </div>
                                 </td>
                                 <td className="px-2 sm:px-4 py-3 text-center">
-                                  <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${status.color}`}>
-                                    <StatusIcon size={10} />
-                                    <span className="hidden sm:inline">{status.label}</span>
+                                  <span onClick={(e) => e.stopPropagation()}>
+                                    <select
+                                      value={order.status}
+                                      onChange={(e) => updateStatus(order.id, e.target.value as Order["status"])}
+                                      className={`appearance-none cursor-pointer rounded-full px-2 py-0.5 text-[10px] font-semibold border-0 outline-none ${status.color}`}
+                                    >
+                                      {statusOptions.map((s) => (
+                                        <option key={s} value={s}>
+                                          {statusConfig[s].label}
+                                        </option>
+                                      ))}
+                                    </select>
                                   </span>
                                 </td>
                               </tr>
                               {isExpanded && (
                                 <tr key={`${order.id}-details`}>
-                                  <td colSpan={7} className="bg-primary/5 px-2 sm:px-6 py-4">
+                                  <td colSpan={6} className="bg-primary/5 px-2 sm:px-6 py-4">
                                     <div className="flex flex-col sm:flex-row gap-4 sm:gap-6">
                                       <div className="flex-1 min-w-0">
                                         <h4 className="text-xs font-semibold text-muted uppercase mb-2">Order Items</h4>
                                         <div className="space-y-3">
-                                          {groupItemsBySupplier(order.items).map((supplierGroup) => {
-                                            const allItemsPacked = supplierGroup.items.every((_, i) => 
-                                              packedItems.has(`packed-${order.id}-${supplierGroup.supplierId}-${i}`)
-                                            );
-                                            return (
-                                              <div key={supplierGroup.supplierId} className={`rounded-lg border ${allItemsPacked ? 'border-green-300 bg-green-50' : 'border-primary/10 bg-surface'} overflow-hidden`}>
-                                                <div className="px-2 sm:px-3 py-2 border-b border-primary/10">
-                                                  <span className="font-medium text-sm text-primary">{supplierGroup.supplierName}</span>
-                                                </div>
-                                                <div className="divide-y divide-primary/5">
-                                                  {supplierGroup.items.map((item, i) => {
-                                                    const itemKey = `packed-${order.id}-${supplierGroup.supplierId}-${i}`;
-                                                    const isItemPacked = packedItems.has(itemKey);
-                                                    const itemRefunds = (refunds.get(order.id) || []).filter(r => r.productName === item.productName);
-                                                    const totalRefunded = itemRefunds.reduce((sum, r) => sum + r.refundAmount, 0);
-                                                    return (
-                                                      <div key={i} className={`px-2 sm:px-3 py-2 ${isItemPacked ? 'bg-green-50' : ''}`} onClick={(e) => e.stopPropagation()}>
-                                                        <div className="flex items-start gap-2">
-                                                          <input
-                                                            type="checkbox"
-                                                            checked={isItemPacked}
-                                                            onChange={() => toggleSet("packed", itemKey)}
-                                                            className="w-4 h-4 mt-0.5 rounded border-primary/30 text-green-600 focus:ring-green-500 flex-shrink-0"
-                                                          />
-                                                          <div className="flex-1 min-w-0 overflow-hidden">
-                                                            <p className={`text-sm break-words ${isItemPacked ? 'text-green-700 line-through' : 'text-primary'}`}>{item.productName}</p>
-                                                            <div className="flex items-center justify-between mt-1">
-                                                              <span className={`text-sm font-medium ${isItemPacked ? 'text-green-700' : 'text-primary'}`}>x{item.quantity} = £{(item.quantity * item.price).toFixed(2)}</span>
-                                                              {totalRefunded > 0 ? (
-                                                                <div className="flex items-center gap-1">
-                                                                  <span className="text-xs text-red-600 font-medium">-£{totalRefunded.toFixed(2)}</span>
-                                                                  <button
-                                                                    onClick={() => itemRefunds.forEach(r => handleDeleteRefund(r.id, order.id))}
-                                                                    className="text-red-400 hover:text-red-600"
-                                                                    title="Remove refund"
-                                                                  >
-                                                                    <XCircle size={12} />
-                                                                  </button>
-                                                                </div>
-                                                              ) : (
-                                                                <button
-                                                                  onClick={() => setRefundModal({ orderId: order.id, orderNumber: order.orderNumber, productName: item.productName, price: item.price, quantity: item.quantity, supplierId: supplierGroup.supplierId })}
-                                                                  className="text-xs text-muted hover:text-red-600 transition"
-                                                                >
-                                                                  Refund
-                                                                </button>
-                                                              )}
+                                          {groupItemsBySupplier(order.items).map((supplierGroup) => (
+                                            <div key={supplierGroup.supplierId} className="rounded-lg border border-primary/10 bg-surface overflow-hidden">
+                                              <div className="px-2 sm:px-3 py-2 border-b border-primary/10">
+                                                <span className="font-medium text-sm text-primary">{supplierGroup.supplierName}</span>
+                                              </div>
+                                              <div className="divide-y divide-primary/5">
+                                                {supplierGroup.items.map((item, i) => {
+                                                  const itemRefunds = (refunds.get(order.id) || []).filter(r => r.productName === item.productName);
+                                                  const totalRefunded = itemRefunds.reduce((sum, r) => sum + r.refundAmount, 0);
+                                                  return (
+                                                    <div key={i} className="px-2 sm:px-3 py-2" onClick={(e) => e.stopPropagation()}>
+                                                      <div className="flex items-center justify-between gap-2">
+                                                        <div className="min-w-0 flex-1">
+                                                          <p className="text-sm text-primary break-words">{item.productName}</p>
+                                                          {item.unit && <p className="text-xs text-muted">{item.unit}</p>}
+                                                        </div>
+                                                        <div className="flex items-center gap-3 flex-shrink-0">
+                                                          <span className="text-sm font-medium text-primary">×{item.quantity} = £{(item.quantity * item.price).toFixed(2)}</span>
+                                                          {totalRefunded > 0 ? (
+                                                            <div className="flex items-center gap-1">
+                                                              <span className="text-xs text-red-600 font-medium">-£{totalRefunded.toFixed(2)}</span>
+                                                              <button
+                                                                onClick={() => itemRefunds.forEach(r => handleDeleteRefund(r.id, order.id))}
+                                                                className="text-red-400 hover:text-red-600"
+                                                                title="Remove refund"
+                                                              >
+                                                                <XCircle size={12} />
+                                                              </button>
                                                             </div>
-                                                          </div>
+                                                          ) : (
+                                                            <button
+                                                              onClick={() => setRefundModal({ orderId: order.id, orderNumber: order.orderNumber, productName: item.productName, price: item.price, quantity: item.quantity, supplierId: supplierGroup.supplierId })}
+                                                              className="text-xs text-muted hover:text-red-600 transition"
+                                                            >
+                                                              Refund
+                                                            </button>
+                                                          )}
                                                         </div>
                                                       </div>
-                                                    );
-                                                  })}
-                                                </div>
+                                                    </div>
+                                                  );
+                                                })}
                                               </div>
-                                            );
-                                          })}
+                                            </div>
+                                          ))}
                                         </div>
                                         {(() => {
                                           const orderRefunds = refunds.get(order.id) || [];
@@ -922,21 +950,6 @@ export default function AdminOrdersPage() {
                                             {order.safePlace}
                                           </p>
                                         )}
-                                        <div className="mt-3 flex items-center gap-2">
-                                          <label className="text-xs font-medium text-muted">Status:</label>
-                                          <select
-                                            value={order.status}
-                                            onClick={(e) => e.stopPropagation()}
-                                            onChange={(e) => updateStatus(order.id, e.target.value as Order["status"])}
-                                            className="rounded-lg border border-primary/20 bg-surface px-2 py-1 text-xs outline-none focus:border-secondary"
-                                          >
-                                            {statusOptions.map((s) => (
-                                              <option key={s} value={s}>
-                                                {s.charAt(0).toUpperCase() + s.slice(1)}
-                                              </option>
-                                            ))}
-                                          </select>
-                                        </div>
                                       </div>
                                     </div>
                                   </td>

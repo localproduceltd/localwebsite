@@ -61,6 +61,7 @@ export type SupplierOrderStatus = "order_placed" | "prepping" | "dropped_at_depo
 export interface OrderItem {
   productId: string;
   productName: string;
+  unit: string; // e.g. "100g", "1kg", "x6", or "" if no unit
   quantity: number;
   price: number;
   supplierId?: string;
@@ -331,9 +332,10 @@ export async function getOrders(userId?: string): Promise<Order[]> {
     userId: o.user_id,
     customerEmail: o.customer_email ?? null,
     customerName: o.customer_name ?? null,
-    items: (o.order_items as Array<{ product_id: string; product_name: string; quantity: number; price: number; supplier_id?: string; supplier_status?: string; suppliers?: { name: string } | null }>).map((item) => ({
+    items: (o.order_items as Array<{ product_id: string; product_name: string; unit: string; quantity: number; price: number; supplier_id?: string; supplier_status?: string; suppliers?: { name: string } | null }>).map((item) => ({
       productId: item.product_id,
       productName: item.product_name,
+      unit: item.unit ?? "",
       quantity: item.quantity,
       price: Number(item.price),
       supplierId: item.supplier_id ?? undefined,
@@ -593,9 +595,10 @@ export async function getOrdersByDeliveryDay(deliveryDate: string): Promise<Orde
     userId: o.user_id,
     customerEmail: o.customer_email ?? null,
     customerName: o.customer_name ?? null,
-    items: (o.order_items as Array<{ product_id: string; product_name: string; quantity: number; price: number; supplier_id?: string; supplier_status?: string; suppliers?: { name: string } | null }>).map((item) => ({
+    items: (o.order_items as Array<{ product_id: string; product_name: string; unit: string; quantity: number; price: number; supplier_id?: string; supplier_status?: string; suppliers?: { name: string } | null }>).map((item) => ({
       productId: item.product_id,
       productName: item.product_name,
+      unit: item.unit ?? "",
       quantity: item.quantity,
       price: Number(item.price),
       supplierId: item.supplier_id ?? undefined,
@@ -657,9 +660,10 @@ export async function getOrderByStripeSession(sessionId: string): Promise<Order 
     userId: data.user_id,
     customerEmail: data.customer_email ?? null,
     customerName: data.customer_name ?? null,
-    items: (data.order_items as Array<{ product_id: string; product_name: string; quantity: number; price: number; supplier_id?: string; supplier_status?: string; suppliers?: { name: string } | null }>).map((item) => ({
+    items: (data.order_items as Array<{ product_id: string; product_name: string; unit: string; quantity: number; price: number; supplier_id?: string; supplier_status?: string; suppliers?: { name: string } | null }>).map((item) => ({
       productId: item.product_id,
       productName: item.product_name,
+      unit: item.unit ?? "",
       quantity: item.quantity,
       price: Number(item.price),
       supplierId: item.supplier_id ?? undefined,
@@ -715,6 +719,7 @@ export async function createOrder(options: CreateOrderOptions): Promise<Order> {
       order_id: order.id,
       product_id: item.productId,
       product_name: item.productName,
+      unit: item.unit ?? "",
       quantity: item.quantity,
       price: item.price,
       supplier_id: item.supplierId ?? null,
@@ -809,6 +814,7 @@ export async function updateOrderItems(orderId: string, items: OrderItem[]): Pro
         order_id: orderId,
         product_id: item.productId,
         product_name: item.productName,
+        unit: item.unit ?? "",
         quantity: item.quantity,
         price: item.price,
         supplier_id: item.supplierId,
@@ -840,9 +846,10 @@ export async function getOrder(orderId: string): Promise<Order | null> {
     userId: data.user_id,
     customerEmail: data.customer_email ?? null,
     customerName: data.customer_name ?? null,
-    items: (data.order_items as Array<{ product_id: string; product_name: string; quantity: number; price: number; supplier_id?: string; supplier_status?: string; suppliers?: { name: string } | null }>).map((item) => ({
+    items: (data.order_items as Array<{ product_id: string; product_name: string; unit: string; quantity: number; price: number; supplier_id?: string; supplier_status?: string; suppliers?: { name: string } | null }>).map((item) => ({
       productId: item.product_id,
       productName: item.product_name,
+      unit: item.unit ?? "",
       quantity: item.quantity,
       price: Number(item.price),
       supplierId: item.supplier_id ?? undefined,
@@ -879,6 +886,7 @@ export async function addItemsToOrder(orderId: string, items: OrderItem[], addit
         order_id: orderId,
         product_id: item.productId,
         product_name: item.productName,
+        unit: item.unit ?? "",
         quantity: item.quantity,
         price: item.price,
         supplier_id: item.supplierId ?? null,
@@ -970,6 +978,7 @@ export interface SupplierOrderItem {
   orderNumber: number;
   productId: string;
   productName: string;
+  unit: string;
   quantity: number;
   price: number;
   supplierStatus: SupplierOrderStatus;
@@ -993,6 +1002,7 @@ export async function getSupplierOrders(supplierId: string): Promise<SupplierOrd
       orderNumber: order?.order_number ?? 0,
       productId: item.product_id,
       productName: item.product_name,
+      unit: item.unit ?? "",
       quantity: item.quantity,
       price: Number(item.price),
       supplierStatus: (item.supplier_status as SupplierOrderStatus) ?? "order_placed",
@@ -1552,14 +1562,17 @@ export async function parseItemsFromMetadata(metadata: Record<string, string>): 
             return { 
               productId: item.p, 
               productName: product?.name || "Unknown Product", 
+              unit: product?.unit || "",
               quantity: item.q, 
               price: product?.price || 0, 
               supplierId: item.s 
             };
           } else {
+            const product = await getProduct(item.productId);
             return { 
               productId: item.productId, 
               productName: item.productName, 
+              unit: product?.unit || "",
               quantity: item.quantity, 
               price: item.price, 
               supplierId: item.supplierId 
@@ -1583,6 +1596,7 @@ export async function parseItemsFromMetadata(metadata: Record<string, string>): 
       return {
         productId,
         productName: product?.name || "Unknown Product",
+        unit: product?.unit || "",
         quantity: parseInt(quantityStr, 10),
         price: product?.price || 0,
         supplierId,
@@ -1627,9 +1641,19 @@ export interface DeliveryStockTracking {
   supplierId: string;
   productName: string;
   quantityOrdered: number;
-  quantityArrived: number | null;
+  quantityArrived: number | null; // Computed from check-ins
+  quantityArrivedOverride: number | null; // Manual override
   arrivalNotes: string | null;
   checkedInAt: string | null;
+}
+
+export interface OrderItemCheckin {
+  id: string;
+  orderId: string;
+  supplierId: string;
+  productName: string;
+  quantity: number;
+  checkedInAt: string;
 }
 
 export type RefundPaidBy = "local" | "supplier" | "50-50";
@@ -1650,21 +1674,44 @@ export interface OrderItemRefund {
 }
 
 export async function getDeliveryStockTracking(deliveryDay: string): Promise<DeliveryStockTracking[]> {
+  // Get manual tracking data
   const { data, error } = await supabase
     .from("delivery_stock_tracking")
     .select("*")
     .eq("delivery_day", deliveryDay);
   if (error) throw error;
-  return (data ?? []).map((d) => ({
-    id: d.id,
-    deliveryDay: d.delivery_day,
-    supplierId: d.supplier_id,
-    productName: d.product_name,
-    quantityOrdered: d.quantity_ordered,
-    quantityArrived: d.quantity_arrived,
-    arrivalNotes: d.arrival_notes,
-    checkedInAt: d.checked_in_at,
-  }));
+  
+  // Get computed arrivals from check-ins
+  const { data: computed, error: computedError } = await supabase
+    .from("computed_stock_arrivals")
+    .select("*")
+    .eq("delivery_day", deliveryDay);
+  if (computedError) {
+    // View might not exist yet, fall back to manual data only
+    console.warn("computed_stock_arrivals view not available:", computedError);
+  }
+  
+  // Build a map of computed arrivals
+  const computedMap = new Map<string, number>();
+  for (const c of computed ?? []) {
+    computedMap.set(`${c.supplier_id}-${c.product_name}`, c.computed_arrived);
+  }
+  
+  return (data ?? []).map((d) => {
+    const computedArrived = computedMap.get(`${d.supplier_id}-${d.product_name}`) ?? 0;
+    return {
+      id: d.id,
+      deliveryDay: d.delivery_day,
+      supplierId: d.supplier_id,
+      productName: d.product_name,
+      quantityOrdered: d.quantity_ordered,
+      // Use override if set, otherwise use computed from check-ins
+      quantityArrived: d.quantity_arrived_override ?? computedArrived,
+      quantityArrivedOverride: d.quantity_arrived_override,
+      arrivalNotes: d.arrival_notes,
+      checkedInAt: d.checked_in_at,
+    };
+  });
 }
 
 export async function upsertDeliveryStockTracking(
@@ -1672,9 +1719,10 @@ export async function upsertDeliveryStockTracking(
   supplierId: string,
   productName: string,
   quantityOrdered: number,
-  quantityArrived: number | null,
+  quantityArrivedOverride: number | null,
   arrivalNotes: string | null
 ): Promise<void> {
+  // This is for manual override entries only
   const { error } = await supabase
     .from("delivery_stock_tracking")
     .upsert({
@@ -1682,11 +1730,84 @@ export async function upsertDeliveryStockTracking(
       supplier_id: supplierId,
       product_name: productName,
       quantity_ordered: quantityOrdered,
-      quantity_arrived: quantityArrived,
+      quantity_arrived_override: quantityArrivedOverride,
       arrival_notes: arrivalNotes,
-      checked_in_at: quantityArrived !== null ? new Date().toISOString() : null,
+      checked_in_at: quantityArrivedOverride !== null ? new Date().toISOString() : null,
       updated_at: new Date().toISOString(),
     }, { onConflict: "delivery_day,supplier_id,product_name" });
+  if (error) throw error;
+}
+
+// ─── Order Item Check-ins ───────────────────────────────────────────────────
+
+export async function getOrderItemCheckins(deliveryDay: string): Promise<OrderItemCheckin[]> {
+  // Get check-ins for all orders on this delivery day
+  const { data, error } = await supabase
+    .from("order_item_checkins")
+    .select("*, orders!inner(delivery_day)")
+    .eq("orders.delivery_day", deliveryDay);
+  
+  if (error) throw error;
+  return (data ?? []).map((d) => ({
+    id: d.id,
+    orderId: d.order_id,
+    supplierId: d.supplier_id,
+    productName: d.product_name,
+    quantity: d.quantity,
+    checkedInAt: d.checked_in_at,
+  }));
+}
+
+export async function toggleOrderItemCheckin(
+  orderId: string,
+  supplierId: string,
+  productName: string,
+  quantity: number
+): Promise<boolean> {
+  // Check if already checked in
+  const { data: existing } = await supabase
+    .from("order_item_checkins")
+    .select("id")
+    .eq("order_id", orderId)
+    .eq("supplier_id", supplierId)
+    .eq("product_name", productName)
+    .single();
+  
+  if (existing) {
+    // Delete the check-in (uncheck)
+    const { error } = await supabase
+      .from("order_item_checkins")
+      .delete()
+      .eq("id", existing.id);
+    if (error) throw error;
+    return false; // Now unchecked
+  } else {
+    // Create the check-in (check)
+    const { error } = await supabase
+      .from("order_item_checkins")
+      .insert({
+        order_id: orderId,
+        supplier_id: supplierId,
+        product_name: productName,
+        quantity: quantity,
+      });
+    if (error) throw error;
+    return true; // Now checked
+  }
+}
+
+export async function clearOverrideAndUseCheckins(
+  deliveryDay: string,
+  supplierId: string,
+  productName: string
+): Promise<void> {
+  // Clear the manual override so computed value from check-ins is used
+  const { error } = await supabase
+    .from("delivery_stock_tracking")
+    .update({ quantity_arrived_override: null, updated_at: new Date().toISOString() })
+    .eq("delivery_day", deliveryDay)
+    .eq("supplier_id", supplierId)
+    .eq("product_name", productName);
   if (error) throw error;
 }
 

@@ -148,20 +148,21 @@ export default function SupplierOrdersPage() {
   // Aggregate quantity per product per delivery day (non-delivered only)
   const demandGrid = useMemo(() => {
     const daySet = new Set<string>();
-    // productName → { name, days: { dayKey → qty } }
-    const map = new Map<string, { name: string; days: Map<string, number>; total: number }>();
+    // productName+unit → { name, unit, days: { dayKey → qty } }
+    const map = new Map<string, { name: string; unit: string; days: Map<string, number>; total: number }>();
     for (const item of orderItems) {
       if (item.supplierStatus === "delivered" || item.supplierStatus === "cancelled") continue;
       const day = item.deliveryDay || "unassigned";
       daySet.add(day);
-      const existing = map.get(item.productName);
+      const key = `${item.productName}|${item.unit || ""}`;
+      const existing = map.get(key);
       if (existing) {
         existing.days.set(day, (existing.days.get(day) ?? 0) + item.quantity);
         existing.total += item.quantity;
       } else {
         const days = new Map<string, number>();
         days.set(day, item.quantity);
-        map.set(item.productName, { name: item.productName, days, total: item.quantity });
+        map.set(key, { name: item.productName, unit: item.unit, days, total: item.quantity });
       }
     }
     const deliveryDays = Array.from(daySet).sort((a, b) => {
@@ -228,8 +229,11 @@ export default function SupplierOrdersPage() {
               </thead>
               <tbody>
                 {demandGrid.products.map((p) => (
-                  <tr key={p.name} className="border-b border-primary/5 last:border-0">
-                    <td className="px-4 py-2.5 font-medium text-primary">{p.name}</td>
+                  <tr key={`${p.name}|${p.unit}`} className="border-b border-primary/5 last:border-0">
+                    <td className="px-4 py-2.5">
+                      <span className="font-medium text-primary">{p.name}</span>
+                      {p.unit && <span className="block text-xs text-muted">{p.unit}</span>}
+                    </td>
                     {demandGrid.deliveryDays.map((day) => {
                       const qty = p.days.get(day) ?? 0;
                       return (
@@ -328,7 +332,10 @@ export default function SupplierOrdersPage() {
                       <tbody>
                         {sub.items.map((item) => (
                           <tr key={item.id} className="border-t border-primary/5">
-                            <td className="py-2 text-primary">{item.productName}</td>
+                            <td className="py-2">
+                              <span className="text-primary">{item.productName}</span>
+                              {item.unit && <span className="block text-xs text-muted">{item.unit}</span>}
+                            </td>
                             <td className="py-2 text-center text-muted">{item.quantity}</td>
                             <td className="py-2 text-right text-muted">£{item.price.toFixed(2)}</td>
                             <td className="py-2 text-right font-medium text-primary">
@@ -436,7 +443,10 @@ export default function SupplierOrdersPage() {
                               <tbody>
                                 {sub.items.map((item) => (
                                   <tr key={item.id} className="text-muted">
-                                    <td className="py-1">{item.productName}</td>
+                                    <td className="py-1">
+                                      {item.productName}
+                                      {item.unit && <span className="text-xs text-muted/70"> — {item.unit}</span>}
+                                    </td>
                                     <td className="py-1 text-center text-xs">×{item.quantity}</td>
                                     <td className="py-1 text-right text-xs">
                                       £{(item.quantity * item.price).toFixed(2)}

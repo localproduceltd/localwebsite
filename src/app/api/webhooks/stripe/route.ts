@@ -155,10 +155,8 @@ export async function POST(request: NextRequest) {
 
       console.log(`Order ${order.orderNumber} created via webhook for session ${sessionId}`);
 
-      // Update customer box status if needed
-      if (boxDepositPaid) {
-        await setCustomerOutstandingBox(metadata.userId, true);
-      }
+      // Note: has_outstanding_box is set when order is marked delivered, not at checkout
+      // This ensures the flag reflects physical possession of a box
 
       // Send emails
       const customerEmail = session.customer_email;

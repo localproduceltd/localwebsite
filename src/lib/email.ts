@@ -493,10 +493,10 @@ interface SupplierOrderSummaryData {
   supplierEmail: string;
   supplierName: string;
   deliveryDate: string;
-  stockTotals: Array<{ productName: string; totalQuantity: number }>;
+  stockTotals: Array<{ productName: string; unit: string; totalQuantity: number }>;
   orders: Array<{
     orderNumber: number;
-    items: Array<{ productName: string; quantity: number; price: number }>;
+    items: Array<{ productName: string; unit: string; quantity: number; price: number }>;
     subtotal: number;
     hasTopUp?: boolean;
   }>;
@@ -515,7 +515,7 @@ export async function sendSupplierOrderSummary(data: SupplierOrderSummaryData) {
     .map((item) => `
       <tr>
         <td style="padding: 8px 12px; border-bottom: 1px solid #eee;">${item.productName}</td>
-        <td style="padding: 8px 12px; border-bottom: 1px solid #eee; text-align: center; font-weight: bold;">${item.totalQuantity}</td>
+        <td style="padding: 8px 12px; border-bottom: 1px solid #eee; text-align: center; font-weight: bold;">${item.totalQuantity}${item.unit ? ` × ${item.unit}` : ''}</td>
       </tr>
     `)
     .join("");
@@ -531,7 +531,7 @@ export async function sendSupplierOrderSummary(data: SupplierOrderSummaryData) {
         ` : ''}
         ${order.items.map((item) => `
           <div style="display: flex; justify-content: space-between; margin: 6px 0; font-size: 14px;">
-            <span>${item.productName} x${item.quantity}</span>
+            <span>${item.productName}${item.unit ? ` — ${item.unit}` : ''} × ${item.quantity}</span>
             <span>£${(item.price * item.quantity).toFixed(2)}</span>
           </div>
         `).join("")}
