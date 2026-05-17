@@ -20,10 +20,10 @@ export interface TopUpOrder {
 
 interface CartContextType {
   items: CartItem[];
-  addItem: (productId: string) => void;
+  addItem: (productId: string, product?: Product) => void;
   addItems: (items: Array<{ productId: string; quantity: number }>) => void;
   removeItem: (productId: string) => void;
-  updateQuantity: (productId: string, delta: number) => void;
+  updateQuantity: (productId: string, delta: number, product?: Product) => void;
   clearCart: () => void;
   totalItems: number;
   totalPrice: number;
@@ -32,6 +32,26 @@ interface CartContextType {
   topUpOrder: TopUpOrder | null;
   setTopUpOrder: (order: TopUpOrder | null) => void;
   clearTopUpOrder: () => void;
+}
+
+// GA4 add_to_cart event helper
+function fireAddToCartEvent(product: Product, quantity: number) {
+  if (typeof window !== "undefined" && "gtag" in window) {
+    (window as unknown as { gtag: (...args: unknown[]) => void }).gtag("event", "add_to_cart", {
+      currency: "GBP",
+      value: product.price * quantity,
+      items: [
+        {
+          item_id: product.id,
+          item_name: product.name,
+          item_category: product.category,
+          item_brand: product.supplierName,
+          price: product.price,
+          quantity: quantity,
+        },
+      ],
+    });
+  }
 }
 
 const CartContext = createContext<CartContextType | null>(null);
@@ -98,7 +118,13 @@ export function CartProvider({ children }: { children: ReactNode }) {
 
   const clearTopUpOrder = useCallback(() => setTopUpOrder(null), []);
 
-  const addItem = useCallback((productId: string) => {
+  const addItem = useCallback((productId: string, product?: Product) => {
+    // Fire GA4 add_to_cart event
+    const prod = product || products.find((p) => p.id === productId);
+    if (prod) {
+      fireAddToCartEvent(prod, 1);
+    }
+    
     setItems((prev) => {
       const existing = prev.find((i) => i.productId === productId);
       if (existing) {
@@ -108,7 +134,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
       }
       return [...prev, { productId, quantity: 1 }];
     });
-  }, []);
+  }, [products]);
 
   const addItems = useCallback((newItems: Array<{ productId: string; quantity: number }>) => {
     setItems((prev) => {
@@ -129,7 +155,15 @@ export function CartProvider({ children }: { children: ReactNode }) {
     setItems((prev) => prev.filter((i) => i.productId !== productId));
   }, []);
 
-  const updateQuantity = useCallback((productId: string, delta: number) => {
+  const updateQuantity = useCallback((productId: string, delta: number, product?: Product) => {
+    // Fire GA4 add_to_cart event when increasing quantity
+    if (delta > 0) {
+      const prod = product || products.find((p) => p.id === productId);
+      if (prod) {
+        fireAddToCartEvent(prod, delta);
+      }
+    }
+    
     setItems((prev) =>
       prev
         .map((i) =>
@@ -139,7 +173,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
         )
         .filter((i) => i.quantity > 0)
     );
-  }, []);
+  }, [products]);
 
   const clearCart = useCallback(() => setItems([]), []);
 
