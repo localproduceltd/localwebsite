@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { type Product, type Supplier, type Locality, type ProductStatus, ALL_LOCALITIES, getProducts, getLiveSuppliers, createProduct, updateProduct, deleteProduct, restoreProduct, permanentlyDeleteProduct, updateProductStatus, getSupplierByProductId } from "@/lib/data";
+import { type Product, type Supplier, type Locality, type ProductStatus, ALL_LOCALITIES, getProducts, getArchivedProducts, getLiveSuppliers, createProduct, updateProduct, archiveProduct, restoreProduct, permanentlyDeleteProduct, updateProductStatus, getSupplierByProductId } from "@/lib/data";
 import { PRODUCT_CATEGORIES, ALLERGENS, PRODUCT_TAGS } from "@/lib/categories";
 import { Plus, Pencil, Trash2, X, Search, ChevronDown, ChevronRight, MapPin, RotateCcw, Archive, Star, Filter, XCircle } from "lucide-react";
 import MapPicker from "@/components/MapPicker";
@@ -9,6 +9,7 @@ import ImageUpload from "@/components/ImageUpload";
 
 export default function AdminProductsPage() {
   const [productList, setProductList] = useState<Product[]>([]);
+  const [archivedProducts, setArchivedProducts] = useState<Product[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [editing, setEditing] = useState<Product | null>(null);
   const [showForm, setShowForm] = useState(false);
@@ -32,28 +33,43 @@ export default function AdminProductsPage() {
   const [priceFilter, setPriceFilter] = useState<"all" | "has" | "missing">("all");
 
   const fetchProducts = () => getProducts().then(setProductList).catch(console.error);
+  const fetchArchivedProducts = () => getArchivedProducts().then(setArchivedProducts).catch(console.error);
 
   useEffect(() => {
     fetchProducts();
+    fetchArchivedProducts();
     getLiveSuppliers().then(setSuppliers).catch(console.error);
   }, []);
 
   const handleDelete = async () => {
     if (!deletingProduct) return;
-    await deleteProduct(deletingProduct.id);
-    setProductList((prev) => prev.map((p) => p.id === deletingProduct.id ? { ...p, archivedAt: new Date().toISOString() } : p));
+    await archiveProduct(deletingProduct.id);
+    // Move from active to archived list
+    setProductList((prev) => prev.filter((p) => p.id !== deletingProduct.id));
+    setArchivedProducts((prev) => [{ ...deletingProduct, archivedAt: new Date().toISOString() }, ...prev]);
     setDeletingProduct(null);
   };
 
   const handleRestore = async (id: string) => {
+    const product = archivedProducts.find((p) => p.id === id);
     await restoreProduct(id);
-    setProductList((prev) => prev.map((p) => p.id === id ? { ...p, archivedAt: null } : p));
+    // Move from archived to active list
+    setArchivedProducts((prev) => prev.filter((p) => p.id !== id));
+    if (product) {
+      setProductList((prev) => [...prev, { ...product, archivedAt: null }]);
+    }
   };
 
   const handlePermanentDelete = async (id: string) => {
     if (!confirm("Are you sure you want to permanently delete this product? This cannot be undone.")) return;
-    await permanentlyDeleteProduct(id);
-    setProductList((prev) => prev.filter((p) => p.id !== id));
+    const result = await permanentlyDeleteProduct(id);
+    if (result.deleted) {
+      setArchivedProducts((prev) => prev.filter((p) => p.id !== id));
+    } else {
+      // Has outstanding orders - mark out of stock
+      setArchivedProducts((prev) => prev.map((p) => p.id === id ? { ...p, inStock: false } : p));
+      alert("This product has open orders, so it's been marked out of stock instead. You can delete it once those orders are delivered or cancelled.");
+    }
   };
 
   const handleSave = async (product: Product) => {
@@ -138,11 +154,7 @@ export default function AdminProductsPage() {
     setProductList((prev) => prev.map((p) => p.id === product.id ? updatedProduct : p));
   };
 
-  // Separate active and archived products
-  const activeProducts = productList.filter((p) => !p.archivedAt);
-  const archivedProducts = productList.filter((p) => p.archivedAt);
-
-  const filtered = activeProducts
+  const filtered = productList
     .filter((p) => launchSupplierIds.has(p.supplierId)) // Only show products from launch suppliers
     .filter((p) => statusFilter === "all" || p.status === statusFilter)
     .filter((p) => {
@@ -178,8 +190,8 @@ export default function AdminProductsPage() {
     // Price filter
     .filter((p) => priceFilter === "all" || (priceFilter === "has" ? p.price > 0 : !p.price || p.price === 0));
   
-  const pendingCount = activeProducts.filter((p) => launchSupplierIds.has(p.supplierId) && p.status === "pending").length;
-  const totalBeforeFilters = activeProducts.filter((p) => launchSupplierIds.has(p.supplierId)).length;
+  const pendingCount = productList.filter((p) => launchSupplierIds.has(p.supplierId) && p.status === "pending").length;
+  const totalBeforeFilters = productList.filter((p) => launchSupplierIds.has(p.supplierId)).length;
   
   // Count active filters
   const activeFilterCount = [

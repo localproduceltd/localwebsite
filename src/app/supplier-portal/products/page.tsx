@@ -8,6 +8,7 @@ import {
   type SupplierUser,
   type Locality,
   type ProductStatus,
+  type DeleteProductResult,
   ALL_LOCALITIES,
   getSupplierUser,
   getSupplier,
@@ -74,9 +75,15 @@ export default function SupplierProductsPage() {
   const handleDelete = async (id: string) => {
     if (!supplier) return;
     const product = products.find((p) => p.id === id);
-    if (!confirm(`Are you sure you want to delete "${product?.name}"? This cannot be undone.`)) return;
-    await deleteProduct(id);
-    setProducts((prev) => prev.filter((p) => p.id !== id));
+    if (!confirm(`Are you sure you want to delete "${product?.name}"? If there are open orders for this product, it will be marked out of stock instead.`)) return;
+    const result = await deleteProduct(id);
+    if (result.deleted) {
+      setProducts((prev) => prev.filter((p) => p.id !== id));
+    } else {
+      // Has outstanding orders - update to out of stock
+      setProducts((prev) => prev.map((p) => p.id === id ? { ...p, inStock: false } : p));
+      alert("This product has open orders, so it's been marked out of stock instead. You can delete it once those orders are delivered or cancelled.");
+    }
   };
 
   const handleToggleStock = async (product: Product) => {

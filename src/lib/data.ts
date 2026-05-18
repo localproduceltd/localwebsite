@@ -270,6 +270,7 @@ export async function getProducts(): Promise<Product[]> {
   const { data, error } = await supabase
     .from("products")
     .select("*, suppliers(name)")
+    .is("archived_at", null)
     .order("name");
   if (error) throw error;
   return data.map((p) => ({
@@ -303,6 +304,7 @@ export async function getApprovedProducts(): Promise<Product[]> {
     .select("*, suppliers!inner(name, active, status)")
     .eq("status", "approved")
     .eq("suppliers.status", "launch_live")
+    .is("archived_at", null)
     .order("name");
   if (error) throw error;
   return data.map((p) => ({
@@ -332,6 +334,7 @@ export async function getProductsBySupplier(supplierId: string): Promise<Product
     .from("products")
     .select("*, suppliers(name)")
     .eq("supplier_id", supplierId)
+    .is("archived_at", null)
     .order("name");
   if (error) throw error;
   return data.map((p) => ({
@@ -363,6 +366,7 @@ export async function getProduct(id: string): Promise<Product | null> {
     .from("products")
     .select("*, suppliers(name)")
     .eq("id", id)
+    .is("archived_at", null)
     .single();
   if (error) return null;
   return {
@@ -387,6 +391,37 @@ export async function getProduct(id: string): Promise<Product | null> {
     tags: data.tags ?? [],
     ingredients: data.ingredients ?? null,
   };
+}
+
+export async function getArchivedProducts(): Promise<Product[]> {
+  const { data, error } = await supabase
+    .from("products")
+    .select("*, suppliers(name)")
+    .not("archived_at", "is", null)
+    .order("archived_at", { ascending: false });
+  if (error) throw error;
+  return data.map((p) => ({
+    id: p.id,
+    supplierId: p.supplier_id,
+    supplierName: (p.suppliers as { name: string })?.name ?? "",
+    name: p.name,
+    description: p.description,
+    price: Number(p.price),
+    unit: p.unit,
+    image: p.image,
+    category: p.category,
+    inStock: p.in_stock,
+    locality: (p.locality as Locality) ?? "Local",
+    lat: p.lat ?? null,
+    lng: p.lng ?? null,
+    variableLocation: p.variable_location ?? false,
+    status: (p.status as ProductStatus) ?? "approved",
+    rejectionReason: p.rejection_reason ?? null,
+    archivedAt: p.archived_at ?? null,
+    allergens: p.allergens ?? [],
+    tags: p.tags ?? [],
+    ingredients: p.ingredients ?? null,
+  }));
 }
 
 export async function getOrders(userId?: string): Promise<Order[]> {
@@ -518,8 +553,39 @@ export async function updateProduct(product: Product): Promise<void> {
   if (error) throw error;
 }
 
-export async function deleteProduct(id: string): Promise<void> {
-  // Soft delete - set archived_at timestamp
+export type DeleteProductResult = 
+  | { deleted: true }
+  | { deleted: false; reason: "has_outstanding_orders" };
+
+export async function deleteProduct(id: string): Promise<DeleteProductResult> {
+  // Check for outstanding order items (not delivered or cancelled)
+  const { data: outstandingItems, error: checkError } = await supabase
+    .from("order_items")
+    .select("id")
+    .eq("product_id", id)
+    .not("supplier_status", "in", "(delivered,cancelled)")
+    .limit(1);
+  
+  if (checkError) throw checkError;
+  
+  if (outstandingItems && outstandingItems.length > 0) {
+    // Has outstanding orders - mark out of stock instead
+    const { error: updateError } = await supabase
+      .from("products")
+      .update({ in_stock: false })
+      .eq("id", id);
+    if (updateError) throw updateError;
+    return { deleted: false, reason: "has_outstanding_orders" };
+  }
+  
+  // No outstanding orders - hard delete
+  const { error } = await supabase.from("products").delete().eq("id", id);
+  if (error) throw error;
+  return { deleted: true };
+}
+
+export async function archiveProduct(id: string): Promise<void> {
+  // Soft delete - set archived_at timestamp (admin use)
   const { error } = await supabase.from("products").update({ archived_at: new Date().toISOString() }).eq("id", id);
   if (error) throw error;
 }
@@ -529,9 +595,31 @@ export async function restoreProduct(id: string): Promise<void> {
   if (error) throw error;
 }
 
-export async function permanentlyDeleteProduct(id: string): Promise<void> {
+export async function permanentlyDeleteProduct(id: string): Promise<DeleteProductResult> {
+  // Check for outstanding order items (not delivered or cancelled)
+  const { data: outstandingItems, error: checkError } = await supabase
+    .from("order_items")
+    .select("id")
+    .eq("product_id", id)
+    .not("supplier_status", "in", "(delivered,cancelled)")
+    .limit(1);
+  
+  if (checkError) throw checkError;
+  
+  if (outstandingItems && outstandingItems.length > 0) {
+    // Has outstanding orders - mark out of stock instead
+    const { error: updateError } = await supabase
+      .from("products")
+      .update({ in_stock: false })
+      .eq("id", id);
+    if (updateError) throw updateError;
+    return { deleted: false, reason: "has_outstanding_orders" };
+  }
+  
+  // No outstanding orders - hard delete
   const { error } = await supabase.from("products").delete().eq("id", id);
   if (error) throw error;
+  return { deleted: true };
 }
 
 export async function createSupplier(supplier: Omit<Supplier, "id">): Promise<Supplier> {
