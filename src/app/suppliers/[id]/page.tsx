@@ -2,8 +2,8 @@
 
 import Link from "next/link";
 import Image from "next/image";
-import { getSupplier, getProductsBySupplier, getAverageRatings } from "@/lib/data";
-import { MapPin, ArrowLeft, Check, Plus, Minus, Star, Instagram } from "lucide-react";
+import { getSupplier, getProductsBySupplier, getAverageRatings, isOnHoliday } from "@/lib/data";
+import { MapPin, ArrowLeft, Check, Plus, Minus, Star, Instagram, Palmtree } from "lucide-react";
 import { notFound } from "next/navigation";
 import SupplierDistance from "@/components/SupplierDistance";
 import { LOCALITY_COLORS } from "@/lib/locality";
@@ -92,6 +92,25 @@ export default function SupplierDetailPage({ params }: { params: Promise<{ id: s
         </div>
       </div>
 
+      {/* Holiday banner */}
+      {isOnHoliday(supplier) && (
+        <div className="mt-4 rounded-xl bg-amber-50 border border-amber-200 p-4">
+          <div className="flex items-center gap-3">
+            <Palmtree size={24} className="text-amber-600 flex-shrink-0" />
+            <div>
+              <p className="font-semibold text-amber-800">
+                {supplier.name} is currently on holiday
+              </p>
+              <p className="text-sm text-amber-700 mt-0.5">
+                {supplier.holidayUntil 
+                  ? `Back ${new Date(supplier.holidayUntil + "T00:00:00").toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })}`
+                  : supplier.holidayMessage || "They'll be back soon — check back later!"}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Products */}
       <h2 className="mt-10 text-xl font-bold text-primary">
         Products from {supplier.name}
@@ -172,10 +191,18 @@ export default function SupplierDetailPage({ params }: { params: Promise<{ id: s
                   <div className="mt-auto pt-1">
                   {(() => {
                     const cartItem = items.find(i => i.productId === product.id);
+                    const supplierOnHoliday = isOnHoliday(supplier);
                     if (!product.inStock) {
                       return (
                         <div className="mt-2 flex w-full items-center justify-center rounded-lg border-2 border-muted/30 bg-muted/10 py-1.5 text-xs font-semibold text-muted sm:mt-3 sm:py-2 sm:text-sm">
                           Out of Stock
+                        </div>
+                      );
+                    }
+                    if (supplierOnHoliday) {
+                      return (
+                        <div className="mt-2 flex w-full items-center justify-center rounded-lg border-2 border-amber-300 bg-amber-50 py-1.5 text-xs font-semibold text-amber-700 sm:mt-3 sm:py-2 sm:text-sm">
+                          Back soon
                         </div>
                       );
                     }

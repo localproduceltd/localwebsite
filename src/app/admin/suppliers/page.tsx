@@ -11,8 +11,9 @@ import {
   getSupplierUsers,
   createSupplierUser,
   deleteSupplierUser,
+  isOnHoliday,
 } from "@/lib/data";
-import { Plus, Pencil, Trash2, X, MapPin, UserPlus, Link2, ChevronDown, ChevronRight, Star } from "lucide-react";
+import { Plus, Pencil, Trash2, X, MapPin, UserPlus, Link2, ChevronDown, ChevronRight, Star, Palmtree } from "lucide-react";
 import { type SupplierStatus } from "@/lib/data";
 import ImageUpload from "@/components/ImageUpload";
 import MapPicker from "@/components/MapPicker";
@@ -76,6 +77,9 @@ export default function AdminSuppliersPage() {
   // Count incomplete profiles
   const incompleteCount = (suppliers: Supplier[]) => 
     suppliers.filter((s) => getIncompleteFields(s, supplierUsers.some((su) => su.supplierId === s.id)).length > 0).length;
+
+  // Count on-holiday suppliers
+  const holidayCount = liveSuppliers.filter(isOnHoliday).length;
 
   const fetchSuppliers = () => getSuppliers().then(setSupplierList).catch(console.error);
   const fetchSupplierUsers = () => getSupplierUsers().then(setSupplierUsers).catch(console.error);
@@ -202,6 +206,11 @@ export default function AdminSuppliersPage() {
             {liveSuppliers.filter((s) => s.featured).length > 0 && (
               <span className="inline-flex items-center gap-1 rounded-full bg-accent/20 px-2.5 py-0.5 text-xs font-medium text-accent">
                 <Star size={10} className="fill-accent" /> {liveSuppliers.filter((s) => s.featured).length} featured
+              </span>
+            )}
+            {holidayCount > 0 && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-700">
+                <Palmtree size={10} /> {holidayCount} on holiday
               </span>
             )}
             {incompleteCount(liveSuppliers) > 0 && (
@@ -371,6 +380,9 @@ function SupplierForm({
       email: null,
       instagram: null,
       featured: false,
+      onHoliday: false,
+      holidayUntil: null,
+      holidayMessage: null,
     }
   );
   const [showMapPicker, setShowMapPicker] = useState(false);
@@ -454,6 +466,47 @@ function SupplierForm({
               <option value="archived">Archived</option>
             </select>
           </div>
+          {/* On Holiday toggle - only show for launch_live suppliers */}
+          {form.status === "launch_live" && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Palmtree size={16} className="text-amber-600" />
+                  <span className="text-sm font-medium text-amber-800">On Holiday</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setForm({ ...form, onHoliday: !form.onHoliday })}
+                  className={`relative h-6 w-11 rounded-full transition ${form.onHoliday ? "bg-amber-500" : "bg-gray-300"}`}
+                >
+                  <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition ${form.onHoliday ? "left-5" : "left-0.5"}`} />
+                </button>
+              </div>
+              {form.onHoliday && (
+                <div className="mt-3 space-y-2">
+                  <div>
+                    <label className="block text-xs font-medium text-amber-700 mb-1">Return Date (optional)</label>
+                    <input
+                      type="date"
+                      value={form.holidayUntil || ""}
+                      onChange={(e) => setForm({ ...form, holidayUntil: e.target.value || null })}
+                      className="w-full rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-sm outline-none focus:border-amber-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-amber-700 mb-1">Custom Message (optional)</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Back after the bank holiday!"
+                      value={form.holidayMessage || ""}
+                      onChange={(e) => setForm({ ...form, holidayMessage: e.target.value || null })}
+                      className="w-full rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-sm outline-none focus:border-amber-500"
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
           <div>
             <label className="block text-xs font-medium text-muted mb-1">Location on Map</label>
             <button
@@ -514,11 +567,12 @@ function SupplierCard({
   const statusConfig = STATUS_CONFIG[supplier.status];
   const incompleteFields = getIncompleteFields(supplier, !!linked);
   const isComplete = incompleteFields.length === 0;
+  const onHoliday = isOnHoliday(supplier);
 
   return (
     <div className="overflow-hidden rounded-xl bg-surface shadow-sm">
       <div className="relative aspect-[3/2] overflow-hidden">
-        <img src={supplier.image || "/images/Holding Image - Supplier.png"} alt={supplier.name} className="h-full w-full object-cover" />
+        <img src={supplier.image || "/images/Holding Image - Supplier.png"} alt={supplier.name} className={`h-full w-full object-cover ${onHoliday ? "opacity-80" : ""}`} />
         {/* Featured star */}
         <button
           onClick={onToggleFeatured}
@@ -534,6 +588,12 @@ function SupplierCard({
         <span className={`absolute top-2 right-2 rounded-full px-2.5 py-0.5 text-xs font-bold ${statusConfig.bgColor} ${statusConfig.color}`}>
           {statusConfig.label}
         </span>
+        {/* Holiday badge */}
+        {onHoliday && (
+          <span className="absolute top-10 right-2 inline-flex items-center gap-1 rounded-full bg-amber-500 px-2 py-0.5 text-xs font-bold text-white">
+            <Palmtree size={10} /> Holiday
+          </span>
+        )}
         {/* Profile completeness indicator */}
         {!isComplete && (
           <div className="absolute top-2 left-10 group">

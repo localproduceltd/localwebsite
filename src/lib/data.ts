@@ -18,6 +18,25 @@ export interface Supplier {
   email: string | null;
   instagram: string | null;
   featured: boolean;
+  onHoliday: boolean;
+  holidayUntil: string | null;
+  holidayMessage: string | null;
+}
+
+export function isOnHoliday(supplier: Supplier): boolean {
+  if (!supplier.onHoliday || supplier.status !== "launch_live") return false;
+  if (!supplier.holidayUntil) return true;
+  const today = new Date().toISOString().split("T")[0];
+  return supplier.holidayUntil >= today;
+}
+
+export interface SupplierHolidayInfo {
+  id: string;
+  name: string;
+  onHoliday: boolean;
+  holidayUntil: string | null;
+  holidayMessage: string | null;
+  status: SupplierStatus;
 }
 
 export interface SupplierUser {
@@ -135,6 +154,9 @@ export async function getSuppliers(): Promise<Supplier[]> {
     email: s.email ?? null,
     instagram: s.instagram ?? null,
     featured: s.featured ?? false,
+    onHoliday: s.on_holiday ?? false,
+    holidayUntil: s.holiday_until ?? null,
+    holidayMessage: s.holiday_message ?? null,
   }));
 }
 
@@ -159,6 +181,9 @@ export async function getLiveSuppliers(): Promise<Supplier[]> {
     email: s.email ?? null,
     instagram: s.instagram ?? null,
     featured: s.featured ?? false,
+    onHoliday: s.on_holiday ?? false,
+    holidayUntil: s.holiday_until ?? null,
+    holidayMessage: s.holiday_message ?? null,
   }));
 }
 
@@ -185,6 +210,9 @@ export async function getActiveSuppliers(): Promise<Supplier[]> {
     email: s.email ?? null,
     instagram: s.instagram ?? null,
     featured: s.featured ?? false,
+    onHoliday: s.on_holiday ?? false,
+    holidayUntil: s.holiday_until ?? null,
+    holidayMessage: s.holiday_message ?? null,
   }));
 }
 
@@ -208,7 +236,34 @@ export async function getSupplier(id: string): Promise<Supplier | null> {
     email: data.email ?? null,
     instagram: data.instagram ?? null,
     featured: data.featured ?? false,
+    onHoliday: data.on_holiday ?? false,
+    holidayUntil: data.holiday_until ?? null,
+    holidayMessage: data.holiday_message ?? null,
   };
+}
+
+export async function getSuppliersHolidayInfo(supplierIds: string[]): Promise<SupplierHolidayInfo[]> {
+  if (supplierIds.length === 0) return [];
+  const { data, error } = await supabase
+    .from("suppliers")
+    .select("id, name, on_holiday, holiday_until, holiday_message, status")
+    .in("id", supplierIds);
+  if (error) throw error;
+  return data.map((s) => ({
+    id: s.id,
+    name: s.name,
+    onHoliday: s.on_holiday ?? false,
+    holidayUntil: s.holiday_until ?? null,
+    holidayMessage: s.holiday_message ?? null,
+    status: s.status ?? "launch_live",
+  }));
+}
+
+export function isSupplierOnHoliday(info: SupplierHolidayInfo): boolean {
+  if (!info.onHoliday || info.status !== "launch_live") return false;
+  if (!info.holidayUntil) return true;
+  const today = new Date().toISOString().split("T")[0];
+  return info.holidayUntil >= today;
 }
 
 export async function getProducts(): Promise<Product[]> {
@@ -493,7 +548,7 @@ export async function createSupplier(supplier: Omit<Supplier, "id">): Promise<Su
     instagram: supplier.instagram,
   }).select().single();
   if (error) throw error;
-  return { id: data.id, name: data.name, description: data.description, image: data.image, location: data.location, category: data.category, lat: data.lat ?? null, lng: data.lng ?? null, status: data.status ?? "launch_live", email: data.email ?? null, instagram: data.instagram ?? null, featured: data.featured ?? false };
+  return { id: data.id, name: data.name, description: data.description, image: data.image, location: data.location, category: data.category, lat: data.lat ?? null, lng: data.lng ?? null, status: data.status ?? "launch_live", email: data.email ?? null, instagram: data.instagram ?? null, featured: data.featured ?? false, onHoliday: data.on_holiday ?? false, holidayUntil: data.holiday_until ?? null, holidayMessage: data.holiday_message ?? null };
 }
 
 export async function updateSupplier(supplier: Supplier): Promise<void> {
@@ -509,6 +564,9 @@ export async function updateSupplier(supplier: Supplier): Promise<void> {
     email: supplier.email,
     instagram: supplier.instagram,
     featured: supplier.featured,
+    on_holiday: supplier.onHoliday,
+    holiday_until: supplier.holidayUntil,
+    holiday_message: supplier.holidayMessage,
   }).eq("id", supplier.id);
   if (error) throw error;
 }
@@ -520,7 +578,7 @@ export async function getSupplierByProductId(productId: string): Promise<Supplie
     .eq("id", productId)
     .single();
   if (error || !data?.suppliers) return null;
-  const s = data.suppliers as unknown as { id: string; name: string; description: string; image: string; location: string; category: string; lat: number | null; lng: number | null; status: string; email: string | null; instagram: string | null };
+  const s = data.suppliers as unknown as { id: string; name: string; description: string; image: string; location: string; category: string; lat: number | null; lng: number | null; status: string; email: string | null; instagram: string | null; on_holiday: boolean; holiday_until: string | null; holiday_message: string | null };
   return {
     id: s.id,
     name: s.name,
@@ -534,6 +592,9 @@ export async function getSupplierByProductId(productId: string): Promise<Supplie
     email: s.email ?? null,
     instagram: s.instagram ?? null,
     featured: false,
+    onHoliday: s.on_holiday ?? false,
+    holidayUntil: s.holiday_until ?? null,
+    holidayMessage: s.holiday_message ?? null,
   };
 }
 

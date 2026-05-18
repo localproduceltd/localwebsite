@@ -3,26 +3,46 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { getLiveSuppliers } from "@/lib/data";
+import { getLiveSuppliers, isOnHoliday } from "@/lib/data";
 import type { Supplier } from "@/lib/data";
 import { MapPin } from "lucide-react";
 import SupplierDistance from "@/components/SupplierDistance";
 import { SignedOut } from "@clerk/nextjs";
 
+function getHolidayBannerText(supplier: Supplier): string {
+  if (supplier.holidayUntil) {
+    const date = new Date(supplier.holidayUntil + "T00:00:00");
+    return `Back ${date.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })}`;
+  }
+  if (supplier.holidayMessage) {
+    return supplier.holidayMessage;
+  }
+  return "On holiday";
+}
+
 function SupplierCard({ supplier }: { supplier: Supplier }) {
   const isLive = supplier.status === "launch_live";
+  const onHoliday = isOnHoliday(supplier);
   
   const cardContent = (
     <>
       {/* Diagonal banner for launch_not_live suppliers */}
-      {!isLive && (
+      {!isLive && !onHoliday && (
         <div className="absolute inset-0 z-10 pointer-events-none">
           <div className="absolute top-6 -right-16 w-64 rotate-45 bg-secondary py-3 text-center shadow-lg">
             <p className="text-base font-bold text-white leading-tight">Coming Soon</p>
           </div>
         </div>
       )}
-      <div className={`relative aspect-[3/2] overflow-hidden ${!isLive ? "grayscale-[30%] opacity-70" : ""}`}>
+      {/* Diagonal banner for on-holiday suppliers - amber color to distinguish from Coming Soon */}
+      {onHoliday && (
+        <div className="absolute inset-0 z-10 pointer-events-none">
+          <div className="absolute top-6 -right-16 w-64 rotate-45 bg-amber-500 py-3 text-center shadow-lg">
+            <p className="text-sm font-bold text-white leading-tight">{getHolidayBannerText(supplier)}</p>
+          </div>
+        </div>
+      )}
+      <div className={`relative aspect-[3/2] overflow-hidden ${!isLive && !onHoliday ? "grayscale-[30%] opacity-70" : ""} ${onHoliday ? "opacity-80" : ""}`}>
         <Image
           src={supplier.image || "/images/Holding Image - Supplier.png"}
           alt={supplier.name}
@@ -31,7 +51,7 @@ function SupplierCard({ supplier }: { supplier: Supplier }) {
           className={`object-cover ${isLive ? "transition-transform group-hover:scale-105" : ""}`}
         />
       </div>
-      <div className={`p-4 ${!isLive ? "opacity-80" : ""}`}>
+      <div className={`p-4 ${!isLive && !onHoliday ? "opacity-80" : ""}`}>
         <span className="inline-block rounded-full bg-secondary/20 px-2.5 py-0.5 text-xs font-medium text-primary">
           {supplier.category}
         </span>
@@ -48,7 +68,7 @@ function SupplierCard({ supplier }: { supplier: Supplier }) {
     </>
   );
 
-  // Live suppliers are clickable, coming soon suppliers are not
+  // Live suppliers (including on-holiday) are clickable, coming soon suppliers are not
   if (isLive) {
     return (
       <Link

@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { Trash2, Plus, Minus, ShoppingCart, CheckCircle, Calendar, Clock, Home, Package, MapPin, HelpCircle, X, Loader2, MessageCircle, Lock, Unlock } from "lucide-react";
 import { useUser } from "@clerk/nextjs";
 import { useCart } from "@/lib/cart-context";
-import { type DeliveryDay, type DeliveryWindow, type DeliveryZone, getActiveDeliveryDays, getCustomerProfile, getLiveDeliveryZones, getDeliveryZones, submitExpansionRequest } from "@/lib/data";
+import { type DeliveryDay, type DeliveryWindow, type DeliveryZone, type SupplierHolidayInfo, getActiveDeliveryDays, getCustomerProfile, getLiveDeliveryZones, getDeliveryZones, submitExpansionRequest, getSuppliersHolidayInfo, isSupplierOnHoliday } from "@/lib/data";
 import { lookupPostcode, isWithinDeliveryZones } from "@/lib/postcode";
 import { BOX_DEPOSIT, BOTTLE_DEPOSIT, MINIMUM_ORDER, DELIVERY_FEE } from "@/lib/constants";
 
@@ -52,6 +52,9 @@ export default function CartPage() {
   const [trialUnlocked, setTrialUnlocked] = useState(false);
   const [trialError, setTrialError] = useState("");
 
+  // Holiday suppliers state
+  const [holidaySuppliers, setHolidaySuppliers] = useState<SupplierHolidayInfo[]>([]);
+
   const handleTrialUnlock = () => {
     const validCode = process.env.NEXT_PUBLIC_TRIAL_CODE;
     if (trialCode.trim().toUpperCase() === validCode?.toUpperCase()) {
@@ -79,6 +82,16 @@ export default function CartPage() {
     getLiveDeliveryZones().then(setDeliveryZones).catch(console.error);
     getDeliveryZones().then(setAllZones).catch(console.error);
   }, []);
+
+  // Fetch holiday info for suppliers in cart
+  useEffect(() => {
+    const supplierIds = [...new Set(items.map((item) => getProduct(item.productId)?.supplierId).filter(Boolean))] as string[];
+    if (supplierIds.length > 0) {
+      getSuppliersHolidayInfo(supplierIds).then(setHolidaySuppliers).catch(console.error);
+    } else {
+      setHolidaySuppliers([]);
+    }
+  }, [items, getProduct]);
 
   useEffect(() => {
     if (user) {
@@ -153,6 +166,10 @@ export default function CartPage() {
   // Check minimum order (not required for top-up orders)
   const belowMinimum = !topUpOrder && totalPrice < MINIMUM_ORDER;
   const amountToMinimum = MINIMUM_ORDER - totalPrice;
+
+  // Check for on-holiday suppliers in cart
+  const holidaySuppliersInCart = holidaySuppliers.filter((s) => isSupplierOnHoliday(s));
+  const hasHolidayItems = holidaySuppliersInCart.length > 0;
 
   const handlePlaceOrder = async () => {
     if (!isSignedIn || !user) {
@@ -358,10 +375,12 @@ export default function CartPage() {
                 {supplierItems.map((item) => {
                   const product = getProduct(item.productId);
                   if (!product) return null;
+                  const supplierHolidayInfo = holidaySuppliers.find((s) => s.id === product.supplierId);
+                  const itemSupplierOnHoliday = supplierHolidayInfo && isSupplierOnHoliday(supplierHolidayInfo);
                   return (
                     <div
                       key={item.productId}
-                      className="rounded-xl bg-surface p-4 shadow-sm"
+                      className={`rounded-xl bg-surface p-4 shadow-sm ${itemSupplierOnHoliday ? "border-2 border-amber-300" : ""}`}
                     >
                       <div className="flex items-center gap-4">
                         <div className="h-16 w-16 flex-shrink-0 overflow-hidden rounded-lg bg-secondary/10 sm:h-20 sm:w-20">
@@ -378,6 +397,20 @@ export default function CartPage() {
                           <Trash2 size={16} />
                         </button>
                       </div>
+                      {/* Holiday warning */}
+                      {itemSupplierOnHoliday && (
+                        <div className="mt-3 flex items-center justify-between rounded-lg bg-amber-50 border border-amber-200 px-3 py-2">
+                          <p className="text-sm text-amber-800">
+                            <span className="font-semibold">{product.supplierName}</span> is on holiday — remove to checkout
+                          </p>
+                          <button
+                            onClick={() => removeItem(item.productId)}
+                            className="text-xs font-semibold text-amber-700 hover:text-amber-900 transition"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      )}
                       <div className="mt-3 flex items-center justify-between border-t border-primary/5 pt-3">
                         <div className="flex items-center gap-2">
                           <button
@@ -928,17 +961,26 @@ export default function CartPage() {
             </p>
           </div>
         )}
+
+        {/* Holiday items warning */}
+        {hasHolidayItems && (
+          <div className="mt-4 rounded-lg bg-amber-50 border border-amber-200 px-4 py-3">
+            <p className="text-sm font-medium text-amber-800">
+              Remove items from on-holiday suppliers to checkout
+            </p>
+          </div>
+        )}
         
         <button
           disabled={
             topUpOrder 
-              ? (belowMinimum || !isSignedIn || placing)
-              : (belowMinimum || !trialUnlocked || !deliveryCheck?.inZone || !addressForm.addressLine1.trim() || !selectedDay || !deliveryWindow || willBeIn === null || (willBeIn === false && !safePlace.trim()) || (hasGlassBottles && hasOwnBottles === null) || placing)
+              ? (belowMinimum || hasHolidayItems || !isSignedIn || placing)
+              : (belowMinimum || hasHolidayItems || !trialUnlocked || !deliveryCheck?.inZone || !addressForm.addressLine1.trim() || !selectedDay || !deliveryWindow || willBeIn === null || (willBeIn === false && !safePlace.trim()) || (hasGlassBottles && hasOwnBottles === null) || placing)
           }
           onClick={handlePlaceOrder}
           className="mt-6 w-full rounded-lg bg-accent py-3 text-center font-semibold text-primary transition hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {placing ? "Redirecting to Checkout..." : belowMinimum ? `Minimum order £${MINIMUM_ORDER}` : topUpOrder ? "Add to Order & Pay" : !trialUnlocked ? "Enter Trial Code" : !isSignedIn ? "Sign In to Continue" : !deliveryCheck?.inZone ? "Check Postcode First" : !addressForm.addressLine1.trim() ? "Enter Address" : !selectedDay ? "Select Delivery Day" : !deliveryWindow ? "Select Delivery Window" : willBeIn === null ? "Select Attendance" : (willBeIn === false && !safePlace.trim()) ? "Enter Safe Place" : (hasGlassBottles && hasOwnBottles === null) ? "Select Bottle Deposit Option" : "Continue to Checkout"}
+          {placing ? "Redirecting to Checkout..." : hasHolidayItems ? "Remove Holiday Items" : belowMinimum ? `Minimum order £${MINIMUM_ORDER}` : topUpOrder ? "Add to Order & Pay" : !trialUnlocked ? "Enter Trial Code" : !isSignedIn ? "Sign In to Continue" : !deliveryCheck?.inZone ? "Check Postcode First" : !addressForm.addressLine1.trim() ? "Enter Address" : !selectedDay ? "Select Delivery Day" : !deliveryWindow ? "Select Delivery Window" : willBeIn === null ? "Select Attendance" : (willBeIn === false && !safePlace.trim()) ? "Enter Safe Place" : (hasGlassBottles && hasOwnBottles === null) ? "Select Bottle Deposit Option" : "Continue to Checkout"}
         </button>
         {!isSignedIn && (
           <p className="mt-2 text-center text-xs text-muted">

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { stripe } from "@/lib/stripe";
 import { auth } from "@clerk/nextjs/server";
-import { canModifyOrder } from "@/lib/data";
+import { canModifyOrder, getSuppliersHolidayInfo, isSupplierOnHoliday } from "@/lib/data";
 
 interface CartItem {
   productId: string;
@@ -42,6 +42,18 @@ export async function POST(request: NextRequest) {
     const canModify = await canModifyOrder(orderId);
     if (!canModify) {
       return NextResponse.json({ error: "Order cannot be modified - cutoff has passed" }, { status: 400 });
+    }
+
+    // Check for on-holiday suppliers
+    const supplierIds = [...new Set(items.map((item) => item.supplierId))];
+    const suppliersInfo = await getSuppliersHolidayInfo(supplierIds);
+    const holidaySuppliers = suppliersInfo.filter(isSupplierOnHoliday);
+    if (holidaySuppliers.length > 0) {
+      const names = holidaySuppliers.map((s) => s.name).join(", ");
+      return NextResponse.json(
+        { error: `Cannot checkout: ${names} ${holidaySuppliers.length === 1 ? "is" : "are"} currently on holiday. Please remove their items from your cart.` },
+        { status: 400 }
+      );
     }
 
     // Create line items for Stripe (no delivery fee for top-ups)

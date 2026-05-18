@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { ArrowRight, Star, MapPinned, Loader2, CheckCircle } from "lucide-react";
-import { getApprovedProducts, getActiveSuppliers, getAverageRatings, getActiveDeliveryDays, submitEmailSignup, getAllReviews } from "@/lib/data";
+import { getApprovedProducts, getActiveSuppliers, getAverageRatings, getActiveDeliveryDays, submitEmailSignup, getAllReviews, isOnHoliday } from "@/lib/data";
 import type { Product, Supplier, DeliveryDay } from "@/lib/data";
 import AboutJosie from "@/components/AboutJosie";
 import SupplierDistance from "@/components/SupplierDistance";
@@ -175,34 +175,49 @@ export default function Home() {
           </div>
 
           <div className="mt-8 grid gap-4 grid-cols-2 sm:grid-cols-3 lg:grid-cols-4">
-            {suppliers.slice(0, 4).map((supplier) => (
-              <Link
-                key={supplier.id}
-                href={`/suppliers/${supplier.id}`}
-                className="group overflow-hidden rounded-xl bg-surface shadow-sm transition hover:shadow-md"
-              >
-                <div className="relative aspect-[3/2] overflow-hidden">
-                  <Image
-                    src={supplier.image}
-                    alt={supplier.name}
-                    fill
-                    sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
-                    className="object-cover transition-transform group-hover:scale-105"
-                  />
-                </div>
-                <div className="p-4">
-                  <span className="inline-block rounded-full bg-secondary/20 px-2.5 py-0.5 text-xs font-medium text-primary">
-                    {supplier.category}
-                  </span>
-                  <h3 className="mt-2 font-semibold text-primary">{supplier.name}</h3>
-                  <p className="mt-1 text-sm text-muted line-clamp-2">{supplier.description}</p>
-                  <div className="mt-2 flex items-center justify-between">
-                    <p className="text-xs text-secondary font-medium">{supplier.location}</p>
-                    <SupplierDistance supplierLat={supplier.lat} supplierLng={supplier.lng} />
+            {suppliers.slice(0, 4).map((supplier) => {
+              const onHoliday = isOnHoliday(supplier);
+              return (
+                <Link
+                  key={supplier.id}
+                  href={`/suppliers/${supplier.id}`}
+                  className="group relative overflow-hidden rounded-xl bg-surface shadow-sm transition hover:shadow-md"
+                >
+                  {/* Holiday ribbon */}
+                  {onHoliday && (
+                    <div className="absolute inset-0 z-10 pointer-events-none">
+                      <div className="absolute top-6 -right-16 w-64 rotate-45 bg-amber-500 py-3 text-center shadow-lg">
+                        <p className="text-sm font-bold text-white leading-tight">
+                          {supplier.holidayUntil 
+                            ? `Back ${new Date(supplier.holidayUntil + "T00:00:00").toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })}`
+                            : supplier.holidayMessage || "On holiday"}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                  <div className={`relative aspect-[3/2] overflow-hidden ${onHoliday ? "opacity-80" : ""}`}>
+                    <Image
+                      src={supplier.image}
+                      alt={supplier.name}
+                      fill
+                      sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
+                      className="object-cover transition-transform group-hover:scale-105"
+                    />
                   </div>
-                </div>
-              </Link>
-            ))}
+                  <div className="p-4">
+                    <span className="inline-block rounded-full bg-secondary/20 px-2.5 py-0.5 text-xs font-medium text-primary">
+                      {supplier.category}
+                    </span>
+                    <h3 className="mt-2 font-semibold text-primary">{supplier.name}</h3>
+                    <p className="mt-1 text-sm text-muted line-clamp-2">{supplier.description}</p>
+                    <div className="mt-2 flex items-center justify-between">
+                      <p className="text-xs text-secondary font-medium">{supplier.location}</p>
+                      <SupplierDistance supplierLat={supplier.lat} supplierLng={supplier.lng} />
+                    </div>
+                  </div>
+                </Link>
+              );
+            })}
           </div>
 
           <div className="mt-6 text-center sm:hidden">
