@@ -952,6 +952,7 @@ export default function CartPage() {
           <span className="text-lg font-bold text-primary">Total</span>
           <span className="text-lg font-bold text-primary">£{finalTotal.toFixed(2)}</span>
         </div>
+        <p className="mt-1 text-xs text-muted">Got a promo code? You can enter it at checkout.</p>
         
         {/* Minimum order warning */}
         {belowMinimum && (
