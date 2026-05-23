@@ -1,11 +1,31 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { type Product, type Supplier, type Locality, type ProductStatus, ALL_LOCALITIES, getProducts, getArchivedProducts, getLiveSuppliers, createProduct, updateProduct, archiveProduct, restoreProduct, permanentlyDeleteProduct, updateProductStatus, getSupplierByProductId } from "@/lib/data";
 import { PRODUCT_CATEGORIES, ALLERGENS, PRODUCT_TAGS } from "@/lib/categories";
-import { Plus, Pencil, Trash2, X, Search, ChevronDown, ChevronRight, MapPin, RotateCcw, Archive, Star, Filter, XCircle } from "lucide-react";
+import { Plus, Pencil, Trash2, X, Search, ChevronDown, ChevronRight, MapPin, RotateCcw, Archive, Star, Filter, XCircle, Check } from "lucide-react";
 import MapPicker from "@/components/MapPicker";
 import ImageUpload from "@/components/ImageUpload";
+
+function IndeterminateCheckbox({ checked, indeterminate, onChange }: { checked: boolean; indeterminate: boolean; onChange: () => void }) {
+  const ref = useRef<HTMLInputElement>(null);
+  
+  useEffect(() => {
+    if (ref.current) {
+      ref.current.indeterminate = indeterminate;
+    }
+  }, [indeterminate]);
+  
+  return (
+    <input
+      ref={ref}
+      type="checkbox"
+      checked={checked}
+      onChange={onChange}
+      className="h-4 w-4 rounded border-primary/30 text-secondary focus:ring-secondary cursor-pointer"
+    />
+  );
+}
 
 export default function AdminProductsPage() {
   const [productList, setProductList] = useState<Product[]>([]);
@@ -20,6 +40,11 @@ export default function AdminProductsPage() {
   const [rejectionReason, setRejectionReason] = useState("");
   const [deletingProduct, setDeletingProduct] = useState<Product | null>(null);
   const [showArchived, setShowArchived] = useState(false);
+  
+  // Bulk selection state
+  const [selectedProductIds, setSelectedProductIds] = useState<Set<string>>(new Set());
+  const [bulkRejectModalOpen, setBulkRejectModalOpen] = useState(false);
+  const [bulkRejectionReason, setBulkRejectionReason] = useState("");
   
   // Advanced filters
   const [showFilters, setShowFilters] = useState(false);
@@ -216,6 +241,7 @@ export default function AdminProductsPage() {
     setPriceFilter("all");
     setStatusFilter("all");
     setSupplierFilter("all");
+    setSelectedProductIds(new Set());
   };
 
   // Group products by supplier, sorted alphabetically
@@ -238,6 +264,128 @@ export default function AdminProductsPage() {
     
     return Array.from(groups.entries()).sort((a, b) => a[1].supplierName.localeCompare(b[1].supplierName));
   }, [filtered]);
+
+  // Clear selection when filters change
+  const prevFilteredRef = useRef<string>("");
+  useEffect(() => {
+    const filteredIds = filtered.map(p => p.id).join(",");
+    if (prevFilteredRef.current && prevFilteredRef.current !== filteredIds) {
+      setSelectedProductIds(new Set());
+    }
+    prevFilteredRef.current = filteredIds;
+  }, [filtered]);
+
+  // Bulk selection helpers
+  const filteredIds = useMemo(() => new Set(filtered.map(p => p.id)), [filtered]);
+  const selectedInView = useMemo(() => {
+    return new Set([...selectedProductIds].filter(id => filteredIds.has(id)));
+  }, [selectedProductIds, filteredIds]);
+  
+  const allVisibleSelected = filtered.length > 0 && filtered.every(p => selectedProductIds.has(p.id));
+  const someVisibleSelected = filtered.some(p => selectedProductIds.has(p.id)) && !allVisibleSelected;
+
+  const toggleSelectAll = () => {
+    if (allVisibleSelected) {
+      // Deselect all visible
+      setSelectedProductIds(prev => {
+        const next = new Set(prev);
+        filtered.forEach(p => next.delete(p.id));
+        return next;
+      });
+    } else {
+      // Select all visible
+      setSelectedProductIds(prev => {
+        const next = new Set(prev);
+        filtered.forEach(p => next.add(p.id));
+        return next;
+      });
+    }
+  };
+
+  const toggleSelectGroup = (products: Product[]) => {
+    const allInGroupSelected = products.every(p => selectedProductIds.has(p.id));
+    if (allInGroupSelected) {
+      setSelectedProductIds(prev => {
+        const next = new Set(prev);
+        products.forEach(p => next.delete(p.id));
+        return next;
+      });
+    } else {
+      setSelectedProductIds(prev => {
+        const next = new Set(prev);
+        products.forEach(p => next.add(p.id));
+        return next;
+      });
+    }
+  };
+
+  const toggleSelectProduct = (productId: string) => {
+    setSelectedProductIds(prev => {
+      const next = new Set(prev);
+      if (next.has(productId)) {
+        next.delete(productId);
+      } else {
+        next.add(productId);
+      }
+      return next;
+    });
+  };
+
+  const handleBulkStatusChange = async (status: ProductStatus, reason?: string) => {
+    const selectedProducts = productList.filter(p => selectedProductIds.has(p.id));
+    
+    // For approval, filter out products without images
+    let productsToUpdate = selectedProducts;
+    if (status === "approved") {
+      const withoutImage = selectedProducts.filter(p => !p.image);
+      if (withoutImage.length > 0) {
+        const names = withoutImage.map(p => p.name).join(", ");
+        const continueWithRest = withoutImage.length < selectedProducts.length 
+          ? confirm(`These products have no image and will be skipped:\n\n${names}\n\nContinue with the rest?`)
+          : (alert(`Cannot approve products without images:\n\n${names}`), false);
+        if (!continueWithRest) return;
+        productsToUpdate = selectedProducts.filter(p => p.image);
+      }
+    }
+    
+    if (productsToUpdate.length === 0) return;
+    
+    // Update all products in parallel
+    await Promise.all(productsToUpdate.map(p => updateProductStatus(p.id, status, reason)));
+    
+    // Update local state
+    const updatedIds = new Set(productsToUpdate.map(p => p.id));
+    setProductList(prev => prev.map(p => 
+      updatedIds.has(p.id) 
+        ? { ...p, status, rejectionReason: status === "rejected" ? reason : null } 
+        : p
+    ));
+    
+    // Send email notifications (fire-and-forget)
+    if (status === "approved" || status === "rejected") {
+      productsToUpdate.forEach(product => {
+        getSupplierByProductId(product.id).then(supplier => {
+          if (supplier?.email) {
+            const emailType = status === "approved" ? "product_approved" : "product_rejected";
+            const emailData = status === "approved"
+              ? { supplierEmail: supplier.email, supplierName: supplier.name, productName: product.name }
+              : { supplierEmail: supplier.email, supplierName: supplier.name, productName: product.name, reason: reason || "No reason provided" };
+            
+            fetch("/api/email", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ type: emailType, data: emailData }),
+            }).catch(console.error);
+          }
+        }).catch(console.error);
+      });
+    }
+    
+    // Clear selection
+    setSelectedProductIds(new Set());
+    setBulkRejectModalOpen(false);
+    setBulkRejectionReason("");
+  };
 
   const toggleSupplier = (supplierId: string) => {
     setCollapsedSuppliers((prev) => {
@@ -327,6 +475,49 @@ export default function AdminProductsPage() {
                 className="rounded-lg bg-red-500 px-4 py-2 text-sm font-semibold text-white hover:bg-red-600"
               >
                 Reject Product
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Bulk Reject Modal */}
+      {bulkRejectModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-md rounded-xl bg-surface p-6 shadow-xl">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-bold text-primary">Reject {selectedProductIds.size} products</h2>
+              <button onClick={() => { setBulkRejectModalOpen(false); setBulkRejectionReason(""); }} className="rounded p-1 text-muted hover:text-primary">
+                <X size={20} />
+              </button>
+            </div>
+            <div className="mb-4 max-h-32 overflow-y-auto rounded-lg bg-primary/5 p-3">
+              <p className="text-xs text-muted mb-1">Products to reject:</p>
+              <ul className="text-sm text-primary space-y-0.5">
+                {productList.filter(p => selectedProductIds.has(p.id)).map(p => (
+                  <li key={p.id}>• {p.name} <span className="text-muted">({p.supplierName})</span></li>
+                ))}
+              </ul>
+            </div>
+            <textarea
+              placeholder="Reason for rejection (will apply to all selected products)"
+              value={bulkRejectionReason}
+              onChange={(e) => setBulkRejectionReason(e.target.value)}
+              className="w-full rounded-lg border border-primary/20 bg-surface px-3 py-2 text-sm outline-none focus:border-secondary"
+              rows={3}
+            />
+            <div className="mt-4 flex justify-end gap-3">
+              <button
+                onClick={() => { setBulkRejectModalOpen(false); setBulkRejectionReason(""); }}
+                className="rounded-lg border border-primary/20 px-4 py-2 text-sm font-medium text-muted hover:bg-surface"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => handleBulkStatusChange("rejected", bulkRejectionReason)}
+                className="rounded-lg bg-red-500 px-4 py-2 text-sm font-semibold text-white hover:bg-red-600"
+              >
+                Reject All
               </button>
             </div>
           </div>
@@ -583,40 +774,104 @@ export default function AdminProductsPage() {
 
       {/* Products grouped by supplier */}
       <div className="mt-4 space-y-4">
+        {/* Bulk actions bar */}
+        {selectedProductIds.size > 0 && (
+          <div className="sticky top-0 z-10 flex items-center justify-between rounded-xl bg-primary px-4 py-3 shadow-lg">
+            <div className="flex items-center gap-3">
+              <span className="text-sm font-semibold text-background">{selectedProductIds.size} selected</span>
+              <button
+                onClick={() => setSelectedProductIds(new Set())}
+                className="text-xs text-background/70 hover:text-background underline"
+              >
+                Clear
+              </button>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => handleBulkStatusChange("approved")}
+                className="rounded-lg bg-green-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-green-600"
+              >
+                Approve
+              </button>
+              <button
+                onClick={() => handleBulkStatusChange("pending")}
+                className="rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-600"
+              >
+                Set Pending
+              </button>
+              <button
+                onClick={() => setBulkRejectModalOpen(true)}
+                className="rounded-lg bg-red-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-600"
+              >
+                Reject
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Select all visible checkbox */}
+        {filtered.length > 0 && (
+          <div className="flex items-center gap-2 px-1">
+            <IndeterminateCheckbox
+              checked={allVisibleSelected}
+              indeterminate={someVisibleSelected}
+              onChange={toggleSelectAll}
+            />
+            <span className="text-xs text-muted">
+              {allVisibleSelected ? "Deselect all" : someVisibleSelected ? `${selectedInView.size} selected` : "Select all visible"}
+            </span>
+          </div>
+        )}
+
         {groupedBySupplier.map(([supplierId, { supplierName, products }]) => {
           const isCollapsed = collapsedSuppliers.has(supplierId);
           const pendingInGroup = products.filter((p) => p.status === "pending").length;
+          const allInGroupSelected = products.every(p => selectedProductIds.has(p.id));
+          const someInGroupSelected = products.some(p => selectedProductIds.has(p.id)) && !allInGroupSelected;
           
           return (
             <div key={supplierId} className="overflow-hidden rounded-xl bg-surface shadow-sm">
               {/* Supplier header - clickable to collapse */}
-              <button
-                onClick={() => toggleSupplier(supplierId)}
-                className="flex w-full items-center justify-between bg-primary/5 px-4 py-3 text-left hover:bg-primary/10 transition"
-              >
-                <div className="flex items-center gap-3">
-                  {isCollapsed ? (
-                    <ChevronRight size={18} className="text-muted" />
-                  ) : (
-                    <ChevronDown size={18} className="text-muted" />
-                  )}
-                  <span className="font-semibold text-primary">{supplierName}</span>
-                  <span className="rounded-full bg-secondary/20 px-2 py-0.5 text-xs font-medium text-primary">
-                    {products.length} product{products.length !== 1 ? "s" : ""}
-                  </span>
-                  {pendingInGroup > 0 && (
-                    <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-bold text-amber-700">
-                      {pendingInGroup} pending
-                    </span>
-                  )}
+              <div className="flex items-center bg-primary/5 px-4 py-3 hover:bg-primary/10 transition">
+                <div
+                  className="mr-3"
+                  onClick={(e) => { e.stopPropagation(); toggleSelectGroup(products); }}
+                >
+                  <IndeterminateCheckbox
+                    checked={allInGroupSelected}
+                    indeterminate={someInGroupSelected}
+                    onChange={() => toggleSelectGroup(products)}
+                  />
                 </div>
-              </button>
+                <button
+                  onClick={() => toggleSupplier(supplierId)}
+                  className="flex flex-1 items-center justify-between text-left"
+                >
+                  <div className="flex items-center gap-3">
+                    {isCollapsed ? (
+                      <ChevronRight size={18} className="text-muted" />
+                    ) : (
+                      <ChevronDown size={18} className="text-muted" />
+                    )}
+                    <span className="font-semibold text-primary">{supplierName}</span>
+                    <span className="rounded-full bg-secondary/20 px-2 py-0.5 text-xs font-medium text-primary">
+                      {products.length} product{products.length !== 1 ? "s" : ""}
+                    </span>
+                    {pendingInGroup > 0 && (
+                      <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-bold text-amber-700">
+                        {pendingInGroup} pending
+                      </span>
+                    )}
+                  </div>
+                </button>
+              </div>
 
               {/* Products table */}
               {!isCollapsed && (
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-primary/5 text-left text-xs text-muted">
+                      <th className="w-10 px-4 py-2"></th>
                       <th className="px-4 py-2 font-medium">Product</th>
                       <th className="px-4 py-2 font-medium">Category</th>
                       <th className="px-4 py-2 font-medium">Locality</th>
@@ -628,7 +883,15 @@ export default function AdminProductsPage() {
                   </thead>
                   <tbody>
                     {products.map((product) => (
-                      <tr key={product.id} className="border-b border-primary/5 last:border-0">
+                      <tr key={product.id} className={`border-b border-primary/5 last:border-0 ${selectedProductIds.has(product.id) ? "bg-secondary/5" : ""}`}>
+                        <td className="px-4 py-3">
+                          <input
+                            type="checkbox"
+                            checked={selectedProductIds.has(product.id)}
+                            onChange={() => toggleSelectProduct(product.id)}
+                            className="h-4 w-4 rounded border-primary/30 text-secondary focus:ring-secondary cursor-pointer"
+                          />
+                        </td>
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-3">
                             <button
