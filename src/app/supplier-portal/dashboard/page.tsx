@@ -6,12 +6,14 @@ import {
   type SupplierOrderItem,
   type SupplierUser,
   type Supplier,
+  type SupplierOrderFeedback,
   getSupplierUser,
   getSupplier,
   getSupplierOrders,
   getProductsBySupplier,
   getAverageRatings,
   getSupplierReviews,
+  getSupplierOrderFeedback,
 } from "@/lib/data";
 import { Loader2, TrendingUp, Package, Truck, PoundSterling, ShoppingCart, BarChart3, Star, MessageSquare } from "lucide-react";
 
@@ -20,6 +22,17 @@ function formatDeliveryDate(dateStr: string) {
   const d = new Date(dateStr + "T00:00:00");
   if (isNaN(d.getTime())) return dateStr;
   return d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
+}
+
+function shortenName(name: string | null): string {
+  if (!name) return "Anonymous";
+  const trimmed = name.trim();
+  if (!trimmed) return "Anonymous";
+  const parts = trimmed.split(/\s+/);
+  if (parts.length === 1) return parts[0];
+  const first = parts[0];
+  const lastInitial = parts[parts.length - 1][0].toUpperCase();
+  return `${first} ${lastInitial}.`;
 }
 
 export default function SupplierDashboardPage() {
@@ -32,7 +45,8 @@ export default function SupplierDashboardPage() {
   const [overallRating, setOverallRating] = useState<{ avg: number; count: number }>({ avg: 0, count: 0 });
   const [topProducts, setTopProducts] = useState<{ name: string; quantity: number; avgRating: number; ratingCount: number }[]>([]);
   const [topProductsSort, setTopProductsSort] = useState<"quantity" | "rating">("quantity");
-  const [reviews, setReviews] = useState<{ productId: string; productName: string; stars: number; comment: string; createdAt: string }[]>([]);
+  const [reviews, setReviews] = useState<{ productId: string; productName: string; stars: number | null; comment: string | null; createdAt: string }[]>([]);
+  const [orderFeedback, setOrderFeedback] = useState<SupplierOrderFeedback[]>([]);
 
   useEffect(() => {
     if (!isLoaded || !user) return;
@@ -77,6 +91,10 @@ export default function SupplierDashboardPage() {
           // Fetch customer reviews with comments
           const supplierReviews = await getSupplierReviews(s.id);
           setReviews(supplierReviews);
+          
+          // Fetch overall order feedback
+          const feedback = await getSupplierOrderFeedback(s.id);
+          setOrderFeedback(feedback);
         }
       }
       setLoading(false);
@@ -362,35 +380,63 @@ export default function SupplierDashboardPage() {
       )}
 
       {/* Customer Reviews */}
-      {reviews.length > 0 && (
-        <div className="mt-8 overflow-hidden rounded-xl bg-surface p-6 shadow-sm">
-          <div className="flex items-center gap-2 mb-4">
-            <MessageSquare size={18} className="text-secondary" />
-            <h2 className="text-sm font-bold text-primary">Customer Reviews</h2>
-            <span className="rounded-full bg-secondary/10 px-2 py-0.5 text-xs font-medium text-secondary">{reviews.length}</span>
-          </div>
-          <div className="space-y-4">
-            {reviews.slice(0, 10).map((review, i) => (
-              <div key={i} className="border-b border-primary/5 pb-4 last:border-0 last:pb-0">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium text-primary">{review.productName}</span>
-                  <div className="flex items-center gap-2">
-                    <div className="flex items-center gap-0.5">
-                      {[1, 2, 3, 4, 5].map((s) => (
-                        <Star key={s} size={12} className={review.stars >= s ? "fill-accent text-accent" : "text-primary/15"} />
-                      ))}
-                    </div>
+      {(() => {
+        const commentedReviews = reviews.filter(r => r.comment && r.comment.trim().length > 0);
+        if (commentedReviews.length === 0) return null;
+        return (
+          <div className="mt-8 overflow-hidden rounded-xl bg-surface p-6 shadow-sm">
+            <div className="flex items-center gap-2 mb-4">
+              <MessageSquare size={18} className="text-secondary" />
+              <h2 className="text-sm font-bold text-primary">Customer Reviews</h2>
+              <span className="rounded-full bg-secondary/10 px-2 py-0.5 text-xs font-medium text-secondary">{commentedReviews.length}</span>
+            </div>
+            <div className="space-y-4">
+              {commentedReviews.slice(0, 10).map((review, i) => (
+                <div key={i} className="border-b border-primary/5 pb-4 last:border-0 last:pb-0">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium text-primary">{review.productName}</span>
                     <span className="text-[10px] text-muted">
                       {new Date(review.createdAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}
                     </span>
                   </div>
+                  <p className="mt-1 text-sm text-muted italic">"{review.comment}"</p>
                 </div>
-                <p className="mt-1 text-sm text-muted italic">"{review.comment}"</p>
+              ))}
+            </div>
+            {commentedReviews.length > 10 && (
+              <p className="mt-4 text-xs text-muted text-center">Showing 10 of {commentedReviews.length} reviews</p>
+            )}
+          </div>
+        );
+      })()}
+
+      {/* Overall Order Feedback */}
+      {orderFeedback.length > 0 && (
+        <div className="mt-8 overflow-hidden rounded-xl bg-surface p-6 shadow-sm">
+          <div className="flex items-center gap-2 mb-2">
+            <MessageSquare size={18} className="text-accent" />
+            <h2 className="text-sm font-bold text-primary">Overall Order Feedback</h2>
+            <span className="rounded-full bg-accent/10 px-2 py-0.5 text-xs font-medium text-accent">{orderFeedback.length}</span>
+          </div>
+          <p className="text-xs text-muted mb-4">These are general comments customers left on orders that included your products. They may not be specifically about your items.</p>
+          <div className="space-y-4">
+            {orderFeedback.slice(0, 10).map((fb) => (
+              <div key={fb.id} className="border-b border-primary/5 pb-4 last:border-0 last:pb-0">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium text-primary">#{fb.orderNumber}</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-muted">{shortenName(fb.customerName)}</span>
+                    <span className="text-[10px] text-muted">
+                      {new Date(fb.createdAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}
+                    </span>
+                  </div>
+                </div>
+                <p className="mt-1 text-sm text-muted italic">"{fb.message}"</p>
               </div>
             ))}
           </div>
-          {reviews.length > 10 && (
-            <p className="mt-4 text-xs text-muted text-center">Showing 10 of {reviews.length} reviews</p>
+          {orderFeedback.length > 10 && (
+            <p className="mt-4 text-xs text-muted text-center">Showing 10 of {orderFeedback.length} feedback entries</p>
           )}
         </div>
       )}

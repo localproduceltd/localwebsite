@@ -1193,10 +1193,10 @@ export async function updateSupplierOrderItemStatus(
 
 // ─── Feedback ─────────────────────────────────────────────────────────────────
 
-export async function submitFeedback(name: string, message: string, source: "carrie" | "order_review" | "expansion" = "carrie", orderNumber?: number, postcode?: string): Promise<void> {
+export async function submitFeedback(name: string, message: string, source: "carrie" | "order_review" | "expansion" = "carrie", orderNumber?: number, postcode?: string, pageUrl?: string): Promise<void> {
   const { error } = await supabase
     .from("feedback")
-    .insert({ name: name || null, message, source, order_number: orderNumber ?? null, postcode: postcode ?? null });
+    .insert({ name: name || null, message, source, order_number: orderNumber ?? null, postcode: postcode ?? null, page_url: pageUrl ?? null });
   if (error) throw error;
 }
 
@@ -1207,7 +1207,7 @@ export async function submitExpansionRequest(postcode: string, email?: string, n
   await submitFeedback(name || "", message, "expansion", undefined, postcode);
 }
 
-export async function getFeedback(): Promise<{ id: string; name: string | null; message: string; created_at: string; source: string; orderNumber: number | null; postcode: string | null }[]> {
+export async function getFeedback(): Promise<{ id: string; name: string | null; message: string; created_at: string; source: string; orderNumber: number | null; postcode: string | null; pageUrl: string | null; featured: boolean }[]> {
   const { data, error } = await supabase
     .from("feedback")
     .select("*")
@@ -1221,6 +1221,8 @@ export async function getFeedback(): Promise<{ id: string; name: string | null; 
     source: f.source ?? "carrie",
     orderNumber: f.order_number ?? null,
     postcode: f.postcode ?? null,
+    pageUrl: f.page_url ?? null,
+    featured: f.featured ?? false,
   }));
 }
 
@@ -1233,7 +1235,7 @@ export async function submitRating(userId: string, productId: string, orderId: s
   if (error) throw error;
 }
 
-export async function submitOrderRatings(userId: string, orderId: string, ratings: Array<{ productId: string; stars: number; comment?: string }>): Promise<void> {
+export async function submitOrderRatings(userId: string, orderId: string, ratings: Array<{ productId: string; stars: number | null; comment?: string }>): Promise<void> {
   const records = ratings.map((r) => ({
     user_id: userId,
     product_id: r.productId,
@@ -1269,66 +1271,79 @@ export async function getProductRatings(productId: string): Promise<Array<{ star
   return (data ?? []).map((r) => ({ stars: r.stars, comment: r.comment ?? undefined, createdAt: r.created_at }));
 }
 
-export async function getSupplierReviews(supplierId: string): Promise<Array<{ productId: string; productName: string; stars: number; comment: string; createdAt: string }>> {
+export async function getSupplierReviews(supplierId: string): Promise<Array<{ productId: string; productName: string; stars: number | null; comment: string | null; createdAt: string }>> {
   const { data, error } = await supabase
     .from("ratings")
     .select("product_id, stars, comment, created_at, products!inner(name, supplier_id)")
     .eq("products.supplier_id", supplierId)
-    .not("comment", "is", null)
-    .neq("comment", "")
+    .or("stars.gt.0,comment.neq.")
     .order("created_at", { ascending: false });
   if (error) throw error;
-  return (data ?? []).map((r) => ({
-    productId: r.product_id,
-    productName: (r.products as any).name,
-    stars: r.stars,
-    comment: r.comment!,
-    createdAt: r.created_at,
-  }));
+  // Filter client-side to ensure we have either stars > 0 or non-empty comment
+  return (data ?? [])
+    .filter((r) => (r.stars && r.stars > 0) || (r.comment && r.comment.trim() !== ""))
+    .map((r) => ({
+      productId: r.product_id,
+      productName: (r.products as any).name,
+      stars: r.stars,
+      comment: r.comment,
+      createdAt: r.created_at,
+    }));
 }
 
-export async function getAllReviews(): Promise<Array<{ productName: string | null; stars: number | null; comment: string; createdAt: string; customerName: string | null; isOverall: boolean }>> {
+export async function getAllReviews(): Promise<Array<{ id: string; kind: "product_review" | "order_review"; productName: string | null; stars: number | null; comment: string; createdAt: string; customerName: string | null; isOverall: boolean; featured: boolean }>> {
   // Get product reviews
   const { data: productReviews, error: productError } = await supabase
     .from("ratings")
-    .select("stars, comment, created_at, products!inner(name)")
+    .select("id, stars, comment, created_at, featured, products!inner(name)")
     .not("comment", "is", null)
     .neq("comment", "")
+    .order("featured", { ascending: false })
     .order("created_at", { ascending: false })
-    .limit(10);
+    .limit(20);
   if (productError) throw productError;
 
   // Get overall order reviews from feedback
   const { data: orderReviews, error: orderError } = await supabase
     .from("feedback")
-    .select("name, message, created_at")
+    .select("id, name, message, created_at, featured")
     .eq("source", "order_review")
+    .order("featured", { ascending: false })
     .order("created_at", { ascending: false })
-    .limit(10);
+    .limit(20);
   if (orderError) throw orderError;
 
-  // Combine and sort by date
+  // Combine and sort by featured first, then date descending
   const combined = [
     ...(productReviews ?? []).map((r) => ({
+      id: r.id,
+      kind: "product_review" as const,
       productName: (r.products as any).name as string,
       stars: r.stars as number,
       comment: r.comment!,
       createdAt: r.created_at,
       customerName: null,
       isOverall: false,
+      featured: r.featured ?? false,
     })),
     ...(orderReviews ?? []).map((f) => ({
+      id: f.id,
+      kind: "order_review" as const,
       productName: null,
       stars: null,
       comment: f.message,
       createdAt: f.created_at,
       customerName: f.name,
       isOverall: true,
+      featured: f.featured ?? false,
     })),
   ];
 
-  // Sort by date descending and take top 10
-  combined.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  // Sort by featured first, then by date descending within each group
+  combined.sort((a, b) => {
+    if (a.featured !== b.featured) return a.featured ? -1 : 1;
+    return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+  });
   return combined.slice(0, 10);
 }
 
@@ -2082,4 +2097,97 @@ export async function deleteOrderItemRefund(refundId: string): Promise<void> {
     .delete()
     .eq("id", refundId);
   if (error) throw error;
+}
+
+// ─── Admin Product Reviews ────────────────────────────────────────────────────
+
+export interface AdminProductReview {
+  id: string;
+  productId: string;
+  productName: string;
+  supplierId: string;
+  supplierName: string;
+  stars: number | null;
+  comment: string | null;
+  userId: string;
+  orderId: string;
+  createdAt: string;
+  featured: boolean;
+}
+
+export async function getAllProductReviewsForAdmin(): Promise<AdminProductReview[]> {
+  const { data, error } = await supabase
+    .from("ratings")
+    .select("id, product_id, stars, comment, user_id, order_id, created_at, featured, products!inner(name, supplier_id, suppliers(name))")
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  return (data ?? []).map((r) => {
+    const product = r.products as any;
+    return {
+      id: r.id,
+      productId: r.product_id,
+      productName: product.name,
+      supplierId: product.supplier_id,
+      supplierName: product.suppliers?.name ?? "Unknown",
+      stars: r.stars,
+      comment: r.comment,
+      userId: r.user_id,
+      orderId: r.order_id,
+      createdAt: r.created_at,
+      featured: r.featured ?? false,
+    };
+  });
+}
+
+export async function setReviewFeatured(
+  kind: "product_review" | "order_review",
+  id: string,
+  featured: boolean
+): Promise<void> {
+  const table = kind === "product_review" ? "ratings" : "feedback";
+  const { error } = await supabase
+    .from(table).update({ featured }).eq("id", id);
+  if (error) throw error;
+}
+
+// ─── Supplier Order Feedback ──────────────────────────────────────────────────
+
+export interface SupplierOrderFeedback {
+  id: string;
+  message: string;
+  orderNumber: number;
+  createdAt: string;
+  customerName: string | null;
+}
+
+export async function getSupplierOrderFeedback(supplierId: string): Promise<SupplierOrderFeedback[]> {
+  // Get order_review feedback for orders that contain products from this supplier
+  // Path: feedback.order_number → orders.order_number → order_items → products.supplier_id
+  
+  // First get all order numbers that have items from this supplier
+  const { data: orderItems, error: itemsError } = await supabase
+    .from("order_items")
+    .select("order_id, orders!inner(order_number)")
+    .eq("supplier_id", supplierId);
+  if (itemsError) throw itemsError;
+  
+  const orderNumbers = [...new Set((orderItems ?? []).map((item) => (item.orders as any).order_number as number))];
+  if (orderNumbers.length === 0) return [];
+  
+  // Get feedback for those order numbers
+  const { data: feedback, error: feedbackError } = await supabase
+    .from("feedback")
+    .select("*")
+    .eq("source", "order_review")
+    .in("order_number", orderNumbers)
+    .order("created_at", { ascending: false });
+  if (feedbackError) throw feedbackError;
+  
+  return (feedback ?? []).map((f) => ({
+    id: f.id,
+    message: f.message,
+    orderNumber: f.order_number,
+    createdAt: f.created_at,
+    customerName: f.name,
+  }));
 }

@@ -25,7 +25,8 @@ export default function CarrieFeedback() {
   const handleSubmit = async () => {
     if (!feedback.trim()) return;
     try {
-      await submitFeedback(name, feedback);
+      const pageUrl = window.location.pathname + window.location.search;
+      await submitFeedback(name, feedback, "carrie", undefined, undefined, pageUrl);
     } catch (e) {
       console.error("Failed to save feedback:", e);
     }

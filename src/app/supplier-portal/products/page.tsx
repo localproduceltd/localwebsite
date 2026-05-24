@@ -17,6 +17,7 @@ import {
   updateProduct,
   deleteProduct,
   getAverageRatings,
+  getProductRatings,
 } from "@/lib/data";
 import { PRODUCT_CATEGORIES, ALLERGENS, PRODUCT_TAGS } from "@/lib/categories";
 import { LOCALITY_COLORS } from "@/lib/locality";
@@ -36,6 +37,9 @@ export default function SupplierProductsPage() {
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [statusFilters, setStatusFilters] = useState<Set<ProductStatus>>(new Set(["approved", "pending", "rejected"]));
   const [stockFilters, setStockFilters] = useState<Set<"in_stock" | "out_of_stock">>(new Set(["in_stock", "out_of_stock"]));
+  const [reviewsModal, setReviewsModal] = useState<{ productId: string; productName: string } | null>(null);
+  const [reviewsModalComments, setReviewsModalComments] = useState<Array<{ comment?: string; createdAt: string }>>([]);
+  const [reviewsModalLoading, setReviewsModalLoading] = useState(false);
 
   const fetchProducts = async (supplierId: string) => {
     const prods = await getProductsBySupplier(supplierId);
@@ -57,6 +61,20 @@ export default function SupplierProductsPage() {
       setLoading(false);
     })();
   }, [isLoaded, user]);
+
+  useEffect(() => {
+    if (!reviewsModal) {
+      setReviewsModalComments([]);
+      return;
+    }
+    setReviewsModalLoading(true);
+    getProductRatings(reviewsModal.productId)
+      .then((ratings) => {
+        setReviewsModalComments(ratings);
+        setReviewsModalLoading(false);
+      })
+      .catch(() => setReviewsModalLoading(false));
+  }, [reviewsModal]);
 
   const handleSave = async (product: Product) => {
     if (!supplier) return;
@@ -208,14 +226,18 @@ export default function SupplierProductsPage() {
               </div>
             )}
             {avgRatings[product.id] && (
-              <div className="mt-2 flex items-center gap-1">
+              <button
+                onClick={() => avgRatings[product.id].count > 0 && setReviewsModal({ productId: product.id, productName: product.name })}
+                className={`mt-2 flex items-center gap-1 ${avgRatings[product.id].count > 0 ? "cursor-pointer hover:underline" : ""}`}
+                disabled={avgRatings[product.id].count === 0}
+              >
                 <div className="flex items-center gap-0.5">
                   {[1, 2, 3, 4, 5].map((s) => (
                     <Star key={s} size={11} className={avgRatings[product.id].avg >= s ? "fill-accent text-accent" : "text-primary/15"} />
                   ))}
                 </div>
                 <span className="text-[10px] text-muted">{avgRatings[product.id].avg.toFixed(1)} ({avgRatings[product.id].count})</span>
-              </div>
+              </button>
             )}
             <div className="mt-3 flex items-center justify-between border-t border-primary/5 pt-3">
               <div className="flex items-center gap-2">
@@ -347,14 +369,18 @@ export default function SupplierProductsPage() {
                 </td>
                 <td className="px-4 py-3 text-center">
                   {avgRatings[product.id] ? (
-                    <div className="flex items-center justify-center gap-1">
+                    <button
+                      onClick={() => avgRatings[product.id].count > 0 && setReviewsModal({ productId: product.id, productName: product.name })}
+                      className={`flex items-center justify-center gap-1 ${avgRatings[product.id].count > 0 ? "cursor-pointer rounded px-1 py-0.5 hover:bg-accent/10" : ""}`}
+                      disabled={avgRatings[product.id].count === 0}
+                    >
                       <div className="flex items-center gap-0.5">
                         {[1, 2, 3, 4, 5].map((s) => (
                           <Star key={s} size={12} className={avgRatings[product.id].avg >= s ? "fill-accent text-accent" : "text-primary/15"} />
                         ))}
                       </div>
                       <span className="text-[10px] text-muted">{avgRatings[product.id].avg.toFixed(1)}</span>
-                    </div>
+                    </button>
                   ) : (
                     <span className="text-xs text-muted">—</span>
                   )}
@@ -399,6 +425,52 @@ export default function SupplierProductsPage() {
       <p className="mt-4 text-xs text-muted">
         New products and edits require admin approval before they appear on the site.
       </p>
+
+      {/* Reviews Modal */}
+      {reviewsModal && (
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          onClick={() => setReviewsModal(null)}
+        >
+          <div 
+            className="w-full max-w-md rounded-xl bg-surface p-6 shadow-xl max-h-[80vh] flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-bold text-primary">Comments on {reviewsModal.productName}</h2>
+              <button onClick={() => setReviewsModal(null)} className="rounded p-1 text-muted hover:text-primary">
+                <X size={20} />
+              </button>
+            </div>
+            {reviewsModalLoading ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="h-6 w-6 animate-spin text-secondary" />
+              </div>
+            ) : (
+              <div className="overflow-y-auto flex-1">
+                {(() => {
+                  const comments = reviewsModalComments.filter(r => r.comment && r.comment.trim().length > 0);
+                  if (comments.length === 0) {
+                    return <p className="text-sm text-muted text-center py-4">No written comments yet.</p>;
+                  }
+                  return (
+                    <div className="space-y-4">
+                      {comments.map((r, i) => (
+                        <div key={i} className="border-b border-primary/5 pb-4 last:border-0 last:pb-0">
+                          <p className="text-sm text-primary italic">"{r.comment}"</p>
+                          <p className="mt-1 text-[10px] text-muted">
+                            {new Date(r.createdAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

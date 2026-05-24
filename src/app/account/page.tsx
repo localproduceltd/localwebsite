@@ -85,7 +85,7 @@ export default function AccountPage() {
   // Orders state
   const [orders, setOrders] = useState<Order[]>([]);
   // Submitted ratings from DB
-  const [submittedRatings, setSubmittedRatings] = useState<Record<string, Record<string, { stars: number; comment?: string }>>>({});
+  const [submittedRatings, setSubmittedRatings] = useState<Record<string, Record<string, { stars: number | null; comment?: string }>>>({});
   // Draft ratings being edited (not yet submitted)
   const [draftRatings, setDraftRatings] = useState<Record<string, Record<string, DraftRating>>>({});
   // Track which orders are in "review mode"
@@ -170,32 +170,38 @@ export default function AccountPage() {
   const submitReview = async (orderId: string) => {
     if (!user) return;
     const draft = draftRatings[orderId];
-    if (!draft) return;
+    const overall = overallReview[orderId]?.trim();
+    
+    // Include entries with stars > 0 OR non-empty comment
+    const ratings = draft
+      ? Object.entries(draft)
+          .filter(([_, r]) => r.stars > 0 || r.comment.trim())
+          .map(([productId, r]) => ({
+            productId,
+            stars: r.stars > 0 ? r.stars : null,
+            comment: r.comment.trim() || undefined,
+          }))
+      : [];
 
-    const ratings = Object.entries(draft)
-      .filter(([_, r]) => r.stars > 0)
-      .map(([productId, r]) => ({
-        productId,
-        stars: r.stars,
-        comment: r.comment.trim() || undefined,
-      }));
-
-    if (ratings.length === 0) return;
+    // Nothing to submit if no ratings AND no overall feedback
+    if (ratings.length === 0 && !overall) return;
 
     setSubmittingReview(true);
     try {
-      await submitOrderRatings(user.id, orderId, ratings);
-      const newSubmitted: Record<string, { stars: number; comment?: string }> = {};
-      for (const r of ratings) {
-        newSubmitted[r.productId] = { stars: r.stars, comment: r.comment };
+      // Submit product ratings if any
+      if (ratings.length > 0) {
+        await submitOrderRatings(user.id, orderId, ratings);
+        const newSubmitted: Record<string, { stars: number | null; comment?: string }> = {};
+        for (const r of ratings) {
+          newSubmitted[r.productId] = { stars: r.stars, comment: r.comment };
+        }
+        setSubmittedRatings((prev) => ({
+          ...prev,
+          [orderId]: { ...prev[orderId], ...newSubmitted },
+        }));
       }
-      setSubmittedRatings((prev) => ({
-        ...prev,
-        [orderId]: { ...prev[orderId], ...newSubmitted },
-      }));
       
       // Submit overall review if provided
-      const overall = overallReview[orderId]?.trim();
       if (overall) {
         const order = orders.find((o) => o.id === orderId);
         const customerName = user.fullName || user.firstName || "Customer";
@@ -305,7 +311,7 @@ export default function AccountPage() {
               const orderSubmittedRatings = submittedRatings[order.id] ?? {};
               const isReviewing = reviewingOrder === order.id;
               const draft = draftRatings[order.id] ?? {};
-              const hasAllRatings = order.items.every((item) => orderSubmittedRatings[item.productId]?.stars > 0);
+              const hasAllRatings = order.items.every((item) => (orderSubmittedRatings[item.productId]?.stars ?? 0) > 0);
               const draftHasAnyStars = Object.values(draft).some((r) => r.stars > 0);
               const canModify = modifiableOrders.has(order.id);
 

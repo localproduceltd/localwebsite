@@ -15,7 +15,7 @@ export default function Home() {
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [avgRatings, setAvgRatings] = useState<Record<string, { avg: number; count: number }>>({});
   const [deliveryDays, setDeliveryDays] = useState<DeliveryDay[]>([]);
-  const [reviews, setReviews] = useState<Array<{ productName: string | null; stars: number | null; comment: string; createdAt: string; customerName: string | null; isOverall: boolean }>>([]);
+  const [reviews, setReviews] = useState<Array<{ id: string; kind: "product_review" | "order_review"; productName: string | null; stars: number | null; comment: string; createdAt: string; customerName: string | null; isOverall: boolean; featured: boolean }>>([]);
 
   // Email signup state
   const [signupEmail, setSignupEmail] = useState("");
@@ -82,40 +82,38 @@ export default function Home() {
         </div>
       </section>
 
-      {/* Week 1 Banner */}
-      <section className="bg-primary px-4 py-10">
-        <div className="mx-auto max-w-2xl text-center">
-          <h2 className="text-3xl font-extrabold text-white sm:text-4xl">🎉 Week 1 Orders Open</h2>
-          <p className="mt-3 text-lg text-white/90">
-            We&apos;re open to a small group of waitlist customers. Enter your email below to join the waitlist and hear when we open to more.
-          </p>
+      {/* Email Signup Strip */}
+      <section className="border-y border-primary/5 bg-secondary/5 px-4 py-4">
+        <div className="mx-auto flex max-w-5xl flex-col items-center justify-between gap-4 sm:flex-row">
+          <div className="text-center sm:text-left">
+            <p className="text-sm font-semibold text-primary">Not ready to order yet? Stay in the loop.</p>
+            <p className="mt-0.5 text-xs text-muted">Enter your email here and we&apos;ll let you know when there&apos;s news - new suppliers, new delivery areas and more!</p>
+          </div>
           {signupDone ? (
-            <div className="mt-6 inline-flex items-center gap-2 text-white">
-              <CheckCircle size={20} />
-              <p className="font-semibold">Thanks! We&apos;ll keep you updated.</p>
+            <div className="flex items-center gap-2 text-secondary">
+              <CheckCircle size={16} />
+              <p className="text-sm font-medium">Thanks! We&apos;ll keep you updated.</p>
             </div>
           ) : (
             <form 
               onSubmit={(e) => { e.preventDefault(); handleEmailSignup(); }}
-              className="mt-6 mx-auto max-w-md"
+              className="flex w-full gap-2 sm:w-auto"
             >
-              <div className="flex flex-col sm:flex-row gap-3">
-                <input
-                  type="email"
-                  placeholder="Enter your email"
-                  value={signupEmail}
-                  onChange={(e) => setSignupEmail(e.target.value)}
-                  className="flex-1 rounded-lg bg-white px-4 py-3 text-primary outline-none"
-                  required
-                />
-                <button
-                  type="submit"
-                  disabled={signupSubmitting}
-                  className="rounded-lg bg-white px-6 py-3 font-semibold text-primary transition hover:bg-white/90 disabled:opacity-50"
-                >
-                  {signupSubmitting ? <Loader2 size={18} className="animate-spin" /> : "Register"}
-                </button>
-              </div>
+              <input
+                type="email"
+                placeholder="Your email"
+                value={signupEmail}
+                onChange={(e) => setSignupEmail(e.target.value)}
+                className="flex-1 rounded-lg border border-primary/20 bg-white px-3 py-2 text-sm text-primary outline-none focus:border-secondary sm:w-56"
+                required
+              />
+              <button
+                type="submit"
+                disabled={signupSubmitting}
+                className="whitespace-nowrap rounded-lg bg-secondary px-4 py-2 text-sm font-semibold text-white transition hover:bg-secondary/90 disabled:opacity-50"
+              >
+                {signupSubmitting ? <Loader2 size={14} className="animate-spin" /> : "Keep me posted"}
+              </button>
             </form>
           )}
         </div>

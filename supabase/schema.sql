@@ -140,8 +140,9 @@ CREATE TABLE IF NOT EXISTS ratings (
   user_id     text NOT NULL,
   product_id  uuid NOT NULL REFERENCES products(id) ON DELETE CASCADE,
   order_id    uuid NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
-  stars       integer NOT NULL,
+  stars       integer,
   comment     text,
+  featured    boolean NOT NULL DEFAULT false,
   created_at  timestamptz DEFAULT now(),
   UNIQUE(user_id, product_id, order_id)
 );
@@ -153,6 +154,8 @@ CREATE TABLE IF NOT EXISTS feedback (
   message       text NOT NULL,
   source        text DEFAULT 'carrie',
   order_number  integer,
+  page_url      text,
+  featured      boolean NOT NULL DEFAULT false,
   created_at    timestamptz DEFAULT now()
 );
 
