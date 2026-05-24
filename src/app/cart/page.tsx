@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Trash2, Plus, Minus, ShoppingCart, CheckCircle, Calendar, Clock, Home, Package, MapPin, HelpCircle, X, Loader2, MessageCircle, Lock, Unlock } from "lucide-react";
+import { Trash2, Plus, Minus, ShoppingCart, CheckCircle, Calendar, Clock, Home, Package, MapPin, HelpCircle, X, Loader2, MessageCircle } from "lucide-react";
 import { useUser } from "@clerk/nextjs";
 import { useCart } from "@/lib/cart-context";
 import { type DeliveryDay, type DeliveryWindow, type DeliveryArea, type SupplierHolidayInfo, getActiveDeliveryDays, getCustomerProfile, getDeliveryArea, submitExpansionRequest, getSuppliersHolidayInfo, isSupplierOnHoliday } from "@/lib/data";
@@ -48,35 +48,8 @@ export default function CartPage() {
   const [submittingExpansion, setSubmittingExpansion] = useState(false);
   const [expansionSubmitted, setExpansionSubmitted] = useState(false);
 
-  // Trial access state
-  const [trialCode, setTrialCode] = useState("");
-  const [trialUnlocked, setTrialUnlocked] = useState(false);
-  const [trialError, setTrialError] = useState("");
-
   // Holiday suppliers state
   const [holidaySuppliers, setHolidaySuppliers] = useState<SupplierHolidayInfo[]>([]);
-
-  const handleTrialUnlock = () => {
-    const validCode = process.env.NEXT_PUBLIC_TRIAL_CODE;
-    if (trialCode.trim().toUpperCase() === validCode?.toUpperCase()) {
-      setTrialUnlocked(true);
-      setTrialError("");
-      // Store in sessionStorage so it persists during the session
-      sessionStorage.setItem("trialUnlocked", "true");
-    } else {
-      setTrialError("Invalid code. Please check and try again.");
-    }
-  };
-
-  // Check if already unlocked in this session
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      const unlocked = sessionStorage.getItem("trialUnlocked");
-      if (unlocked === "true") {
-        setTrialUnlocked(true);
-      }
-    }
-  }, []);
 
   useEffect(() => {
     getActiveDeliveryDays().then(setDeliveryDays).catch(console.error);
@@ -436,48 +409,8 @@ export default function CartPage() {
         })()}
       </div>
 
-      {/* Week 2 Access Lock - hide in top-up mode */}
-      {!topUpOrder && !trialUnlocked && (
-        <div className="mt-8 rounded-xl bg-primary/5 border-2 border-primary/20 p-6">
-          <div className="flex items-center gap-2">
-            <Lock size={20} className="text-primary" />
-            <h2 className="text-lg font-semibold text-primary">Week 2 Access</h2>
-          </div>
-          <p className="mt-1 text-sm text-muted">
-            Enter your Week 2 code to continue to checkout.
-          </p>
-          <div className="mt-4 flex flex-col sm:flex-row gap-2">
-            <input
-              type="text"
-              placeholder="Enter Week 2 code"
-              value={trialCode}
-              onChange={(e) => {
-                setTrialCode(e.target.value.toUpperCase());
-                setTrialError("");
-              }}
-              onKeyDown={(e) => e.key === "Enter" && handleTrialUnlock()}
-              className="flex-1 rounded-lg border border-primary/20 bg-white px-4 py-2.5 text-base sm:text-sm font-mono uppercase outline-none transition focus:border-secondary"
-            />
-            <button
-              onClick={handleTrialUnlock}
-              disabled={!trialCode.trim()}
-              className="inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-primary/90 disabled:opacity-50"
-            >
-              <Unlock size={16} />
-              Unlock
-            </button>
-          </div>
-          {trialError && (
-            <p className="mt-2 text-sm text-red-600">{trialError}</p>
-          )}
-          <p className="mt-3 text-xs text-muted">
-            Don&apos;t have a code? We&apos;ll be opening to more customers soon!
-          </p>
-        </div>
-      )}
-
-      {/* Delivery Address - only show if trial unlocked and not top-up mode */}
-      {!topUpOrder && trialUnlocked && (
+      {/* Delivery Address - only show if not top-up mode */}
+      {!topUpOrder && (
         <div className="mt-8 rounded-xl bg-surface p-6 shadow-sm">
           <div className="flex items-center gap-2">
             <MapPin size={20} className="text-secondary" />
@@ -590,8 +523,8 @@ export default function CartPage() {
       </div>
       )}
 
-      {/* Delivery Day Picker - only show if in zone, trial unlocked, and not top-up mode */}
-      {!topUpOrder && trialUnlocked && deliveryCheck?.inZone && (
+      {/* Delivery Day Picker - only show if in zone and not top-up mode */}
+      {!topUpOrder && deliveryCheck?.inZone && (
         <div className="mt-6 rounded-xl bg-surface p-6 shadow-sm">
           <div className="flex items-center gap-2">
             <Calendar size={20} className="text-secondary" />
@@ -628,8 +561,8 @@ export default function CartPage() {
         </div>
       )}
 
-      {/* Delivery Window - only show if in zone, trial unlocked, and not top-up mode */}
-      {!topUpOrder && trialUnlocked && deliveryCheck?.inZone && (
+      {/* Delivery Window - only show if in zone and not top-up mode */}
+      {!topUpOrder && deliveryCheck?.inZone && (
         <div className="mt-6 rounded-xl bg-surface p-6 shadow-sm">
           <div className="flex items-center gap-2">
             <Clock size={20} className="text-secondary" />
@@ -663,8 +596,8 @@ export default function CartPage() {
         </div>
       )}
 
-      {/* Attendance Choice - only show if in zone, trial unlocked, and not top-up mode */}
-      {!topUpOrder && trialUnlocked && deliveryCheck?.inZone && (
+      {/* Attendance Choice - only show if in zone and not top-up mode */}
+      {!topUpOrder && deliveryCheck?.inZone && (
         <div className="mt-6 rounded-xl bg-surface p-6 shadow-sm">
         <div className="flex items-center gap-2">
           <Home size={20} className="text-secondary" />
@@ -750,8 +683,8 @@ export default function CartPage() {
         </div>
       )}
 
-      {/* Safe Place (only if not in, in zone, trial unlocked, and not top-up mode) */}
-      {!topUpOrder && trialUnlocked && deliveryCheck?.inZone && willBeIn === false && (
+      {/* Safe Place (only if not in, in zone, and not top-up mode) */}
+      {!topUpOrder && deliveryCheck?.inZone && willBeIn === false && (
         <div className="mt-6 rounded-xl bg-surface p-6 shadow-sm">
           <div className="flex items-center gap-2">
             <MapPin size={20} className="text-secondary" />
@@ -931,12 +864,12 @@ export default function CartPage() {
           disabled={
             topUpOrder 
               ? (belowMinimum || hasHolidayItems || !isSignedIn || placing)
-              : (belowMinimum || hasHolidayItems || !trialUnlocked || !deliveryCheck?.inZone || !addressForm.addressLine1.trim() || !selectedDay || !deliveryWindow || willBeIn === null || (willBeIn === false && !safePlace.trim()) || (hasGlassBottles && hasOwnBottles === null) || placing)
+              : (belowMinimum || hasHolidayItems || !deliveryCheck?.inZone || !addressForm.addressLine1.trim() || !selectedDay || !deliveryWindow || willBeIn === null || (willBeIn === false && !safePlace.trim()) || (hasGlassBottles && hasOwnBottles === null) || placing)
           }
           onClick={handlePlaceOrder}
           className="mt-6 w-full rounded-lg bg-accent py-3 text-center font-semibold text-primary transition hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {placing ? "Redirecting to Checkout..." : hasHolidayItems ? "Remove Holiday Items" : belowMinimum ? `Minimum order £${MINIMUM_ORDER}` : topUpOrder ? "Add to Order & Pay" : !trialUnlocked ? "Enter Trial Code" : !isSignedIn ? "Sign In to Continue" : !deliveryCheck?.inZone ? "Check Postcode First" : !addressForm.addressLine1.trim() ? "Enter Address" : !selectedDay ? "Select Delivery Day" : !deliveryWindow ? "Select Delivery Window" : willBeIn === null ? "Select Attendance" : (willBeIn === false && !safePlace.trim()) ? "Enter Safe Place" : (hasGlassBottles && hasOwnBottles === null) ? "Select Bottle Deposit Option" : "Continue to Checkout"}
+          {placing ? "Redirecting to Checkout..." : hasHolidayItems ? "Remove Holiday Items" : belowMinimum ? `Minimum order £${MINIMUM_ORDER}` : topUpOrder ? "Add to Order & Pay" : !isSignedIn ? "Sign In to Continue" : !deliveryCheck?.inZone ? "Check Postcode First" : !addressForm.addressLine1.trim() ? "Enter Address" : !selectedDay ? "Select Delivery Day" : !deliveryWindow ? "Select Delivery Window" : willBeIn === null ? "Select Attendance" : (willBeIn === false && !safePlace.trim()) ? "Enter Safe Place" : (hasGlassBottles && hasOwnBottles === null) ? "Select Bottle Deposit Option" : "Continue to Checkout"}
         </button>
         {!isSignedIn && (
           <p className="mt-2 text-center text-xs text-muted">
