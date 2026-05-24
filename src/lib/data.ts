@@ -1554,108 +1554,44 @@ export async function getCustomerBoxStatuses(userIds: string[]): Promise<Map<str
   return map;
 }
 
-// ─── Delivery Zones ─────────────────────────────────────────────────────────
+// ─── Delivery Area (Polygon) ─────────────────────────────────────────────────
 
-export type ZoneStatus = "live" | "not_live";
-
-export interface DeliveryZone {
-  id: string;
-  name: string;
-  centreLat: number;
-  centreLng: number;
-  radiusMiles: number;
-  zoneStatus: ZoneStatus;
-  launchDate: string | null; // ISO date string for not_live zones
+// polygon_geojson is a GeoJSON Feature or Geometry of type Polygon or MultiPolygon
+export interface DeliveryArea {
+  polygonGeojson: any;  // keep as any — we pass it straight to turf
+  updatedAt: string;
 }
 
-export async function getDeliveryZones(): Promise<DeliveryZone[]> {
+export async function getDeliveryArea(): Promise<DeliveryArea | null> {
   const { data, error } = await supabase
-    .from("delivery_zones")
-    .select("*")
-    .order("name");
+    .from("delivery_area")
+    .select("polygon_geojson, updated_at")
+    .eq("id", "current")
+    .maybeSingle();
   if (error) throw error;
-  return (data ?? []).map((d) => ({
-    id: d.id,
-    name: d.name,
-    centreLat: d.centre_lat,
-    centreLng: d.centre_lng,
-    radiusMiles: d.radius_miles,
-    zoneStatus: (d.zone_status as ZoneStatus) ?? "live",
-    launchDate: d.launch_date ?? null,
-  }));
-}
-
-export async function createDeliveryZone(zone: Omit<DeliveryZone, "id">): Promise<DeliveryZone> {
-  const { data, error } = await supabase
-    .from("delivery_zones")
-    .insert({
-      name: zone.name,
-      centre_lat: zone.centreLat,
-      centre_lng: zone.centreLng,
-      radius_miles: zone.radiusMiles,
-      zone_status: zone.zoneStatus,
-      launch_date: zone.launchDate,
-    })
-    .select()
-    .single();
-  if (error) throw error;
+  if (!data) return null;
   return {
-    id: data.id,
-    name: data.name,
-    centreLat: data.centre_lat,
-    centreLng: data.centre_lng,
-    radiusMiles: data.radius_miles,
-    zoneStatus: (data.zone_status as ZoneStatus) ?? "live",
-    launchDate: data.launch_date ?? null,
+    polygonGeojson: data.polygon_geojson,
+    updatedAt: data.updated_at,
   };
 }
 
-export async function updateDeliveryZone(zone: DeliveryZone): Promise<void> {
+export async function saveDeliveryArea(polygonGeojson: any): Promise<void> {
   const { error } = await supabase
-    .from("delivery_zones")
-    .update({
-      name: zone.name,
-      centre_lat: zone.centreLat,
-      centre_lng: zone.centreLng,
-      radius_miles: zone.radiusMiles,
-      zone_status: zone.zoneStatus,
-      launch_date: zone.launchDate,
-    })
-    .eq("id", zone.id);
+    .from("delivery_area")
+    .upsert(
+      { id: "current", polygon_geojson: polygonGeojson, updated_at: new Date().toISOString() },
+      { onConflict: "id" }
+    );
   if (error) throw error;
 }
 
-export async function deleteDeliveryZone(id: string): Promise<void> {
-  const { error } = await supabase.from("delivery_zones").delete().eq("id", id);
+export async function deleteDeliveryArea(): Promise<void> {
+  const { error } = await supabase
+    .from("delivery_area")
+    .delete()
+    .eq("id", "current");
   if (error) throw error;
-}
-
-export async function getLiveDeliveryZones(): Promise<DeliveryZone[]> {
-  const { data, error } = await supabase
-    .from("delivery_zones")
-    .select("*")
-    .eq("zone_status", "live")
-    .order("name");
-  if (error) throw error;
-  return data.map((z) => ({
-    id: z.id,
-    name: z.name,
-    centreLat: z.centre_lat,
-    centreLng: z.centre_lng,
-    radiusMiles: z.radius_miles,
-    zoneStatus: z.zone_status as ZoneStatus,
-    launchDate: z.launch_date ?? null,
-  }));
-}
-
-// Legacy compat — kept so old imports don't break during migration
-export type DeliverySettings = DeliveryZone;
-export async function getDeliverySettings(): Promise<DeliverySettings | null> {
-  const zones = await getDeliveryZones();
-  return zones[0] ?? null;
-}
-export async function updateDeliverySettings(settings: DeliverySettings): Promise<void> {
-  return updateDeliveryZone(settings);
 }
 
 export async function getAverageRatings(): Promise<Record<string, { avg: number; count: number }>> {

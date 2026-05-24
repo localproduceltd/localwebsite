@@ -49,17 +49,3 @@ function toRad(deg: number): number {
   return (deg * Math.PI) / 180;
 }
 
-/** Check if a point is within any of the given delivery zones */
-export function isWithinDeliveryZones(
-  lat: number,
-  lng: number,
-  zones: Array<{ centreLat: number; centreLng: number; radiusMiles: number; name: string }>
-): { inZone: boolean; zoneName?: string; distance?: number } {
-  for (const zone of zones) {
-    const distance = distanceMiles(lat, lng, zone.centreLat, zone.centreLng);
-    if (distance <= zone.radiusMiles) {
-      return { inZone: true, zoneName: zone.name, distance };
-    }
-  }
-  return { inZone: false };
-}

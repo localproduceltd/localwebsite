@@ -5,10 +5,12 @@ import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useCart } from "@/lib/cart-context";
-import { type Supplier, type DeliveryZone, getLiveSuppliers, getCustomerProfile, getDeliveryZones, saveCustomerPostcode } from "@/lib/data";
+import { type Supplier, type DeliveryArea, getLiveSuppliers, getCustomerProfile, getDeliveryArea, saveCustomerPostcode } from "@/lib/data";
 import { LOCALITY_COLORS } from "@/lib/locality";
-import { MapPin, CheckCircle2, Clock, HelpCircle, Loader2, Search, Truck, Store } from "lucide-react";
+import { MapPin, CheckCircle2, HelpCircle, Loader2, Search, Truck, Store } from "lucide-react";
 import { useAuth, useUser } from "@clerk/nextjs";
+import booleanPointInPolygon from "@turf/boolean-point-in-polygon";
+import { point as turfPoint } from "@turf/helpers";
 
 // Dynamically import Leaflet to avoid SSR issues
 import type * as LType from "leaflet";
@@ -22,46 +24,20 @@ if (typeof window !== "undefined") {
 }
 
 type MapView = "zones" | "suppliers";
-type DeliveryStatus = "live" | "not_live" | "not_covered" | null;
+type DeliveryStatus = "live" | "not_covered" | null;
 
-// Zone colors matching admin page
-const ZONE_COLOR_LIVE = "#16a34a"; // green-600
-const ZONE_COLOR_LAUNCHING = "#22c55e"; // green-500 (lighter green for dated launches)
-const ZONE_COLOR_TBC = "#f59e0b"; // amber-500
-
-function getZoneColor(zone: DeliveryZone): string {
-  if (zone.zoneStatus === "live") return ZONE_COLOR_LIVE;
-  if (zone.launchDate) return ZONE_COLOR_LAUNCHING;
-  return ZONE_COLOR_TBC;
-}
-
-function formatLaunchDate(dateStr: string | null): { text: string; shortText: string; hasTBC: boolean } {
-  if (!dateStr) return { text: "Launching - Date TBC", shortText: "TBC", hasTBC: true };
-  const date = new Date(dateStr + "T00:00:00");
-  const formatted = date.toLocaleDateString("en-GB", { day: "numeric", month: "long" });
-  return { text: `Launching ${formatted} 🚀`, shortText: formatted, hasTBC: false };
-}
-
-// Haversine distance in miles
-function getDistanceMiles(lat1: number, lng1: number, lat2: number, lng2: number): number {
-  const R = 3959; // Earth radius in miles
-  const dLat = (lat2 - lat1) * Math.PI / 180;
-  const dLng = (lng2 - lng1) * Math.PI / 180;
-  const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLng / 2) ** 2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
+const POLYGON_COLOR = "#16a34a"; // green-600
 
 function MapPageContent() {
   const searchParams = useSearchParams();
   const { products, addItem, items, updateQuantity } = useCart();
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
-  const [zones, setZones] = useState<DeliveryZone[]>([]);
+  const [deliveryArea, setDeliveryArea] = useState<DeliveryArea | null>(null);
   const initialView = searchParams.get("view") === "suppliers" ? "suppliers" : "zones";
   const [mapView, setMapView] = useState<MapView>(initialView);
   const [customerLocation, setCustomerLocation] = useState<{ lat: number; lng: number; postcode: string } | null>(null);
   const [justAdded, setJustAdded] = useState<string | null>(null);
   const [deliveryStatus, setDeliveryStatus] = useState<DeliveryStatus>(null);
-  const [matchedZone, setMatchedZone] = useState<DeliveryZone | null>(null);
   
   // Postcode checker state
   const [postcodeInput, setPostcodeInput] = useState("");
@@ -77,10 +53,10 @@ function MapPageContent() {
   const { isSignedIn, isLoaded } = useAuth();
 
   useEffect(() => {
-    Promise.all([getLiveSuppliers(), getDeliveryZones()])
-      .then(([s, z]) => {
+    Promise.all([getLiveSuppliers(), getDeliveryArea()])
+      .then(([s, a]) => {
         setSuppliers(s);
-        setZones(z);
+        setDeliveryArea(a);
       })
       .catch(console.error);
   }, []);
@@ -95,28 +71,26 @@ function MapPageContent() {
     }
   }, [user]);
 
-  // Check delivery status when customer location or zones change
+  // Check delivery status when customer location or delivery area changes
   useEffect(() => {
-    if (!customerLocation || zones.length === 0) {
+    if (!customerLocation) {
       setDeliveryStatus(null);
-      setMatchedZone(null);
       return;
     }
 
-    // Check if customer is in any zone
-    for (const zone of zones) {
-      const distance = getDistanceMiles(customerLocation.lat, customerLocation.lng, zone.centreLat, zone.centreLng);
-      if (distance <= zone.radiusMiles) {
-        setMatchedZone(zone);
-        setDeliveryStatus(zone.zoneStatus === "live" ? "live" : "not_live");
-        return;
-      }
+    if (!deliveryArea) {
+      setDeliveryStatus("not_covered");
+      return;
     }
 
-    // Not in any zone
-    setMatchedZone(null);
-    setDeliveryStatus("not_covered");
-  }, [customerLocation, zones]);
+    // Check if customer is inside the polygon
+    const customerPoint = turfPoint([customerLocation.lng, customerLocation.lat]);
+    const geom = deliveryArea.polygonGeojson.type === "Feature"
+      ? deliveryArea.polygonGeojson
+      : { type: "Feature", geometry: deliveryArea.polygonGeojson, properties: {} };
+    const inside = booleanPointInPolygon(customerPoint, geom);
+    setDeliveryStatus(inside ? "live" : "not_covered");
+  }, [customerLocation, deliveryArea]);
 
   // Postcode lookup using postcodes.io
   const checkPostcode = async () => {
@@ -221,51 +195,38 @@ function MapPageContent() {
     };
   }, []);
 
-  // Draw delivery zones
+  // Draw delivery area polygon
   useEffect(() => {
     const zonesLayer = zonesLayerRef.current;
-    if (!zonesLayer || !L || zones.length === 0) return;
+    if (!zonesLayer || !L) return;
 
     zonesLayer.clearLayers();
 
-    zones.forEach((zone) => {
-      const color = getZoneColor(zone);
-      const radiusMetres = zone.radiusMiles * 1609.34;
+    if (!deliveryArea) return;
 
-      const circle = L.circle([zone.centreLat, zone.centreLng], {
-        radius: radiusMetres,
-        color,
-        fillColor: color,
+    // Create GeoJSON layer for the polygon
+    const geojsonFeature = deliveryArea.polygonGeojson.type === "Feature"
+      ? deliveryArea.polygonGeojson
+      : { type: "Feature", geometry: deliveryArea.polygonGeojson, properties: {} };
+
+    const polygonLayer = L.geoJSON(geojsonFeature, {
+      style: {
+        color: POLYGON_COLOR,
+        fillColor: POLYGON_COLOR,
         fillOpacity: 0.15,
         weight: 2,
-        dashArray: zone.zoneStatus === "not_live" ? "8, 8" : undefined,
-      });
-      circle.addTo(zonesLayer);
-
-      // Zone label - two lines if launching
-      const launchText = zone.zoneStatus === "not_live" ? formatLaunchDate(zone.launchDate).text : "";
-      const icon = L.divIcon({
-        className: "",
-        html: `<div style="
-          background:${color};
-          color:white;
-          padding:6px 12px;
-          border-radius:12px;
-          font-size:11px;
-          font-weight:600;
-          text-align:center;
-          box-shadow:0 2px 6px rgba(0,0,0,0.2);
-          line-height:1.3;
-        ">
-          <div>${zone.name}</div>
-          ${launchText ? `<div style="font-size:10px;opacity:0.9;margin-top:2px;">${launchText}</div>` : ""}
-        </div>`,
-        iconSize: [140, launchText ? 44 : 28],
-        iconAnchor: [70, launchText ? 22 : 14],
-      });
-      L.marker([zone.centreLat, zone.centreLng], { icon, interactive: false }).addTo(zonesLayer);
+      },
     });
-  }, [zones]);
+    polygonLayer.addTo(zonesLayer);
+
+    // Fit map to polygon bounds when in zones view
+    if (mapView === "zones" && mapInstanceRef.current) {
+      const bounds = polygonLayer.getBounds();
+      if (bounds.isValid()) {
+        mapInstanceRef.current.fitBounds(bounds, { padding: [30, 30] });
+      }
+    }
+  }, [deliveryArea, mapView]);
 
   // Show/hide layers based on view
   useEffect(() => {
@@ -530,41 +491,12 @@ function MapPageContent() {
               <div>
                 <p className="font-bold text-green-800">Great news! We deliver to your area</p>
                 <p className="text-sm text-green-700">
-                  {customerLocation?.postcode} is within our {matchedZone?.name} delivery zone.
+                  {customerLocation?.postcode} is within our delivery area.
                 </p>
               </div>
             </div>
           </div>
         )}
-
-        {deliveryStatus === "not_live" && (() => {
-          const launchInfo = formatLaunchDate(matchedZone?.launchDate ?? null);
-          return launchInfo.hasTBC ? (
-            <div className="mt-4 rounded-xl bg-amber-50 border-2 border-amber-200 px-5 py-4">
-              <div className="flex items-center gap-3">
-                <Clock size={24} className="text-amber-600 flex-shrink-0" />
-                <div>
-                  <p className="font-bold text-amber-800">Launching - Date TBC</p>
-                  <p className="text-sm text-amber-700">
-                    {customerLocation?.postcode} is in our {matchedZone?.name} zone — we're expanding here soon!
-                  </p>
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div className="mt-4 rounded-xl bg-green-50 border-2 border-green-200 px-5 py-4">
-              <div className="flex items-center gap-3">
-                <Clock size={24} className="text-green-600 flex-shrink-0" />
-                <div>
-                  <p className="font-bold text-green-800">{launchInfo.text}</p>
-                  <p className="text-sm text-green-700">
-                    {customerLocation?.postcode} is in our {matchedZone?.name} zone — deliveries start {launchInfo.shortText}.
-                  </p>
-                </div>
-              </div>
-            </div>
-          );
-        })()}
 
         {deliveryStatus === "not_covered" && (
           <div className="mt-4 rounded-xl bg-gray-50 border-2 border-gray-200 px-5 py-4">
@@ -633,13 +565,7 @@ function MapPageContent() {
         {mapView === "zones" ? (
           <>
             <span className="flex items-center gap-1.5">
-              <span className="inline-block h-3 w-3 rounded-full border-2 border-white shadow-sm" style={{ background: ZONE_COLOR_LIVE }} /> Live
-            </span>
-            <span className="flex items-center gap-1.5">
-              <span className="inline-block h-3 w-3 rounded-full border-2 border-white shadow-sm" style={{ background: ZONE_COLOR_LAUNCHING }} /> Launching Soon
-            </span>
-            <span className="flex items-center gap-1.5">
-              <span className="inline-block h-3 w-3 rounded-full border-2 border-white shadow-sm" style={{ background: ZONE_COLOR_TBC }} /> Date TBC
+              <span className="inline-block h-3 w-3 rounded-full border-2 border-white shadow-sm" style={{ background: POLYGON_COLOR }} /> Delivery Area
             </span>
           </>
         ) : (

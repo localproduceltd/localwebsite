@@ -67,17 +67,19 @@ CREATE TABLE IF NOT EXISTS delivery_settings (
   updated_at     timestamptz DEFAULT now()
 );
 
--- Delivery zones
-CREATE TABLE IF NOT EXISTS delivery_zones (
-  id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  name           text NOT NULL,
-  centre_lat     double precision NOT NULL,
-  centre_lng     double precision NOT NULL,
-  radius_miles   double precision NOT NULL DEFAULT 5,
-  zone_status    text NOT NULL DEFAULT 'live',
-  launch_date    date,
-  created_at     timestamptz DEFAULT now()
+-- Delivery area (singleton polygon)
+CREATE TABLE IF NOT EXISTS delivery_area (
+  id              text PRIMARY KEY DEFAULT 'current'
+                  CHECK (id = 'current'),
+  polygon_geojson jsonb NOT NULL,
+  updated_at      timestamptz DEFAULT now()
 );
+
+ALTER TABLE delivery_area ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Public read delivery_area"
+  ON delivery_area FOR SELECT USING (true);
+CREATE POLICY "Anyone can manage delivery_area"
+  ON delivery_area FOR ALL USING (true) WITH CHECK (true);
 
 -- Customer profiles
 CREATE TABLE IF NOT EXISTS customer_profiles (

@@ -6,9 +6,11 @@ import { useRouter } from "next/navigation";
 import { Trash2, Plus, Minus, ShoppingCart, CheckCircle, Calendar, Clock, Home, Package, MapPin, HelpCircle, X, Loader2, MessageCircle, Lock, Unlock } from "lucide-react";
 import { useUser } from "@clerk/nextjs";
 import { useCart } from "@/lib/cart-context";
-import { type DeliveryDay, type DeliveryWindow, type DeliveryZone, type SupplierHolidayInfo, getActiveDeliveryDays, getCustomerProfile, getLiveDeliveryZones, getDeliveryZones, submitExpansionRequest, getSuppliersHolidayInfo, isSupplierOnHoliday } from "@/lib/data";
-import { lookupPostcode, isWithinDeliveryZones } from "@/lib/postcode";
+import { type DeliveryDay, type DeliveryWindow, type DeliveryArea, type SupplierHolidayInfo, getActiveDeliveryDays, getCustomerProfile, getDeliveryArea, submitExpansionRequest, getSuppliersHolidayInfo, isSupplierOnHoliday } from "@/lib/data";
+import { lookupPostcode } from "@/lib/postcode";
 import { BOX_DEPOSIT, BOTTLE_DEPOSIT, MINIMUM_ORDER, DELIVERY_FEE } from "@/lib/constants";
+import booleanPointInPolygon from "@turf/boolean-point-in-polygon";
+import { point as turfPoint } from "@turf/helpers";
 
 export default function CartPage() {
   const { items, updateQuantity, removeItem, totalPrice, getProduct, clearCart, topUpOrder, clearTopUpOrder } = useCart();
@@ -40,9 +42,8 @@ export default function CartPage() {
   });
   const [checkingPostcode, setCheckingPostcode] = useState(false);
   const [postcodeError, setPostcodeError] = useState("");
-  const [deliveryZones, setDeliveryZones] = useState<DeliveryZone[]>([]);
-  const [allZones, setAllZones] = useState<DeliveryZone[]>([]);
-  const [deliveryCheck, setDeliveryCheck] = useState<{ checked: boolean; inZone: boolean; zoneName?: string; isLaunching?: boolean; launchDate?: string | null } | null>(null);
+  const [deliveryArea, setDeliveryArea] = useState<DeliveryArea | null>(null);
+  const [deliveryCheck, setDeliveryCheck] = useState<{ checked: boolean; inZone: boolean } | null>(null);
   const [expansionEmail, setExpansionEmail] = useState("");
   const [submittingExpansion, setSubmittingExpansion] = useState(false);
   const [expansionSubmitted, setExpansionSubmitted] = useState(false);
@@ -79,8 +80,7 @@ export default function CartPage() {
 
   useEffect(() => {
     getActiveDeliveryDays().then(setDeliveryDays).catch(console.error);
-    getLiveDeliveryZones().then(setDeliveryZones).catch(console.error);
-    getDeliveryZones().then(setAllZones).catch(console.error);
+    getDeliveryArea().then(setDeliveryArea).catch(console.error);
   }, []);
 
   // Fetch holiday info for suppliers in cart
@@ -119,20 +119,16 @@ export default function CartPage() {
     // Update postcode to formatted version
     setAddressForm(prev => ({ ...prev, postcode: result.postcode }));
 
-    // Check live zones first
-    const liveResult = isWithinDeliveryZones(result.lat, result.lng, deliveryZones);
-    if (liveResult.inZone) {
-      setDeliveryCheck({ checked: true, inZone: true, zoneName: liveResult.zoneName });
+    // Check if inside delivery area polygon
+    if (!deliveryArea) {
+      setDeliveryCheck({ checked: true, inZone: false });
     } else {
-      // Check if in a "not live" zone (coming soon)
-      const notLiveZones = allZones.filter(z => z.zoneStatus === "not_live");
-      const comingSoonResult = isWithinDeliveryZones(result.lat, result.lng, notLiveZones);
-      if (comingSoonResult.inZone) {
-        const zone = notLiveZones.find(z => z.name === comingSoonResult.zoneName);
-        setDeliveryCheck({ checked: true, inZone: false, zoneName: comingSoonResult.zoneName, isLaunching: true, launchDate: zone?.launchDate });
-      } else {
-        setDeliveryCheck({ checked: true, inZone: false });
-      }
+      const customerPoint = turfPoint([result.lng, result.lat]);
+      const geom = deliveryArea.polygonGeojson.type === "Feature"
+        ? deliveryArea.polygonGeojson
+        : { type: "Feature", geometry: deliveryArea.polygonGeojson, properties: {} };
+      const inside = booleanPointInPolygon(customerPoint, geom);
+      setDeliveryCheck({ checked: true, inZone: inside });
     }
     setCheckingPostcode(false);
   };
@@ -547,54 +543,13 @@ export default function CartPage() {
             <div className="rounded-lg bg-green-50 border border-green-200 p-4">
               <div className="flex items-center gap-2">
                 <CheckCircle size={18} className="text-green-600" />
-                <p className="font-semibold text-green-800">Great news! We deliver to {deliveryCheck.zoneName}!</p>
+                <p className="font-semibold text-green-800">Great news! We deliver to your area!</p>
               </div>
               <p className="text-sm text-green-700 mt-1">Choose your delivery date below to continue.</p>
             </div>
           )}
           
-          {deliveryCheck?.checked && !deliveryCheck.inZone && deliveryCheck.isLaunching && (
-            <div className="rounded-lg bg-amber-50 border border-amber-200 p-4">
-              <p className="font-semibold text-amber-800">
-                🚀 {deliveryCheck.zoneName} is coming soon!
-              </p>
-              <p className="text-sm text-amber-700 mt-1">
-                {deliveryCheck.launchDate 
-                  ? `We're launching in your area on ${new Date(deliveryCheck.launchDate + "T00:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "long" })}.`
-                  : "We're expanding to your area soon — date to be confirmed."
-                }
-              </p>
-              {expansionSubmitted ? (
-                <div className="mt-3 flex items-center gap-2 text-green-700">
-                  <CheckCircle size={16} />
-                  <p className="text-sm font-medium">Thanks! We&apos;ll let you know when we launch.</p>
-                </div>
-              ) : (
-                <>
-                  <p className="text-sm text-amber-700 mt-2">Want to be notified when we launch?</p>
-                  <div className="mt-3 flex gap-2">
-                    <input
-                      type="email"
-                      placeholder="Your email (optional)"
-                      value={expansionEmail}
-                      onChange={(e) => setExpansionEmail(e.target.value)}
-                      className="flex-1 rounded-lg border border-amber-300 bg-white px-3 py-2 text-base sm:text-sm outline-none focus:border-amber-500"
-                    />
-                    <button
-                      onClick={handleExpansionRequest}
-                      disabled={submittingExpansion}
-                      className="inline-flex items-center gap-2 rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-amber-700 disabled:opacity-50"
-                    >
-                      {submittingExpansion ? <Loader2 size={16} className="animate-spin" /> : <MessageCircle size={16} />}
-                      Notify me!
-                    </button>
-                  </div>
-                </>
-              )}
-            </div>
-          )}
-          
-          {deliveryCheck?.checked && !deliveryCheck.inZone && !deliveryCheck.isLaunching && (
+          {deliveryCheck?.checked && !deliveryCheck.inZone && (
             <div className="rounded-lg bg-red-50 border border-red-200 p-4">
               <p className="font-semibold text-red-800">Sorry, we don&apos;t deliver to your area yet</p>
               <p className="text-sm text-red-700 mt-1">
