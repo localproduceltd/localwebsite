@@ -1,3 +1,4 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 import { BOX_DEPOSIT } from "@/lib/constants";
 
@@ -135,8 +136,8 @@ export function orderBasket(o: Order): number {
 
 // ─── Data access functions (powered by Supabase) ─────────────────────────────
 
-export async function getSuppliers(): Promise<Supplier[]> {
-  const { data, error } = await supabase
+export async function getSuppliers(client: SupabaseClient = supabase): Promise<Supplier[]> {
+  const { data, error } = await client
     .from("suppliers")
     .select("*")
     .order("name");
@@ -216,8 +217,8 @@ export async function getActiveSuppliers(): Promise<Supplier[]> {
   }));
 }
 
-export async function getSupplier(id: string): Promise<Supplier | null> {
-  const { data, error } = await supabase
+export async function getSupplier(id: string, client: SupabaseClient = supabase): Promise<Supplier | null> {
+  const { data, error } = await client
     .from("suppliers")
     .select("*")
     .eq("id", id)
@@ -266,8 +267,8 @@ export function isSupplierOnHoliday(info: SupplierHolidayInfo): boolean {
   return info.holidayUntil >= today;
 }
 
-export async function getProducts(): Promise<Product[]> {
-  const { data, error } = await supabase
+export async function getProducts(client: SupabaseClient = supabase): Promise<Product[]> {
+  const { data, error } = await client
     .from("products")
     .select("*, suppliers(name)")
     .is("archived_at", null)
@@ -329,8 +330,8 @@ export async function getApprovedProducts(): Promise<Product[]> {
   }));
 }
 
-export async function getProductsBySupplier(supplierId: string): Promise<Product[]> {
-  const { data, error } = await supabase
+export async function getProductsBySupplier(supplierId: string, client: SupabaseClient = supabase): Promise<Product[]> {
+  const { data, error } = await client
     .from("products")
     .select("*, suppliers(name)")
     .eq("supplier_id", supplierId)
@@ -361,8 +362,8 @@ export async function getProductsBySupplier(supplierId: string): Promise<Product
   }));
 }
 
-export async function getProduct(id: string): Promise<Product | null> {
-  const { data, error } = await supabase
+export async function getProduct(id: string, client: SupabaseClient = supabase): Promise<Product | null> {
+  const { data, error } = await client
     .from("products")
     .select("*, suppliers(name)")
     .eq("id", id)
@@ -393,8 +394,8 @@ export async function getProduct(id: string): Promise<Product | null> {
   };
 }
 
-export async function getArchivedProducts(): Promise<Product[]> {
-  const { data, error } = await supabase
+export async function getArchivedProducts(client: SupabaseClient = supabase): Promise<Product[]> {
+  const { data, error } = await client
     .from("products")
     .select("*, suppliers(name)")
     .not("archived_at", "is", null)
@@ -467,8 +468,23 @@ export async function getOrders(userId?: string): Promise<Order[]> {
   }));
 }
 
-export async function getDeliveryDays(): Promise<DeliveryDay[]> {
-  const { data, error } = await supabase
+export async function getDeliveryDay(id: string, client: SupabaseClient = supabase): Promise<DeliveryDay | null> {
+  const { data, error } = await client
+    .from("delivery_days")
+    .select("*")
+    .eq("id", id)
+    .single();
+  if (error) return null;
+  return {
+    id: data.id,
+    deliveryDate: data.delivery_date,
+    cutoffDate: data.cutoff_date,
+    cutoffTime: data.cutoff_time,
+  };
+}
+
+export async function getDeliveryDays(client: SupabaseClient = supabase): Promise<DeliveryDay[]> {
+  const { data, error } = await client
     .from("delivery_days")
     .select("*")
     .order("delivery_date");
@@ -509,8 +525,8 @@ export async function getActiveDeliveryDays(): Promise<DeliveryDay[]> {
 
 // ─── Write functions ─────────────────────────────────────────────────────────
 
-export async function createProduct(product: Omit<Product, "id" | "supplierName">): Promise<void> {
-  const { error } = await supabase.from("products").insert({
+export async function createProduct(product: Omit<Product, "id" | "supplierName">, client: SupabaseClient = supabase): Promise<Product> {
+  const { data, error } = await client.from("products").insert({
     name: product.name,
     description: product.description,
     price: product.price,
@@ -527,12 +543,34 @@ export async function createProduct(product: Omit<Product, "id" | "supplierName"
     allergens: product.allergens ?? [],
     tags: product.tags ?? [],
     ingredients: product.ingredients ?? null,
-  });
+  }).select("*, suppliers(name)").single();
   if (error) throw error;
+  return {
+    id: data.id,
+    supplierId: data.supplier_id,
+    supplierName: (data.suppliers as { name: string })?.name ?? "",
+    name: data.name,
+    description: data.description,
+    price: Number(data.price),
+    unit: data.unit,
+    image: data.image,
+    category: data.category,
+    inStock: data.in_stock,
+    locality: (data.locality as Locality) ?? "Local",
+    lat: data.lat ?? null,
+    lng: data.lng ?? null,
+    variableLocation: data.variable_location ?? false,
+    status: (data.status as ProductStatus) ?? "approved",
+    rejectionReason: data.rejection_reason ?? null,
+    archivedAt: data.archived_at ?? null,
+    allergens: data.allergens ?? [],
+    tags: data.tags ?? [],
+    ingredients: data.ingredients ?? null,
+  };
 }
 
-export async function updateProduct(product: Product): Promise<void> {
-  const { error } = await supabase.from("products").update({
+export async function updateProduct(product: Product, client: SupabaseClient = supabase): Promise<void> {
+  const { error } = await client.from("products").update({
     name: product.name,
     description: product.description,
     price: product.price,
@@ -557,9 +595,9 @@ export type DeleteProductResult =
   | { deleted: true }
   | { deleted: false; reason: "has_outstanding_orders" };
 
-export async function deleteProduct(id: string): Promise<DeleteProductResult> {
+export async function deleteProduct(id: string, client: SupabaseClient = supabase): Promise<DeleteProductResult> {
   // Check for outstanding order items (not delivered or cancelled)
-  const { data: outstandingItems, error: checkError } = await supabase
+  const { data: outstandingItems, error: checkError } = await client
     .from("order_items")
     .select("id")
     .eq("product_id", id)
@@ -570,7 +608,7 @@ export async function deleteProduct(id: string): Promise<DeleteProductResult> {
   
   if (outstandingItems && outstandingItems.length > 0) {
     // Has outstanding orders - mark out of stock instead
-    const { error: updateError } = await supabase
+    const { error: updateError } = await client
       .from("products")
       .update({ in_stock: false })
       .eq("id", id);
@@ -579,25 +617,25 @@ export async function deleteProduct(id: string): Promise<DeleteProductResult> {
   }
   
   // No outstanding orders - hard delete
-  const { error } = await supabase.from("products").delete().eq("id", id);
+  const { error } = await client.from("products").delete().eq("id", id);
   if (error) throw error;
   return { deleted: true };
 }
 
-export async function archiveProduct(id: string): Promise<void> {
+export async function archiveProduct(id: string, client: SupabaseClient = supabase): Promise<void> {
   // Soft delete - set archived_at timestamp (admin use)
-  const { error } = await supabase.from("products").update({ archived_at: new Date().toISOString() }).eq("id", id);
+  const { error } = await client.from("products").update({ archived_at: new Date().toISOString() }).eq("id", id);
   if (error) throw error;
 }
 
-export async function restoreProduct(id: string): Promise<void> {
-  const { error } = await supabase.from("products").update({ archived_at: null }).eq("id", id);
+export async function restoreProduct(id: string, client: SupabaseClient = supabase): Promise<void> {
+  const { error } = await client.from("products").update({ archived_at: null }).eq("id", id);
   if (error) throw error;
 }
 
-export async function permanentlyDeleteProduct(id: string): Promise<DeleteProductResult> {
+export async function permanentlyDeleteProduct(id: string, client: SupabaseClient = supabase): Promise<DeleteProductResult> {
   // Check for outstanding order items (not delivered or cancelled)
-  const { data: outstandingItems, error: checkError } = await supabase
+  const { data: outstandingItems, error: checkError } = await client
     .from("order_items")
     .select("id")
     .eq("product_id", id)
@@ -608,7 +646,7 @@ export async function permanentlyDeleteProduct(id: string): Promise<DeleteProduc
   
   if (outstandingItems && outstandingItems.length > 0) {
     // Has outstanding orders - mark out of stock instead
-    const { error: updateError } = await supabase
+    const { error: updateError } = await client
       .from("products")
       .update({ in_stock: false })
       .eq("id", id);
@@ -617,13 +655,13 @@ export async function permanentlyDeleteProduct(id: string): Promise<DeleteProduc
   }
   
   // No outstanding orders - hard delete
-  const { error } = await supabase.from("products").delete().eq("id", id);
+  const { error } = await client.from("products").delete().eq("id", id);
   if (error) throw error;
   return { deleted: true };
 }
 
-export async function createSupplier(supplier: Omit<Supplier, "id">): Promise<Supplier> {
-  const { data, error } = await supabase.from("suppliers").insert({
+export async function createSupplier(supplier: Omit<Supplier, "id">, client: SupabaseClient = supabase): Promise<Supplier> {
+  const { data, error } = await client.from("suppliers").insert({
     name: supplier.name,
     description: supplier.description,
     image: supplier.image,
@@ -639,8 +677,8 @@ export async function createSupplier(supplier: Omit<Supplier, "id">): Promise<Su
   return { id: data.id, name: data.name, description: data.description, image: data.image, location: data.location, category: data.category, lat: data.lat ?? null, lng: data.lng ?? null, status: data.status ?? "launch_live", email: data.email ?? null, instagram: data.instagram ?? null, featured: data.featured ?? false, onHoliday: data.on_holiday ?? false, holidayUntil: data.holiday_until ?? null, holidayMessage: data.holiday_message ?? null };
 }
 
-export async function updateSupplier(supplier: Supplier): Promise<void> {
-  const { error } = await supabase.from("suppliers").update({
+export async function updateSupplier(supplier: Supplier, client: SupabaseClient = supabase): Promise<void> {
+  const { error } = await client.from("suppliers").update({
     name: supplier.name,
     description: supplier.description,
     image: supplier.image,
@@ -686,39 +724,39 @@ export async function getSupplierByProductId(productId: string): Promise<Supplie
   };
 }
 
-export async function deleteSupplier(id: string): Promise<void> {
+export async function deleteSupplier(id: string, client: SupabaseClient = supabase): Promise<void> {
   // Delete supplier user links
-  await supabase.from("supplier_users").delete().eq("supplier_id", id);
-  
+  await client.from("supplier_users").delete().eq("supplier_id", id);
+
   // Get all product IDs for this supplier
-  const { data: products } = await supabase.from("products").select("id").eq("supplier_id", id);
+  const { data: products } = await client.from("products").select("id").eq("supplier_id", id);
   const productIds = products?.map((p) => p.id) ?? [];
-  
+
   if (productIds.length > 0) {
     // Delete order items for these products
-    await supabase.from("order_items").delete().in("product_id", productIds);
+    await client.from("order_items").delete().in("product_id", productIds);
     // Delete ratings for these products
-    await supabase.from("ratings").delete().in("product_id", productIds);
+    await client.from("ratings").delete().in("product_id", productIds);
     // Delete the products
-    await supabase.from("products").delete().eq("supplier_id", id);
+    await client.from("products").delete().eq("supplier_id", id);
   }
-  
+
   // Delete supplier order items
-  await supabase.from("supplier_order_items").delete().eq("supplier_id", id);
-  
+  await client.from("supplier_order_items").delete().eq("supplier_id", id);
+
   // Finally delete the supplier
-  const { error } = await supabase.from("suppliers").delete().eq("id", id);
+  const { error } = await client.from("suppliers").delete().eq("id", id);
   if (error) throw error;
 }
 
-export async function updateOrderStatus(orderId: string, status: Order["status"]): Promise<void> {
-  const { error } = await supabase.from("orders").update({ status }).eq("id", orderId);
+export async function updateOrderStatus(orderId: string, status: Order["status"], client: SupabaseClient = supabase): Promise<void> {
+  const { error } = await client.from("orders").update({ status }).eq("id", orderId);
   if (error) throw error;
   // Delivered/cancelled cascade is handled by a DB trigger (cascade_order_status)
 }
 
-export async function createDeliveryDay(day: Omit<DeliveryDay, "id">): Promise<DeliveryDay> {
-  const { data, error } = await supabase.from("delivery_days").insert({
+export async function createDeliveryDay(day: Omit<DeliveryDay, "id">, client: SupabaseClient = supabase): Promise<DeliveryDay> {
+  const { data, error } = await client.from("delivery_days").insert({
     delivery_date: day.deliveryDate,
     cutoff_date: day.cutoffDate,
     cutoff_time: day.cutoffTime,
@@ -732,8 +770,8 @@ export async function createDeliveryDay(day: Omit<DeliveryDay, "id">): Promise<D
   };
 }
 
-export async function updateDeliveryDay(day: DeliveryDay): Promise<void> {
-  const { error } = await supabase.from("delivery_days").update({
+export async function updateDeliveryDay(day: DeliveryDay, client: SupabaseClient = supabase): Promise<void> {
+  const { error } = await client.from("delivery_days").update({
     delivery_date: day.deliveryDate,
     cutoff_date: day.cutoffDate,
     cutoff_time: day.cutoffTime,
@@ -741,8 +779,8 @@ export async function updateDeliveryDay(day: DeliveryDay): Promise<void> {
   if (error) throw error;
 }
 
-export async function deleteDeliveryDay(id: string): Promise<void> {
-  const { error } = await supabase.from("delivery_days").delete().eq("id", id);
+export async function deleteDeliveryDay(id: string, client: SupabaseClient = supabase): Promise<void> {
+  const { error } = await client.from("delivery_days").delete().eq("id", id);
   if (error) throw error;
 }
 
@@ -920,9 +958,9 @@ export async function createOrder(options: CreateOrderOptions): Promise<Order> {
   };
 }
 
-export async function canModifyOrder(orderId: string): Promise<boolean> {
+export async function canModifyOrder(orderId: string, client: SupabaseClient = supabase): Promise<boolean> {
   // Get the order's delivery day
-  const { data: order, error: orderError } = await supabase
+  const { data: order, error: orderError } = await client
     .from("orders")
     .select("delivery_day, status")
     .eq("id", orderId)
@@ -934,7 +972,7 @@ export async function canModifyOrder(orderId: string): Promise<boolean> {
   if (order.status === "delivered" || order.status === "cancelled") return false;
   
   // Get the cutoff for this delivery day
-  const { data: deliveryDay, error: ddError } = await supabase
+  const { data: deliveryDay, error: ddError } = await client
     .from("delivery_days")
     .select("cutoff_date, cutoff_time")
     .eq("delivery_date", order.delivery_day)
@@ -953,11 +991,11 @@ export async function canModifyOrder(orderId: string): Promise<boolean> {
   return false;
 }
 
-export async function cancelOrder(orderId: string): Promise<void> {
-  const canModify = await canModifyOrder(orderId);
+export async function cancelOrder(orderId: string, client: SupabaseClient = supabase): Promise<void> {
+  const canModify = await canModifyOrder(orderId, client);
   if (!canModify) throw new Error("Order cannot be cancelled after cutoff");
   
-  const { error } = await supabase
+  const { error } = await client
     .from("orders")
     .update({ status: "cancelled" })
     .eq("id", orderId);
@@ -965,16 +1003,16 @@ export async function cancelOrder(orderId: string): Promise<void> {
   if (error) throw error;
 }
 
-export async function updateOrderItems(orderId: string, items: OrderItem[]): Promise<void> {
-  const canModify = await canModifyOrder(orderId);
+export async function updateOrderItems(orderId: string, items: OrderItem[], client: SupabaseClient = supabase): Promise<void> {
+  const canModify = await canModifyOrder(orderId, client);
   if (!canModify) throw new Error("Order cannot be modified after cutoff");
   
   // Delete existing items
-  await supabase.from("order_items").delete().eq("order_id", orderId);
+  await client.from("order_items").delete().eq("order_id", orderId);
   
   // Insert new items
   if (items.length > 0) {
-    const { error: itemsError } = await supabase.from("order_items").insert(
+    const { error: itemsError } = await client.from("order_items").insert(
       items.map((item) => ({
         order_id: orderId,
         product_id: item.productId,
@@ -990,7 +1028,7 @@ export async function updateOrderItems(orderId: string, items: OrderItem[]): Pro
   
   // Update order total
   const newTotal = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
-  const { error: totalError } = await supabase
+  const { error: totalError } = await client
     .from("orders")
     .update({ total: newTotal })
     .eq("id", orderId);
@@ -998,8 +1036,8 @@ export async function updateOrderItems(orderId: string, items: OrderItem[]): Pro
   if (totalError) throw totalError;
 }
 
-export async function getOrder(orderId: string): Promise<Order | null> {
-  const { data, error } = await supabase
+export async function getOrder(orderId: string, client: SupabaseClient = supabase): Promise<Order | null> {
+  const { data, error } = await client
     .from("orders")
     .select("*, order_items(*, suppliers(name))")
     .eq("id", orderId)
@@ -1040,13 +1078,13 @@ export async function getOrder(orderId: string): Promise<Order | null> {
   };
 }
 
-export async function addItemsToOrder(orderId: string, items: OrderItem[], additionalTotal: number): Promise<void> {
-  const canModify = await canModifyOrder(orderId);
+export async function addItemsToOrder(orderId: string, items: OrderItem[], additionalTotal: number, client: SupabaseClient = supabase): Promise<void> {
+  const canModify = await canModifyOrder(orderId, client);
   if (!canModify) throw new Error("Order cannot be modified after cutoff");
   
   // Insert new items
   if (items.length > 0) {
-    const { error: itemsError } = await supabase.from("order_items").insert(
+    const { error: itemsError } = await client.from("order_items").insert(
       items.map((item) => ({
         order_id: orderId,
         product_id: item.productId,
@@ -1062,7 +1100,7 @@ export async function addItemsToOrder(orderId: string, items: OrderItem[], addit
   }
   
   // Get current order total and add to it
-  const { data: order, error: orderError } = await supabase
+  const { data: order, error: orderError } = await client
     .from("orders")
     .select("total")
     .eq("id", orderId)
@@ -1071,7 +1109,7 @@ export async function addItemsToOrder(orderId: string, items: OrderItem[], addit
   if (orderError || !order) throw orderError ?? new Error("Order not found");
   
   const newTotal = Number(order.total) + additionalTotal;
-  const { error: totalError } = await supabase
+  const { error: totalError } = await client
     .from("orders")
     .update({ total: newTotal })
     .eq("id", orderId);
@@ -1095,8 +1133,8 @@ export async function getSupplierUser(clerkUserId: string): Promise<SupplierUser
   };
 }
 
-export async function getSupplierUsers(): Promise<(SupplierUser & { supplierName: string })[]> {
-  const { data, error } = await supabase
+export async function getSupplierUsers(client: SupabaseClient = supabase): Promise<(SupplierUser & { supplierName: string })[]> {
+  const { data, error } = await client
     .from("supplier_users")
     .select("*, suppliers(name)")
     .order("created_at", { ascending: false });
@@ -1109,29 +1147,29 @@ export async function getSupplierUsers(): Promise<(SupplierUser & { supplierName
   }));
 }
 
-export async function createSupplierUser(clerkUserId: string, supplierId: string): Promise<void> {
-  const { error } = await supabase.from("supplier_users").insert({
+export async function createSupplierUser(clerkUserId: string, supplierId: string, client: SupabaseClient = supabase): Promise<void> {
+  const { error } = await client.from("supplier_users").insert({
     clerk_user_id: clerkUserId,
     supplier_id: supplierId,
   });
   if (error) throw error;
 }
 
-export async function deleteSupplierUser(id: string): Promise<void> {
-  const { error } = await supabase.from("supplier_users").delete().eq("id", id);
+export async function deleteSupplierUser(id: string, client: SupabaseClient = supabase): Promise<void> {
+  const { error } = await client.from("supplier_users").delete().eq("id", id);
   if (error) throw error;
 }
 
 // ─── Product status functions ───────────────────────────────────────────────
 
-export async function updateProductStatus(productId: string, status: ProductStatus, rejectionReason?: string): Promise<void> {
+export async function updateProductStatus(productId: string, status: ProductStatus, rejectionReason?: string, client: SupabaseClient = supabase): Promise<void> {
   const update: { status: ProductStatus; rejection_reason?: string | null } = { status };
   if (status === "rejected" && rejectionReason) {
     update.rejection_reason = rejectionReason;
   } else if (status !== "rejected") {
     update.rejection_reason = null; // Clear rejection reason when approving
   }
-  const { error } = await supabase.from("products").update(update).eq("id", productId);
+  const { error } = await client.from("products").update(update).eq("id", productId);
   if (error) throw error;
 }
 
@@ -1488,8 +1526,8 @@ export async function clearCustomerAddress(clerkUserId: string): Promise<void> {
   if (error) throw error;
 }
 
-export async function setCustomerOutstandingBox(clerkUserId: string, hasBox: boolean): Promise<void> {
-  const { error } = await supabase
+export async function setCustomerOutstandingBox(clerkUserId: string, hasBox: boolean, client: SupabaseClient = supabase): Promise<void> {
+  const { error } = await client
     .from("customer_profiles")
     .upsert(
       {
@@ -1562,8 +1600,8 @@ export interface DeliveryArea {
   updatedAt: string;
 }
 
-export async function getDeliveryArea(): Promise<DeliveryArea | null> {
-  const { data, error } = await supabase
+export async function getDeliveryArea(client: SupabaseClient = supabase): Promise<DeliveryArea | null> {
+  const { data, error } = await client
     .from("delivery_area")
     .select("polygon_geojson, updated_at")
     .eq("id", "current")
@@ -1576,8 +1614,8 @@ export async function getDeliveryArea(): Promise<DeliveryArea | null> {
   };
 }
 
-export async function saveDeliveryArea(polygonGeojson: any): Promise<void> {
-  const { error } = await supabase
+export async function saveDeliveryArea(polygonGeojson: any, client: SupabaseClient = supabase): Promise<void> {
+  const { error } = await client
     .from("delivery_area")
     .upsert(
       { id: "current", polygon_geojson: polygonGeojson, updated_at: new Date().toISOString() },
@@ -1586,8 +1624,8 @@ export async function saveDeliveryArea(polygonGeojson: any): Promise<void> {
   if (error) throw error;
 }
 
-export async function deleteDeliveryArea(): Promise<void> {
-  const { error } = await supabase
+export async function deleteDeliveryArea(client: SupabaseClient = supabase): Promise<void> {
+  const { error } = await client
     .from("delivery_area")
     .delete()
     .eq("id", "current");
@@ -1779,7 +1817,8 @@ export interface DeliveryStockTracking {
   supplierId: string;
   productName: string;
   quantityOrdered: number;
-  quantityArrived: number | null; // Computed from check-ins
+  quantityArrived: number | null; // Final value: override if set, else computed. null = not yet checked.
+  quantityArrivedComputed: number; // Sum from order_item_checkins
   quantityArrivedOverride: number | null; // Manual override
   arrivalNotes: string | null;
   checkedInAt: string | null;
@@ -1812,44 +1851,92 @@ export interface OrderItemRefund {
 }
 
 export async function getDeliveryStockTracking(deliveryDay: string): Promise<DeliveryStockTracking[]> {
-  // Get manual tracking data
-  const { data, error } = await supabase
-    .from("delivery_stock_tracking")
-    .select("*")
-    .eq("delivery_day", deliveryDay);
-  if (error) throw error;
-  
-  // Get computed arrivals from check-ins
+  // Get computed arrivals from check-ins (primary source)
   const { data: computed, error: computedError } = await supabase
     .from("computed_stock_arrivals")
     .select("*")
     .eq("delivery_day", deliveryDay);
   if (computedError) {
-    // View might not exist yet, fall back to manual data only
+    // View might not exist yet, log warning
     console.warn("computed_stock_arrivals view not available:", computedError);
   }
   
-  // Build a map of computed arrivals
-  const computedMap = new Map<string, number>();
-  for (const c of computed ?? []) {
-    computedMap.set(`${c.supplier_id}-${c.product_name}`, c.computed_arrived);
-  }
+  // Get manual tracking data (override supplement)
+  const { data: overrides, error: overrideError } = await supabase
+    .from("delivery_stock_tracking")
+    .select("*")
+    .eq("delivery_day", deliveryDay);
+  if (overrideError) throw overrideError;
   
-  return (data ?? []).map((d) => {
-    const computedArrived = computedMap.get(`${d.supplier_id}-${d.product_name}`) ?? 0;
-    return {
+  // Build a map of override data keyed by supplier_id-product_name.
+  // Store supplier_id/product_name on the value so we don't have to parse the
+  // key string (supplier IDs are UUIDs and contain hyphens themselves).
+  const overrideMap = new Map<string, {
+    id: string;
+    supplier_id: string;
+    product_name: string;
+    quantity_ordered: number;
+    quantity_arrived_override: number | null;
+    arrival_notes: string | null;
+    checked_in_at: string | null;
+  }>();
+  for (const d of overrides ?? []) {
+    overrideMap.set(`${d.supplier_id}-${d.product_name}`, {
       id: d.id,
-      deliveryDay: d.delivery_day,
-      supplierId: d.supplier_id,
-      productName: d.product_name,
-      quantityOrdered: d.quantity_ordered,
-      // Use override if set, otherwise use computed from check-ins
-      quantityArrived: d.quantity_arrived_override ?? computedArrived,
-      quantityArrivedOverride: d.quantity_arrived_override,
-      arrivalNotes: d.arrival_notes,
-      checkedInAt: d.checked_in_at,
-    };
-  });
+      supplier_id: d.supplier_id,
+      product_name: d.product_name,
+      quantity_ordered: d.quantity_ordered,
+      quantity_arrived_override: d.quantity_arrived_override,
+      arrival_notes: d.arrival_notes,
+      checked_in_at: d.checked_in_at,
+    });
+  }
+
+  // Build a map of computed arrivals keyed by supplier_id-product_name
+  const computedMap = new Map<string, { supplier_id: string; product_name: string; computed_arrived: number }>();
+  for (const c of computed ?? []) {
+    computedMap.set(`${c.supplier_id}-${c.product_name}`, c);
+  }
+
+  // Merge: union of all keys from both sources
+  const allKeys = new Set([...overrideMap.keys(), ...computedMap.keys()]);
+  const results: DeliveryStockTracking[] = [];
+
+  for (const key of allKeys) {
+    const override = overrideMap.get(key);
+    const comp = computedMap.get(key);
+
+    const supplierId = comp?.supplier_id ?? override?.supplier_id ?? "";
+    const productName = comp?.product_name ?? override?.product_name ?? "";
+
+    // quantityArrived is null when nothing has actually been counted yet:
+    // - no override set (or override cleared to null), AND
+    // - no per-order check-ins exist for this item.
+    // This lets the UI distinguish "0 arrived" (real count) from "not checked".
+    const hasOverride = override?.quantity_arrived_override !== null && override?.quantity_arrived_override !== undefined;
+    const hasComputed = comp !== undefined;
+    const quantityArrived: number | null = hasOverride
+      ? (override!.quantity_arrived_override as number)
+      : hasComputed
+        ? comp!.computed_arrived
+        : null;
+
+    results.push({
+      // Use override id if exists, otherwise generate a synthetic id
+      id: override?.id ?? `computed-${key}`,
+      deliveryDay,
+      supplierId,
+      productName,
+      quantityOrdered: override?.quantity_ordered ?? 0,
+      quantityArrived,
+      quantityArrivedComputed: comp?.computed_arrived ?? 0,
+      quantityArrivedOverride: override?.quantity_arrived_override ?? null,
+      arrivalNotes: override?.arrival_notes ?? null,
+      checkedInAt: override?.checked_in_at ?? null,
+    });
+  }
+
+  return results;
 }
 
 export async function upsertDeliveryStockTracking(
@@ -2078,10 +2165,11 @@ export async function getAllProductReviewsForAdmin(): Promise<AdminProductReview
 export async function setReviewFeatured(
   kind: "product_review" | "order_review",
   id: string,
-  featured: boolean
+  featured: boolean,
+  client: SupabaseClient = supabase
 ): Promise<void> {
   const table = kind === "product_review" ? "ratings" : "feedback";
-  const { error } = await supabase
+  const { error } = await client
     .from(table).update({ featured }).eq("id", id);
   if (error) throw error;
 }
