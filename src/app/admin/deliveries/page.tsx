@@ -2,7 +2,8 @@
 
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { type Order, type OrderItem, type OrderItemRefund, type RefundPaidBy, type RefundReasonType, getOrders, updateOrderStatus, getCustomerBoxStatuses, getRefundsForDeliveryDay, deleteOrderItemRefund, setCustomerOutstandingBox } from "@/lib/data";
-import { Package, Clock, CheckCircle, XCircle, Calendar, ChevronDown, ChevronRight, Home, MapPin, Users, Truck, Search, MoreVertical, Play, Download } from "lucide-react";
+import { Package, Clock, CheckCircle, XCircle, Calendar, ChevronDown, ChevronRight, Home, MapPin, Users, Truck, Search, MoreVertical, Play, Download, ArrowRight } from "lucide-react";
+import Link from "next/link";
 
 const statusConfig = {
   ordered: { label: "Ordered", icon: Clock, color: "text-amber-600 bg-amber-50" },
@@ -373,8 +374,19 @@ export default function AdminDeliveriesPage() {
 
   return (
     <div className="mx-auto max-w-7xl px-3 py-6 sm:px-6 sm:py-10 lg:px-8">
-      <h1 className="text-2xl sm:text-3xl font-bold text-primary">Deliveries</h1>
-      <p className="mt-1 text-muted">Delivery day management and customer status updates</p>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-2">
+        <div>
+          <h1 className="text-2xl sm:text-3xl font-bold text-primary">Deliveries</h1>
+          <p className="mt-1 text-muted">Delivery day management and customer status updates</p>
+        </div>
+        <Link
+          href="/admin/packing"
+          className="inline-flex items-center gap-1.5 rounded-lg bg-secondary/20 px-4 py-2 text-sm font-semibold text-secondary hover:bg-secondary/30 transition"
+        >
+          Packing list
+          <ArrowRight size={16} />
+        </Link>
+      </div>
 
       {grouped.map(([deliveryDay, allOrders]) => {
         const upcoming = isUpcoming(deliveryDay);
