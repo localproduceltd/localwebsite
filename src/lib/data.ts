@@ -1188,17 +1188,20 @@ export interface SupplierOrderItem {
   deliveryDay: string;
   orderCreatedAt: string;
   orderStatus: Order["status"];
+  userId: string;
+  customerName: string | null;
+  customerEmail: string | null;
 }
 
 export async function getSupplierOrders(supplierId: string): Promise<SupplierOrderItem[]> {
   const { data, error } = await supabase
     .from("order_items")
-    .select("*, orders(delivery_day, created_at, status, order_number)")
+    .select("*, orders(delivery_day, created_at, status, order_number, user_id, customer_name, customer_email)")
     .eq("supplier_id", supplierId)
     .order("created_at", { ascending: false, referencedTable: "orders" });
   if (error) throw error;
   return data.map((item) => {
-    const order = item.orders as { delivery_day: string; created_at: string; status: string; order_number: number };
+    const order = item.orders as { delivery_day: string; created_at: string; status: string; order_number: number; user_id: string; customer_name: string | null; customer_email: string | null };
     return {
       id: item.id,
       orderId: item.order_id,
@@ -1212,6 +1215,9 @@ export async function getSupplierOrders(supplierId: string): Promise<SupplierOrd
       deliveryDay: order?.delivery_day ?? "",
       orderCreatedAt: order ? new Date(order.created_at).toISOString().split("T")[0] : "",
       orderStatus: (order?.status as Order["status"]) ?? "ordered",
+      userId: order?.user_id ?? "",
+      customerName: order?.customer_name ?? null,
+      customerEmail: order?.customer_email ?? null,
     };
   });
 }

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { stripe } from "@/lib/stripe";
 import { addItemsToOrder, getOrder, getSupplier, isTopUpSessionProcessed, markTopUpSessionProcessed, parseItemsFromMetadata, rollbackTopUpSession, type OrderItem } from "@/lib/data";
 import { sendOrderConfirmation, sendSupplierNewOrder } from "@/lib/email";
-import { auth } from "@clerk/nextjs/server";
+import { auth, clerkClient } from "@clerk/nextjs/server";
 
 export async function POST(request: NextRequest) {
   try {
@@ -45,6 +45,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "User mismatch" }, { status: 403 });
     }
 
+    // Fetch customer name from Clerk for email greeting
+    const clerk = await clerkClient();
+    const clerkUser = await clerk.users.getUser(userId);
+    const customerName = [clerkUser.firstName, clerkUser.lastName].filter(Boolean).join(" ") || null;
+
     const orderId = metadata.orderId;
     if (!orderId) {
       return NextResponse.json({ error: "No order ID in session" }, { status: 400 });
@@ -85,7 +90,7 @@ export async function POST(request: NextRequest) {
       try {
         await sendOrderConfirmation({
           customerEmail,
-          customerName: "Customer",
+          customerName: customerName || "there",
           orderNumber: existingOrder.orderNumber,
           deliveryDay: deliveryDayFormatted,
           items: items.map((item) => ({

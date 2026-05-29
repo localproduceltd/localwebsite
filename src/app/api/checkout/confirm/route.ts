@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { stripe } from "@/lib/stripe";
 import { createOrder, getOrderByStripeSession, parseItemsFromMetadata, type DeliveryWindow, type OrderItem, setCustomerOutstandingBox, getActiveDeliveryDays } from "@/lib/data";
 import { sendOrderConfirmation } from "@/lib/email";
-import { auth } from "@clerk/nextjs/server";
+import { auth, clerkClient } from "@clerk/nextjs/server";
 import { DELIVERY_FEE } from "@/lib/constants";
 
 export async function POST(request: NextRequest) {
@@ -45,6 +45,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "User mismatch" }, { status: 403 });
     }
 
+    // Fetch customer name from Clerk
+    const clerk = await clerkClient();
+    const clerkUser = await clerk.users.getUser(userId);
+    const customerName = [clerkUser.firstName, clerkUser.lastName].filter(Boolean).join(" ") || null;
+
     // Parse items using shared helper
     const items: OrderItem[] = await parseItemsFromMetadata(metadata);
     const total = parseFloat(metadata.total);
@@ -55,6 +60,7 @@ export async function POST(request: NextRequest) {
     const order = await createOrder({
       userId: metadata.userId,
       customerEmail: session.customer_email || "",
+      customerName: customerName || undefined,
       total,
       deliveryDay: metadata.deliveryDay,
       items,
@@ -95,7 +101,7 @@ export async function POST(request: NextRequest) {
         
         await sendOrderConfirmation({
           customerEmail,
-          customerName: "Customer",
+          customerName: customerName || "there",
           orderNumber: order.orderNumber,
           deliveryDay: deliveryDayFormatted,
           deliveryWindow,

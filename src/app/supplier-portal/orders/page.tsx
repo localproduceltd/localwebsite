@@ -10,7 +10,32 @@ import {
   getSupplierOrders,
   updateSupplierOrderItemStatus,
 } from "@/lib/data";
-import { Loader2, Calendar, Package, ChefHat, Warehouse, Truck, XCircle, ChevronDown, ChevronRight } from "lucide-react";
+import { Loader2, Calendar, Package, ChefHat, Warehouse, Truck, XCircle, ChevronDown, ChevronRight, Gift } from "lucide-react";
+
+function formatCustomerName(name: string | null, email: string | null): string {
+  if (name && name.trim()) {
+    const parts = name.trim().split(/\s+/);
+    if (parts.length === 1) return parts[0];
+    return `${parts[0]} ${parts[parts.length - 1][0].toUpperCase()}.`;
+  }
+  if (email) return email.split("@")[0];
+  return "Customer";
+}
+
+function ordinal(n: number): string {
+  const s = ["th", "st", "nd", "rd"];
+  const v = n % 100;
+  return n + (s[(v - 20) % 10] || s[v] || s[0]);
+}
+
+type Milestone = { label: string; className: string };
+function getMilestone(n: number): Milestone | null {
+  if (n === 1) return { label: "New customer", className: "bg-green-100 text-green-700" };
+  if (n === 5) return { label: "5th order", className: "bg-amber-100 text-amber-700" };
+  if (n === 10) return { label: "10th order", className: "bg-blue-100 text-blue-700" };
+  if (n === 25) return { label: "25th order", className: "bg-purple-100 text-purple-700" };
+  return null;
+}
 
 const supplierStatusConfig: Record<
   SupplierOrderStatus,
@@ -44,6 +69,9 @@ interface SupplierSubOrder {
   supplierStatus: SupplierOrderStatus;
   orderStatus: string;
   orderCreatedAt: string;
+  userId: string;
+  customerName: string | null;
+  customerEmail: string | null;
 }
 
 export default function SupplierOrdersPage() {
@@ -67,7 +95,7 @@ export default function SupplierOrdersPage() {
   }, [isLoaded, user]);
 
   // Group items into sub-orders, then separate active vs delivered by admin
-  const { activeGroups, deliveredByAdminGroups } = useMemo(() => {
+  const { activeGroups, deliveredByAdminGroups, positionByOrderId } = useMemo(() => {
     // Group by orderId first
     const orderMap = new Map<string, SupplierSubOrder>();
     for (const item of orderItems) {
@@ -80,11 +108,27 @@ export default function SupplierOrdersPage() {
           supplierStatus: item.supplierStatus,
           orderStatus: item.orderStatus,
           orderCreatedAt: item.orderCreatedAt,
+          userId: item.userId,
+          customerName: item.customerName,
+          customerEmail: item.customerEmail,
         });
       }
       const sub = orderMap.get(item.orderId)!;
       sub.items.push(item);
       sub.total += item.quantity * item.price;
+    }
+
+    // Compute supplier-specific order position per customer
+    const byCustomer = new Map<string, SupplierSubOrder[]>();
+    for (const sub of orderMap.values()) {
+      if (sub.orderStatus === "cancelled") continue;
+      if (!byCustomer.has(sub.userId)) byCustomer.set(sub.userId, []);
+      byCustomer.get(sub.userId)!.push(sub);
+    }
+    const positionByOrderId = new Map<string, number>();
+    for (const subs of byCustomer.values()) {
+      subs.sort((a, b) => a.orderCreatedAt.localeCompare(b.orderCreatedAt));
+      subs.forEach((sub, idx) => positionByOrderId.set(sub.orderId, idx + 1));
     }
 
     // Separate into active vs delivered/cancelled by admin
@@ -142,6 +186,7 @@ export default function SupplierOrdersPage() {
     return {
       activeGroups: groupByDay(activeOrders),
       deliveredByAdminGroups: groupByDayDescending(deliveredOrders),
+      positionByOrderId,
     };
   }, [orderItems]);
 
@@ -308,10 +353,24 @@ export default function SupplierOrdersPage() {
                 <div key={sub.orderId} className="overflow-hidden rounded-xl bg-surface shadow-sm">
                   <div className="flex flex-wrap items-center justify-between gap-4 border-b border-primary/5 px-6 py-4">
                     <div>
-                      <p className="text-sm font-semibold text-primary">
-                        Order #{sub.orderNumber}
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="text-sm font-semibold text-primary">Order #{sub.orderNumber}</p>
+                        {(() => {
+                          const pos = positionByOrderId.get(sub.orderId);
+                          const milestone = pos ? getMilestone(pos) : null;
+                          return milestone ? (
+                            <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${milestone.className}`}>
+                              <Gift size={10} />
+                              {milestone.label}
+                            </span>
+                          ) : null;
+                        })()}
+                      </div>
+                      <p className="text-xs text-muted">
+                        {formatCustomerName(sub.customerName, sub.customerEmail)}
+                        {positionByOrderId.get(sub.orderId) ? ` · ${ordinal(positionByOrderId.get(sub.orderId)!)} order with you` : ""}
+                        {" · placed "}{sub.orderCreatedAt}
                       </p>
-                      <p className="text-xs text-muted">Placed: {sub.orderCreatedAt}</p>
                     </div>
                     <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold ${cfg.color}`}>
                       <StatusIcon size={12} />
@@ -427,10 +486,24 @@ export default function SupplierOrdersPage() {
                         <div key={sub.orderId} className="overflow-hidden rounded-lg bg-surface/80 shadow-sm border border-muted/10">
                           <div className="flex flex-wrap items-center justify-between gap-4 border-b border-primary/5 px-4 py-3">
                             <div>
-                              <p className="text-sm font-semibold text-muted">
-                                Order #{sub.orderNumber}
+                              <div className="flex flex-wrap items-center gap-2">
+                                <p className="text-sm font-semibold text-muted">Order #{sub.orderNumber}</p>
+                                {(() => {
+                                  const pos = positionByOrderId.get(sub.orderId);
+                                  const milestone = pos ? getMilestone(pos) : null;
+                                  return milestone ? (
+                                    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${milestone.className}`}>
+                                      <Gift size={10} />
+                                      {milestone.label}
+                                    </span>
+                                  ) : null;
+                                })()}
+                              </div>
+                              <p className="text-xs text-muted/70">
+                                {formatCustomerName(sub.customerName, sub.customerEmail)}
+                                {positionByOrderId.get(sub.orderId) ? ` · ${ordinal(positionByOrderId.get(sub.orderId)!)} order with you` : ""}
+                                {" · placed "}{sub.orderCreatedAt}
                               </p>
-                              <p className="text-xs text-muted/70">Placed: {sub.orderCreatedAt}</p>
                             </div>
                             <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[10px] font-semibold ${cfg.color}`}>
                               <StatusIcon size={10} />
