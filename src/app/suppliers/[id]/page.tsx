@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import Image from "next/image";
-import { getSupplier, getProductsBySupplier, getAverageRatings, isOnHoliday } from "@/lib/data";
+import { getSupplier, getProductsBySupplier, isOnHoliday } from "@/lib/data";
 import { MapPin, ArrowLeft, Check, Plus, Minus, Star, Instagram, Palmtree } from "lucide-react";
 import { notFound } from "next/navigation";
 import SupplierDistance from "@/components/SupplierDistance";
@@ -17,7 +17,6 @@ export default function SupplierDetailPage({ params }: { params: Promise<{ id: s
   const [supplier, setSupplier] = useState<any>(null);
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
-  const [avgRatings, setAvgRatings] = useState<Record<string, { avg: number; count: number }>>({});
   const [justAdded, setJustAdded] = useState<string | null>(null);
   const { addItem, updateQuantity, items } = useCart();
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
@@ -37,8 +36,6 @@ export default function SupplierDetailPage({ params }: { params: Promise<{ id: s
       setSupplier(sup);
       const prods = await getProductsBySupplier(id);
       setProducts(prods.filter((p) => p.status === "approved"));
-      const ratings = await getAverageRatings();
-      setAvgRatings(ratings);
       setLoading(false);
     })();
   }, [id]);
@@ -151,14 +148,14 @@ export default function SupplierDetailPage({ params }: { params: Promise<{ id: s
                       {product.locality}
                     </span>
                     {/* Stars overlay */}
-                    {avgRatings[product.id] && (
+                    {(product.ratingCount ?? 0) > 0 && (
                       <div className="flex items-center gap-0.5 rounded-full px-1.5 py-0.5 backdrop-blur-[2px] ml-0.5" style={{ textShadow: '0 1px 2px rgba(0,0,0,0.3)' }}>
                         <div className="flex items-center gap-0.5">
                           {[1, 2, 3, 4, 5].map((s) => (
-                            <Star key={s} size={9} className={avgRatings[product.id].avg >= s ? "fill-accent text-accent" : avgRatings[product.id].avg >= s - 0.5 ? "fill-accent/50 text-accent" : "text-white/40"} style={{ filter: 'drop-shadow(0 1px 1px rgba(0,0,0,0.3))' }} />
+                            <Star key={s} size={9} className={(product.avgRating ?? 0) >= s ? "fill-accent text-accent" : (product.avgRating ?? 0) >= s - 0.5 ? "fill-accent/50 text-accent" : "text-white/40"} style={{ filter: 'drop-shadow(0 1px 1px rgba(0,0,0,0.3))' }} />
                           ))}
                         </div>
-                        <span className="text-[9px] font-semibold text-white ml-0.5">({avgRatings[product.id].count})</span>
+                        <span className="text-[9px] font-semibold text-white ml-0.5">({product.ratingCount})</span>
                       </div>
                     )}
                   </div>
@@ -253,7 +250,6 @@ export default function SupplierDetailPage({ params }: { params: Promise<{ id: s
       <ProductDetailModal
         product={selectedProduct}
         onClose={() => setSelectedProduct(null)}
-        avgRatings={avgRatings}
       />
     </div>
   );

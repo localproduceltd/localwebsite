@@ -12,10 +12,9 @@ import { useCart } from "@/lib/cart-context";
 interface ProductDetailModalProps {
   product: Product | null;
   onClose: () => void;
-  avgRatings?: Record<string, { avg: number; count: number }>;
 }
 
-export default function ProductDetailModal({ product, onClose, avgRatings = {} }: ProductDetailModalProps) {
+export default function ProductDetailModal({ product, onClose }: ProductDetailModalProps) {
   const { addItem, updateQuantity, items } = useCart();
   const [productReviews, setProductReviews] = useState<Array<{ stars: number; comment?: string; createdAt: string }>>([]);
   const [showAllReviews, setShowAllReviews] = useState(false);
@@ -33,7 +32,7 @@ export default function ProductDetailModal({ product, onClose, avgRatings = {} }
 
   const cartItem = items.find((i) => i.productId === product.id);
   const colors = LOCALITY_COLORS[product.locality] ?? LOCALITY_COLORS["Local"];
-  const avgRating = avgRatings[product.id];
+  const avgRating = (product.ratingCount ?? 0) > 0 ? { avg: product.avgRating ?? 0, count: product.ratingCount ?? 0 } : null;
 
   return (
     <div

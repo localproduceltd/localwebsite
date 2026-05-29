@@ -75,6 +75,9 @@ export interface Product {
   allergens: string[];
   tags: string[];
   ingredients?: string | null;
+  avgRating?: number;
+  ratingCount?: number;
+  orderCount?: number;
 }
 
 export type SupplierOrderStatus = "order_placed" | "prepping" | "dropped_at_depot" | "delivered" | "cancelled";
@@ -299,9 +302,10 @@ export async function getProducts(client: SupabaseClient = supabase): Promise<Pr
 }
 
 // Get approved products from launch_live suppliers only (for launch mode)
+// Uses products_with_stats view for pre-computed ratings and order counts
 export async function getApprovedProducts(): Promise<Product[]> {
   const { data, error } = await supabase
-    .from("products")
+    .from("products_with_stats")
     .select("*, suppliers!inner(name, active, status)")
     .eq("status", "approved")
     .eq("suppliers.status", "launch_live")
@@ -327,12 +331,15 @@ export async function getApprovedProducts(): Promise<Product[]> {
     allergens: p.allergens ?? [],
     tags: p.tags ?? [],
     ingredients: p.ingredients ?? null,
+    avgRating: Number(p.avg_rating) || 0,
+    ratingCount: p.rating_count ?? 0,
+    orderCount: p.order_count ?? 0,
   }));
 }
 
 export async function getProductsBySupplier(supplierId: string, client: SupabaseClient = supabase): Promise<Product[]> {
   const { data, error } = await client
-    .from("products")
+    .from("products_with_stats")
     .select("*, suppliers(name)")
     .eq("supplier_id", supplierId)
     .is("archived_at", null)
@@ -359,6 +366,9 @@ export async function getProductsBySupplier(supplierId: string, client: Supabase
     allergens: p.allergens ?? [],
     tags: p.tags ?? [],
     ingredients: p.ingredients ?? null,
+    avgRating: Number(p.avg_rating) || 0,
+    ratingCount: p.rating_count ?? 0,
+    orderCount: p.order_count ?? 0,
   }));
 }
 

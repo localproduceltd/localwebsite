@@ -1,10 +1,10 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import Image from "next/image";
 import { Search, Check, Plus, Minus, Star, HelpCircle, X } from "lucide-react";
 import { useCart } from "@/lib/cart-context";
-import { LOCALITY_OPTIONS, getAverageRatings, getProductOrderCounts } from "@/lib/data";
+import { LOCALITY_OPTIONS } from "@/lib/data";
 import type { Locality, Product } from "@/lib/data";
 import { LOCALITY_COLORS } from "@/lib/locality";
 import { PRODUCT_CATEGORIES, PRODUCT_TAGS } from "@/lib/categories";
@@ -17,19 +17,8 @@ export default function ProductsPage() {
   const [selectedTags, setSelectedTags] = useState<Set<string>>(new Set());
   const { addItem, updateQuantity, items, products } = useCart();
   const [justAdded, setJustAdded] = useState<string | null>(null);
-  const [avgRatings, setAvgRatings] = useState<Record<string, { avg: number; count: number }>>({});
-  const [orderCounts, setOrderCounts] = useState<Record<string, number>>({});
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [showLocalityInfo, setShowLocalityInfo] = useState(false);
-
-  useEffect(() => {
-    Promise.all([getAverageRatings(), getProductOrderCounts()])
-      .then(([ratings, counts]) => {
-        setAvgRatings(ratings);
-        setOrderCounts(counts);
-      })
-      .catch(console.error);
-  }, []);
 
   const categories = ["All", ...PRODUCT_CATEGORIES];
 
@@ -88,8 +77,8 @@ export default function ProductsPage() {
 
     // No search: sort by popularity/ratings first, then locality for unordered items
     // Split into products with orders/ratings vs without
-    const withActivity = matchingProducts.filter(p => orderCounts[p.id] || avgRatings[p.id]);
-    const withoutActivity = matchingProducts.filter(p => !orderCounts[p.id] && !avgRatings[p.id]);
+    const withActivity = matchingProducts.filter(p => (p.orderCount ?? 0) > 0 || (p.ratingCount ?? 0) > 0);
+    const withoutActivity = matchingProducts.filter(p => !((p.orderCount ?? 0) > 0 || (p.ratingCount ?? 0) > 0));
 
     // Sort products with activity by: locality (international last), then orders (desc), then rating (desc)
     withActivity.sort((a, b) => {
@@ -97,9 +86,9 @@ export default function ProductsPage() {
       const aIsIntl = a.locality === "International" ? 1 : 0;
       const bIsIntl = b.locality === "International" ? 1 : 0;
       if (aIsIntl !== bIsIntl) return aIsIntl - bIsIntl;
-      const orderDiff = (orderCounts[b.id] || 0) - (orderCounts[a.id] || 0);
+      const orderDiff = (b.orderCount ?? 0) - (a.orderCount ?? 0);
       if (orderDiff !== 0) return orderDiff;
-      const ratingDiff = (avgRatings[b.id]?.avg || 0) - (avgRatings[a.id]?.avg || 0);
+      const ratingDiff = (b.avgRating ?? 0) - (a.avgRating ?? 0);
       if (ratingDiff !== 0) return ratingDiff;
       return a.name.localeCompare(b.name);
     });
@@ -243,7 +232,11 @@ export default function ProductsPage() {
         </div>
       </div>
 
-      {filtered.length === 0 ? (
+      {products.length === 0 ? (
+        <div className="mt-16 text-center">
+          <p className="text-muted">Loading products...</p>
+        </div>
+      ) : filtered.length === 0 ? (
         <div className="mt-16 text-center">
           <p className="text-lg font-medium text-primary">No products found</p>
           <p className="mt-1 text-sm text-muted">Try adjusting your search or filter</p>
@@ -283,14 +276,14 @@ export default function ProductsPage() {
                       {product.locality}
                     </span>
                     {/* Stars overlay */}
-                    {avgRatings[product.id] && (
+                    {(product.ratingCount ?? 0) > 0 && (
                       <div className="flex items-center gap-0.5 rounded-full px-1.5 py-0.5 backdrop-blur-[2px] ml-0.5" style={{ textShadow: '0 1px 2px rgba(0,0,0,0.3)' }}>
                         <div className="flex items-center gap-0.5">
                           {[1, 2, 3, 4, 5].map((s) => (
-                            <Star key={s} size={9} className={avgRatings[product.id].avg >= s ? "fill-accent text-accent" : avgRatings[product.id].avg >= s - 0.5 ? "fill-accent/50 text-accent" : "text-white/40"} style={{ filter: 'drop-shadow(0 1px 1px rgba(0,0,0,0.3))' }} />
+                            <Star key={s} size={9} className={(product.avgRating ?? 0) >= s ? "fill-accent text-accent" : (product.avgRating ?? 0) >= s - 0.5 ? "fill-accent/50 text-accent" : "text-white/40"} style={{ filter: 'drop-shadow(0 1px 1px rgba(0,0,0,0.3))' }} />
                           ))}
                         </div>
-                        <span className="text-[9px] font-semibold text-white ml-0.5">({avgRatings[product.id].count})</span>
+                        <span className="text-[9px] font-semibold text-white ml-0.5">({product.ratingCount})</span>
                       </div>
                     )}
                   </div>
@@ -391,7 +384,6 @@ export default function ProductsPage() {
       <ProductDetailModal
         product={selectedProduct}
         onClose={() => setSelectedProduct(null)}
-        avgRatings={avgRatings}
       />
 
       {/* Locality Info Modal */}
