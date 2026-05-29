@@ -23,8 +23,12 @@ export default function ProductsPage() {
   const [showLocalityInfo, setShowLocalityInfo] = useState(false);
 
   useEffect(() => {
-    getAverageRatings().then(setAvgRatings).catch(console.error);
-    getProductOrderCounts().then(setOrderCounts).catch(console.error);
+    Promise.all([getAverageRatings(), getProductOrderCounts()])
+      .then(([ratings, counts]) => {
+        setAvgRatings(ratings);
+        setOrderCounts(counts);
+      })
+      .catch(console.error);
   }, []);
 
   const categories = ["All", ...PRODUCT_CATEGORIES];
