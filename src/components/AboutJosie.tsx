@@ -14,7 +14,7 @@ export default function AboutJosie() {
         className="group flex flex-col items-center text-center focus:outline-none"
       >
         <div className="relative h-12 w-12 overflow-hidden rounded-full ring-2 ring-secondary transition group-hover:ring-accent group-hover:scale-110">
-          <img src="/images/Josie.png" alt="Josie" className="h-full w-full object-cover" />
+          <img src="/images/Josie.webp" alt="Josie" className="h-full w-full object-cover" />
         </div>
         <h3 className="mt-3 font-semibold text-primary">Managed Locally</h3>
         <p className="mt-1 text-sm text-muted">Run by Josie<br />I work directly with every supplier</p>
@@ -45,7 +45,7 @@ export default function AboutJosie() {
             {/* Photo */}
             <div className="aspect-[3/1] sm:aspect-[2/1] overflow-hidden">
               <img
-                src="/images/Josie.png"
+                src="/images/Josie.webp"
                 alt="Josie — founder of Local Produce"
                 className="h-full w-full object-cover"
               />
@@ -73,7 +73,7 @@ export default function AboutJosie() {
 
               <div className="mt-6 flex items-center gap-3 border-t border-primary/5 pt-4">
                 <div className="h-10 w-10 overflow-hidden rounded-full ring-2 ring-secondary">
-                  <img src="/images/Josie.png" alt="Josie" className="h-full w-full object-cover" />
+                  <img src="/images/Josie.webp" alt="Josie" className="h-full w-full object-cover" />
                 </div>
                 <div>
                   <p className="text-sm font-bold text-primary">Josie</p>

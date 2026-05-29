@@ -58,7 +58,7 @@ export default function Home() {
     <>
       {/* Hero */}
       <section className="relative overflow-hidden px-4 py-16 text-center text-white sm:py-10">
-        <img src="/Header Image.jpg" alt="" className="absolute inset-0 h-full w-full object-cover brightness-50" />
+        <Image src="/Header Image.webp" alt="" fill priority sizes="100vw" className="object-cover brightness-50" />
         <div className="relative mx-auto max-w-5xl">
           <div className="flex justify-center">
             <h1 className="text-4xl font-extrabold tracking-tight text-surface drop-shadow-sm sm:text-6xl lg:text-7xl sm:whitespace-nowrap">
@@ -124,7 +124,7 @@ export default function Home() {
         <div className="mx-auto grid max-w-5xl gap-8 sm:grid-cols-3">
           <div className="flex flex-col items-center text-center">
             <div className="h-12 w-12 overflow-hidden rounded-full">
-              <img src="/images/clock.png" alt="Next Delivery" className="h-full w-full object-cover" />
+              <img src="/images/clock.webp" alt="Next Delivery" className="h-full w-full object-cover" />
             </div>
             <h3 className="mt-3 font-semibold text-secondary">Next Delivery Day</h3>
             {nextDelivery ? (
@@ -145,7 +145,7 @@ export default function Home() {
           <AboutJosie />
           <div className="flex flex-col items-center text-center">
             <div className="h-12 w-12 overflow-hidden rounded-full">
-              <img src="/images/Pin.png" alt="Pin" className="h-full w-full object-cover" />
+              <img src="/images/Pin.webp" alt="Pin" className="h-full w-full object-cover" />
             </div>
             <h3 className="mt-3 font-semibold text-secondary">Know The Origin</h3>
             <p className="mt-1 text-sm text-muted">Where possible, items are traceable to the farm, producer, or maker</p>

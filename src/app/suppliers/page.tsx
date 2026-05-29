@@ -44,7 +44,7 @@ function SupplierCard({ supplier }: { supplier: Supplier }) {
       )}
       <div className={`relative aspect-[3/2] overflow-hidden ${!isLive && !onHoliday ? "grayscale-[30%] opacity-70" : ""} ${onHoliday ? "opacity-80" : ""}`}>
         <Image
-          src={supplier.image || "/images/Holding Image - Supplier.png"}
+          src={supplier.image || "/images/Holding Image - Supplier.webp"}
           alt={supplier.name}
           fill
           sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
