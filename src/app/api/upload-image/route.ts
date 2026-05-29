@@ -1,6 +1,7 @@
 import { auth } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
+import sharp from "sharp";
 
 export async function POST(request: NextRequest) {
   try {
@@ -27,19 +28,24 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "File must be less than 5MB" }, { status: 400 });
     }
 
-    // Generate unique filename
-    const fileExt = file.name.split(".").pop();
-    const fileName = `${Math.random().toString(36).substring(2)}-${Date.now()}.${fileExt}`;
+    // Generate unique filename (always .webp since we convert)
+    const fileName = `${Math.random().toString(36).substring(2)}-${Date.now()}.webp`;
 
     // Convert File to ArrayBuffer then to Buffer
     const arrayBuffer = await file.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
 
+    // Optimize image: resize to max 1600px and convert to WebP
+    const optimised = await sharp(buffer)
+      .resize(1600, 1600, { fit: "inside", withoutEnlargement: true })
+      .webp({ quality: 80 })
+      .toBuffer();
+
     // Upload to Supabase Storage
     const { data: uploadData, error: uploadError } = await supabase.storage
       .from("product-images")
-      .upload(fileName, buffer, {
-        contentType: file.type,
+      .upload(fileName, optimised, {
+        contentType: "image/webp",
         cacheControl: "31536000",
         upsert: false,
       });
