@@ -69,8 +69,8 @@ export default function Home() {
         <Image src="/Header Image.webp" alt="" fill priority sizes="100vw" className="object-cover brightness-50" />
         <div className="relative mx-auto max-w-5xl">
           <div className="flex justify-center">
-            <h1 className="text-4xl font-extrabold tracking-tight text-surface drop-shadow-sm sm:text-6xl lg:text-7xl px-4">
-              The convenient way<br className="sm:hidden" /> to shop local
+            <h1 className="text-3xl font-extrabold tracking-tight text-surface drop-shadow-sm sm:text-6xl lg:text-7xl px-4">
+              The convenient way<br />to shop local
             </h1>
           </div>
           <div className="mt-8 flex flex-col items-center justify-center gap-6 sm:flex-row sm:gap-10">
