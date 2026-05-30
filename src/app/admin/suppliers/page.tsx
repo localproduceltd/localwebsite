@@ -65,14 +65,23 @@ export default function AdminSuppliersPage() {
     archived: false,
   });
   
+  // Featured filter
+  const [featuredFilter, setFeaturedFilter] = useState<"all" | "featured" | "not_featured">("all");
+  
   const toggleSection = (section: string) => {
     setExpandedSections((prev) => ({ ...prev, [section]: !prev[section] }));
   };
   
-  // Group suppliers by status
-  const liveSuppliers = supplierList.filter((s) => s.status === "launch_live");
-  const notLiveSuppliers = supplierList.filter((s) => s.status === "launch_not_live");
-  const archivedSuppliers = supplierList.filter((s) => s.status === "archived");
+  // Group suppliers by status, with featured filter applied
+  const applyFeaturedFilter = (suppliers: Supplier[]) => {
+    if (featuredFilter === "all") return suppliers;
+    if (featuredFilter === "featured") return suppliers.filter((s) => s.featured);
+    return suppliers.filter((s) => !s.featured);
+  };
+  
+  const liveSuppliers = applyFeaturedFilter(supplierList.filter((s) => s.status === "launch_live"));
+  const notLiveSuppliers = applyFeaturedFilter(supplierList.filter((s) => s.status === "launch_not_live"));
+  const archivedSuppliers = applyFeaturedFilter(supplierList.filter((s) => s.status === "archived"));
   
   // Count incomplete profiles
   const incompleteCount = (suppliers: Supplier[]) => 
@@ -183,6 +192,35 @@ export default function AdminSuppliersPage() {
         >
           <Plus size={16} /> Add Supplier
         </button>
+      </div>
+
+      {/* Featured Filter */}
+      <div className="mt-6 flex items-center gap-2">
+        <span className="text-sm font-medium text-muted">Filter:</span>
+        <div className="flex gap-1">
+          {([["all", "All"], ["featured", "Featured"], ["not_featured", "Not Featured"]] as const).map(([val, label]) => (
+            <button
+              key={val}
+              onClick={() => setFeaturedFilter(val)}
+              className={`inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+                featuredFilter === val
+                  ? "bg-secondary text-white"
+                  : "bg-primary/10 text-primary hover:bg-primary/20"
+              }`}
+            >
+              {val === "featured" && <Star size={12} className="fill-current" />}
+              {label}
+            </button>
+          ))}
+        </div>
+        {featuredFilter !== "all" && (
+          <button
+            onClick={() => setFeaturedFilter("all")}
+            className="text-xs text-red-600 hover:text-red-700 font-medium"
+          >
+            Clear
+          </button>
+        )}
       </div>
 
       {showForm && (

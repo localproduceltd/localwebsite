@@ -21,7 +21,7 @@ export default function ProductCard({ product }: { product: Product }) {
   };
 
   return (
-    <div className="group overflow-hidden rounded-xl bg-surface shadow-sm transition hover:shadow-md">
+    <div className="group flex h-full flex-col overflow-hidden rounded-xl bg-surface shadow-sm transition hover:shadow-md">
       <div className="relative aspect-[4/3] overflow-hidden bg-secondary/10">
         {product.image ? (
           <Image
@@ -35,17 +35,9 @@ export default function ProductCard({ product }: { product: Product }) {
           <div className="flex h-full w-full items-center justify-center text-muted text-sm">No image</div>
         )}
       </div>
-      <div className="p-4">
-        <div className="flex items-center justify-between">
-          <span className="text-xs font-medium text-secondary">{product.supplierName || product.category}</span>
-          {!product.inStock && (
-            <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-600">
-              Out of Stock
-            </span>
-          )}
-        </div>
-        <h3 className="mt-1 font-semibold text-primary">{product.name}</h3>
-        <p className="mt-0.5 text-sm text-muted">{product.description}</p>
+      <div className="flex flex-1 flex-col p-4">
+        <h3 className="font-semibold text-primary line-clamp-1">{product.name}</h3>
+        <p className="mt-0.5 text-sm text-muted line-clamp-2">{product.description}</p>
         <div className="mt-2 flex flex-wrap gap-1">
           {product.locality && (
             <span
@@ -69,9 +61,19 @@ export default function ProductCard({ product }: { product: Product }) {
             );
           })}
         </div>
+        {/* Spacer to push price and button to bottom */}
+        <div className="flex-1" />
         <div className="mt-2 flex items-center justify-between">
           <span className="text-lg font-bold text-primary">£{product.price.toFixed(2)}</span>
           <span className="text-xs text-muted">{product.unit}</span>
+        </div>
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-medium text-secondary">{product.supplierName || product.category}</span>
+          {!product.inStock && (
+            <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-600">
+              Out of Stock
+            </span>
+          )}
         </div>
         {!product.inStock ? (
           <div className="mt-3 flex w-full items-center justify-center rounded-lg border-2 border-muted/30 bg-muted/10 py-2 text-sm font-semibold text-muted">

@@ -56,6 +56,7 @@ export default function AdminProductsPage() {
   const [imageFilter, setImageFilter] = useState<"all" | "has" | "missing">("all");
   const [locationFilter, setLocationFilter] = useState<"all" | "variable" | "fixed">("all");
   const [priceFilter, setPriceFilter] = useState<"all" | "has" | "missing">("all");
+  const [josiesPicksFilter, setJosiesPicksFilter] = useState<"all" | "picks" | "not_picks">("all");
 
   const fetchProducts = () => getProducts().then(setProductList).catch(console.error);
   const fetchArchivedProducts = () => getArchivedProducts().then(setArchivedProducts).catch(console.error);
@@ -213,7 +214,9 @@ export default function AdminProductsPage() {
     // Variable location filter
     .filter((p) => locationFilter === "all" || (locationFilter === "variable" ? p.variableLocation : !p.variableLocation))
     // Price filter
-    .filter((p) => priceFilter === "all" || (priceFilter === "has" ? p.price > 0 : !p.price || p.price === 0));
+    .filter((p) => priceFilter === "all" || (priceFilter === "has" ? p.price > 0 : !p.price || p.price === 0))
+    // Josie's Picks filter
+    .filter((p) => josiesPicksFilter === "all" || (josiesPicksFilter === "picks" ? p.tags?.includes("josies-pick") : !p.tags?.includes("josies-pick")));
   
   const pendingCount = productList.filter((p) => launchSupplierIds.has(p.supplierId) && p.status === "pending").length;
   const totalBeforeFilters = productList.filter((p) => launchSupplierIds.has(p.supplierId)).length;
@@ -228,6 +231,7 @@ export default function AdminProductsPage() {
     imageFilter !== "all" ? 1 : 0,
     locationFilter !== "all" ? 1 : 0,
     priceFilter !== "all" ? 1 : 0,
+    josiesPicksFilter !== "all" ? 1 : 0,
   ].reduce((a, b) => a + b, 0);
   
   const clearAllFilters = () => {
@@ -239,6 +243,7 @@ export default function AdminProductsPage() {
     setImageFilter("all");
     setLocationFilter("all");
     setPriceFilter("all");
+    setJosiesPicksFilter("all");
     setStatusFilter("all");
     setSupplierFilter("all");
     setSelectedProductIds(new Set());
@@ -694,7 +699,28 @@ export default function AdminProductsPage() {
             </div>
           </div>
           
-          {/* Row 4: Quick filters */}
+          {/* Row 4: Josie's Picks */}
+          <div className="mb-4">
+            <label className="block text-xs font-medium text-muted mb-1">Josie&apos;s Picks</label>
+            <div className="flex gap-2">
+              {([["all", "All"], ["picks", "Picks Only"], ["not_picks", "Not Picked"]] as const).map(([val, label]) => (
+                <button
+                  key={val}
+                  onClick={() => setJosiesPicksFilter(val)}
+                  className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-semibold transition ${
+                    josiesPicksFilter === val
+                      ? "bg-accent text-white"
+                      : "bg-primary/10 text-primary hover:bg-primary/20"
+                  }`}
+                >
+                  {val === "picks" && <Star size={12} className="fill-current" />}
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+          
+          {/* Row 5: Quick filters */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
             <div>
               <label className="block text-xs font-medium text-muted mb-1">Stock</label>
