@@ -110,9 +110,9 @@ export default function HowItWorks() {
                     {deliveryExpanded && (
                       <div className="mt-2 space-y-2 rounded-lg border border-primary/10 bg-white p-4 text-sm text-muted">
                         <p><strong className="text-primary">I&apos;ll be in</strong> - we&apos;ll knock and hand it straight to you.</p>
-                        <p><strong className="text-primary">I&apos;m in but don&apos;t disturb</strong> - we&apos;ll leave it in your safe place and bring it inside soon afterwards so nothing melts.</p>
-                        <p><strong className="text-primary">I&apos;m out, deposit a cool bag</strong> - pay a small deposit and we&apos;ll leave it in a cool bag inside a box.</p>
-                        <p><strong className="text-primary">I&apos;m out, my own bag</strong> - leave your own cool bag out and we&apos;ll fill it, no deposit needed.</p>
+                        <p><strong className="text-primary">I&apos;m in but don&apos;t disturb</strong> - confirm that you will leave a box or large bag outside and we will deposit your produce (but please bring it inside pronto).</p>
+                        <p><strong className="text-primary">I&apos;m out, I need a cool bag</strong> - pay a small deposit and we&apos;ll leave one of our crates &amp; cool boxes in your designated safe place.</p>
+                        <p><strong className="text-primary">I&apos;m out, I&apos;ll leave my own cool bag</strong> - leave your own cool bag &amp; box out and we&apos;ll fill it, no deposit needed.</p>
                       </div>
                     )}
                   </div>

@@ -26,12 +26,12 @@ export default function AboutJosie() {
       {/* Modal backdrop */}
       {open && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-6 sm:p-10"
+          className="fixed inset-0 z-[60] flex items-start justify-center bg-black/50 backdrop-blur-sm p-4 pt-8 sm:items-center sm:p-10 overflow-y-auto"
           onClick={() => setOpen(false)}
         >
           {/* Modal content */}
           <div
-            className="relative w-full max-w-sm sm:max-w-md overflow-hidden rounded-2xl bg-surface shadow-xl animate-in fade-in zoom-in-95 duration-200 max-h-[85vh] overflow-y-auto"
+            className="relative w-full max-w-sm sm:max-w-md overflow-hidden rounded-2xl bg-surface shadow-xl animate-in fade-in zoom-in-95 duration-200 my-auto"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Close button */}
