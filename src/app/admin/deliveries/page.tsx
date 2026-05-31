@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo, useCallback } from "react";
-import { type Order, type OrderItem, type OrderItemRefund, type RefundPaidBy, type RefundReasonType, getOrders, updateOrderStatus, getCustomerBoxStatuses, getRefundsForDeliveryDay, deleteOrderItemRefund, setCustomerOutstandingBox } from "@/lib/data";
+import { type Order, type OrderItem, type OrderItemRefund, type RefundPaidBy, type RefundReasonType, DELIVERY_OPTION_LABELS, getOrders, updateOrderStatus, getCustomerBoxStatuses, getRefundsForDeliveryDay, deleteOrderItemRefund, setCustomerOutstandingBox } from "@/lib/data";
 import { Package, Clock, CheckCircle, XCircle, Calendar, ChevronDown, ChevronRight, Home, MapPin, Users, Truck, Search, MoreVertical, Play, Download, ArrowRight } from "lucide-react";
 import Link from "next/link";
 
@@ -57,7 +57,7 @@ function exportCustomersCSV(
     ? orders
     : orders.filter(o => o.deliveryWindow === windowFilter);
 
-  const headers = ["Order #", "Email", "Name", "Created", "Address Line 1", "Address Line 2", "City", "Postcode", "Delivery Window", "Will Be In", "Safe Place", "Box Action"];
+  const headers = ["Order #", "Email", "Name", "Created", "Address Line 1", "Address Line 2", "City", "Postcode", "Delivery Window", "Delivery Option", "Safe Place", "Box Action"];
   const rows = scoped.map(o => {
     const hasBox = boxStatuses.get(o.userId) ?? false;
     const boxAction = o.boxDepositPaid && !hasBox ? "New" : hasBox ? "Swap" : "";
@@ -71,7 +71,7 @@ function exportCustomersCSV(
       o.address?.city || "",
       o.address?.postcode || "",
       o.deliveryWindow === "morning" ? "9am-1pm" : o.deliveryWindow === "afternoon" ? "1pm-5pm" : "",
-      o.willBeIn ? "Yes" : "No",
+      o.deliveryOption ? DELIVERY_OPTION_LABELS[o.deliveryOption] : (o.willBeIn ? "I'll be in" : "I'm out"),
       o.safePlace || "",
       boxAction,
     ];
@@ -551,7 +551,15 @@ export default function AdminDeliveriesPage() {
                                 </span>
                               )}
                               <span className="inline-flex items-center gap-1 text-[10px] text-muted">
-                                {order.willBeIn ? (
+                                {order.deliveryOption === "in" ? (
+                                  <><Home size={10} /> In</>
+                                ) : order.deliveryOption === "in_no_disturb" ? (
+                                  <><Home size={10} /> Quiet</>
+                                ) : order.deliveryOption === "out_need_coolbag" ? (
+                                  <><Package size={10} /> Cool</>
+                                ) : order.deliveryOption === "out_own_coolbag" ? (
+                                  <><MapPin size={10} /> Own</>
+                                ) : order.willBeIn ? (
                                   <><Home size={10} /> In</>
                                 ) : (
                                   <><MapPin size={10} /> Safe</>
@@ -720,7 +728,13 @@ export default function AdminDeliveriesPage() {
                                       Window: {order.deliveryWindow === "morning" ? "9am – 1pm" : "1pm – 5pm"}
                                     </p>
                                   )}
-                                  {!order.willBeIn && order.safePlace && (
+                                  {order.deliveryOption && (
+                                    <p className="text-sm text-muted mb-2">
+                                      <Home size={12} className="inline mr-1" />
+                                      {DELIVERY_OPTION_LABELS[order.deliveryOption]}
+                                    </p>
+                                  )}
+                                  {order.safePlace && (
                                     <p className="text-xs text-secondary">
                                       <MapPin size={12} className="inline mr-1" />
                                       {order.safePlace}

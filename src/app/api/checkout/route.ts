@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { stripe } from "@/lib/stripe";
 import { auth } from "@clerk/nextjs/server";
-import { type DeliveryWindow, type OrderAddress, getSuppliersHolidayInfo, isSupplierOnHoliday } from "@/lib/data";
+import { type DeliveryWindow, type DeliveryOption, type OrderAddress, getSuppliersHolidayInfo, isSupplierOnHoliday } from "@/lib/data";
 import { BOX_DEPOSIT_PENCE, BOTTLE_DEPOSIT_PENCE, DELIVERY_FEE_PENCE } from "@/lib/constants";
 
 interface CartItem {
@@ -19,6 +19,7 @@ interface CheckoutRequest {
   deliveryDay: string;
   deliveryWindow: DeliveryWindow;
   willBeIn: boolean;
+  deliveryOption: DeliveryOption;
   safePlace?: string;
   customerEmail: string;
   boxDepositPaid: boolean;
@@ -36,7 +37,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body: CheckoutRequest = await request.json();
-    const { items, deliveryDay, deliveryWindow, willBeIn, safePlace, customerEmail, boxDepositPaid, bottleDepositPaid, bottleDepositQty, total, address } = body;
+    const { items, deliveryDay, deliveryWindow, willBeIn, deliveryOption, safePlace, customerEmail, boxDepositPaid, bottleDepositPaid, bottleDepositQty, total, address } = body;
 
     if (!items || items.length === 0) {
       return NextResponse.json({ error: "No items in cart" }, { status: 400 });
@@ -124,6 +125,7 @@ export async function POST(request: NextRequest) {
         deliveryDay,
         deliveryWindow,
         willBeIn: willBeIn ? "true" : "false",
+        deliveryOption: deliveryOption || "",
         safePlace: safePlace || "",
         boxDepositPaid: boxDepositPaid ? "true" : "false",
         bottleDepositPaid: bottleDepositPaid ? "true" : "false",

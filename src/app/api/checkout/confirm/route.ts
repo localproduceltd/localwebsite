@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { stripe } from "@/lib/stripe";
-import { createOrder, getOrderByStripeSession, parseItemsFromMetadata, type DeliveryWindow, type OrderItem, setCustomerOutstandingBox, getActiveDeliveryDays } from "@/lib/data";
+import { createOrder, getOrderByStripeSession, parseItemsFromMetadata, type DeliveryWindow, type DeliveryOption, type OrderItem, setCustomerOutstandingBox, getActiveDeliveryDays } from "@/lib/data";
 import { sendOrderConfirmation } from "@/lib/email";
 import { auth, clerkClient } from "@clerk/nextjs/server";
 import { DELIVERY_FEE } from "@/lib/constants";
@@ -66,6 +66,7 @@ export async function POST(request: NextRequest) {
       items,
       deliveryWindow: metadata.deliveryWindow as DeliveryWindow,
       willBeIn: metadata.willBeIn === "true",
+      deliveryOption: (metadata.deliveryOption as DeliveryOption) || "in",
       safePlace: metadata.safePlace || undefined,
       boxDepositPaid,
       bottleDepositPaid,

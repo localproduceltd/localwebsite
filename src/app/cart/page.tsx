@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { Trash2, Plus, Minus, ShoppingCart, CheckCircle, Calendar, Clock, Home, Package, MapPin, HelpCircle, X, Loader2, MessageCircle } from "lucide-react";
 import { useUser } from "@clerk/nextjs";
 import { useCart } from "@/lib/cart-context";
-import { type DeliveryDay, type DeliveryWindow, type DeliveryArea, type SupplierHolidayInfo, getActiveDeliveryDays, getCustomerProfile, getDeliveryArea, submitExpansionRequest, getSuppliersHolidayInfo, isSupplierOnHoliday } from "@/lib/data";
+import { type DeliveryDay, type DeliveryWindow, type DeliveryArea, type SupplierHolidayInfo, type DeliveryOption, getActiveDeliveryDays, getCustomerProfile, getDeliveryArea, submitExpansionRequest, getSuppliersHolidayInfo, isSupplierOnHoliday } from "@/lib/data";
 import { lookupPostcode } from "@/lib/postcode";
 import { BOX_DEPOSIT, BOTTLE_DEPOSIT, MINIMUM_ORDER, DELIVERY_FEE } from "@/lib/constants";
 import booleanPointInPolygon from "@turf/boolean-point-in-polygon";
@@ -23,7 +23,7 @@ export default function CartPage() {
 
   // Delivery options state
   const [deliveryWindow, setDeliveryWindow] = useState<DeliveryWindow | null>(null);
-  const [willBeIn, setWillBeIn] = useState<boolean | null>(null);
+  const [deliveryOption, setDeliveryOption] = useState<DeliveryOption | null>(null);
   const [safePlace, setSafePlace] = useState("");
   const [hasOutstandingBox, setHasOutstandingBox] = useState(false);
   const [showBoxInfo, setShowBoxInfo] = useState(false);
@@ -125,8 +125,8 @@ export default function CartPage() {
     return product?.name.toLowerCase().includes("glass bottle");
   });
 
-  // Calculate if box deposit is needed
-  const needsBoxDeposit = willBeIn === false && !hasOutstandingBox;
+  // Calculate if box deposit is needed (only for "out_need_coolbag" option)
+  const needsBoxDeposit = deliveryOption === "out_need_coolbag" && !hasOutstandingBox;
   const boxDeposit = needsBoxDeposit && !topUpOrder ? BOX_DEPOSIT : 0;
   const bottleDeposit = hasGlassBottles && hasOwnBottles === false ? BOTTLE_DEPOSIT * bottleDepositQty : 0;
   const deliveryFee = topUpOrder ? 0 : DELIVERY_FEE;
@@ -139,6 +139,12 @@ export default function CartPage() {
   // Check for on-holiday suppliers in cart
   const holidaySuppliersInCart = holidaySuppliers.filter((s) => isSupplierOnHoliday(s));
   const hasHolidayItems = holidaySuppliersInCart.length > 0;
+  
+  // Derive willBeIn from deliveryOption for backwards compatibility
+  const willBeIn = deliveryOption === "in" || deliveryOption === "in_no_disturb";
+  
+  // Check if safe place is needed (all options except "in")
+  const needsSafePlace = deliveryOption && deliveryOption !== "in";
 
   const handlePlaceOrder = async () => {
     if (!isSignedIn || !user) {
@@ -148,8 +154,8 @@ export default function CartPage() {
     
     // For top-up orders, we don't need delivery day/window/etc
     if (!topUpOrder) {
-      if (!selectedDay || !deliveryWindow || willBeIn === null) return;
-      if (willBeIn === false && !safePlace.trim()) return;
+      if (!selectedDay || !deliveryWindow || !deliveryOption) return;
+      if (needsSafePlace && !safePlace.trim()) return;
       if (hasGlassBottles && hasOwnBottles === null) return;
     }
 
@@ -218,7 +224,8 @@ export default function CartPage() {
             deliveryDay: selectedDay,
             deliveryWindow,
             willBeIn,
-            safePlace: willBeIn ? undefined : safePlace,
+            deliveryOption,
+            safePlace: needsSafePlace ? safePlace : undefined,
             customerEmail,
             boxDepositPaid: needsBoxDeposit,
             bottleDepositPaid: hasGlassBottles && hasOwnBottles === false,
@@ -596,42 +603,61 @@ export default function CartPage() {
         </div>
       )}
 
-      {/* Attendance Choice - only show if in zone and not top-up mode */}
+      {/* Delivery Option Choice - only show if in zone and not top-up mode */}
       {!topUpOrder && deliveryCheck?.inZone && (
         <div className="mt-6 rounded-xl bg-surface p-6 shadow-sm">
         <div className="flex items-center gap-2">
           <Home size={20} className="text-secondary" />
-          <h2 className="text-lg font-semibold text-primary">Will you be in?</h2>
+          <h2 className="text-lg font-semibold text-primary">Delivery options</h2>
         </div>
-        <p className="mt-1 text-sm text-muted">Let us know if you&apos;ll be available to receive your order</p>
+        <p className="mt-1 text-sm text-muted">Let us know how you&apos;d like your order delivered</p>
         <div className="mt-4 space-y-3">
+          {/* I'll be in */}
           <button
-            onClick={() => setWillBeIn(true)}
+            onClick={() => setDeliveryOption("in")}
             className={`w-full rounded-lg border-2 px-4 py-4 text-left transition ${
-              willBeIn === true
+              deliveryOption === "in"
                 ? "border-primary bg-primary/5"
                 : "border-primary/20 bg-surface hover:border-secondary"
             }`}
           >
-            <span className="block font-semibold text-primary">Yes, I&apos;ll be in</span>
-            <span className="block text-sm text-muted mt-1">I&apos;ll be available during my selected delivery window</span>
+            <span className="block font-semibold text-primary">I&apos;ll be in</span>
+            <span className="block text-sm text-muted mt-1">We&apos;ll knock and hand it straight to you</span>
           </button>
+          
+          {/* I'm in but don't disturb */}
           <button
-            onClick={() => setWillBeIn(false)}
+            onClick={() => setDeliveryOption("in_no_disturb")}
             className={`w-full rounded-lg border-2 px-4 py-4 text-left transition ${
-              willBeIn === false
+              deliveryOption === "in_no_disturb"
+                ? "border-primary bg-primary/5"
+                : "border-primary/20 bg-surface hover:border-secondary"
+            }`}
+          >
+            <span className="block font-semibold text-primary">I&apos;m in but don&apos;t disturb</span>
+            <span className="block text-sm text-muted mt-1">Confirm that you will leave a box or large bag outside and we will deposit your produce (but please bring it inside pronto)</span>
+          </button>
+          
+          {/* I'm out, I need a cool bag */}
+          <button
+            onClick={() => setDeliveryOption("out_need_coolbag")}
+            className={`w-full rounded-lg border-2 px-4 py-4 text-left transition ${
+              deliveryOption === "out_need_coolbag"
                 ? "border-primary bg-primary/5"
                 : "border-primary/20 bg-surface hover:border-secondary"
             }`}
           >
             <div className="flex items-start justify-between">
               <div>
-                <span className="block font-semibold text-primary">No, I won&apos;t be in – I need a cool bag &amp; box</span>
-                {!hasOutstandingBox && (
-                  <span className="block text-sm text-muted mt-1">
-                    £{BOX_DEPOSIT} refundable deposit for cool box &amp; bag
-                  </span>
-                )}
+                <span className="block font-semibold text-primary">I&apos;m out, I need a cool bag</span>
+                <span className="block text-sm text-muted mt-1">
+                  Pay a small deposit and we&apos;ll leave one of our crates &amp; cool boxes in your designated safe place
+                  {!hasOutstandingBox && (
+                    <span className="block mt-1 font-medium text-secondary">
+                      £{BOX_DEPOSIT} refundable deposit
+                    </span>
+                  )}
+                </span>
               </div>
               <button
                 type="button"
@@ -641,6 +667,19 @@ export default function CartPage() {
                 <HelpCircle size={22} />
               </button>
             </div>
+          </button>
+          
+          {/* I'm out, I'll leave my own cool bag */}
+          <button
+            onClick={() => setDeliveryOption("out_own_coolbag")}
+            className={`w-full rounded-lg border-2 px-4 py-4 text-left transition ${
+              deliveryOption === "out_own_coolbag"
+                ? "border-primary bg-primary/5"
+                : "border-primary/20 bg-surface hover:border-secondary"
+            }`}
+          >
+            <span className="block font-semibold text-primary">I&apos;m out, I&apos;ll leave my own cool bag</span>
+            <span className="block text-sm text-muted mt-1">Leave your own cool bag &amp; box out and we&apos;ll fill it, no deposit needed</span>
           </button>
         </div>
       </div>
@@ -683,8 +722,8 @@ export default function CartPage() {
         </div>
       )}
 
-      {/* Safe Place (only if not in, in zone, and not top-up mode) */}
-      {!topUpOrder && deliveryCheck?.inZone && willBeIn === false && (
+      {/* Safe Place (show for all delivery options except "in") */}
+      {!topUpOrder && deliveryCheck?.inZone && needsSafePlace && (
         <div className="mt-6 rounded-xl bg-surface p-6 shadow-sm">
           <div className="flex items-center gap-2">
             <MapPin size={20} className="text-secondary" />
@@ -699,25 +738,27 @@ export default function CartPage() {
             rows={3}
           />
 
-          {/* Box Deposit Info */}
-          <div className="mt-4 rounded-lg bg-amber-50 border border-amber-200 p-4">
-            <div className="flex items-start gap-3">
-              <Package size={20} className="text-amber-600 mt-0.5" />
-              <div>
-                <p className="font-semibold text-amber-800">Reusable Box Deposit</p>
-                {hasOutstandingBox ? (
-                  <p className="text-sm text-amber-700 mt-1">
-                    You already have a box from a previous order. We&apos;ll swap it on delivery – no extra deposit needed.
-                  </p>
-                ) : (
-                  <p className="text-sm text-amber-700 mt-1">
-                    A refundable £{BOX_DEPOSIT} deposit will be added for the delivery crate and cool bag. 
-                    On your next delivery, we&apos;ll collect the box and either refund your deposit or swap it for your new order.
-                  </p>
-                )}
+          {/* Box Deposit Info - only show for out_need_coolbag option */}
+          {deliveryOption === "out_need_coolbag" && (
+            <div className="mt-4 rounded-lg bg-amber-50 border border-amber-200 p-4">
+              <div className="flex items-start gap-3">
+                <Package size={20} className="text-amber-600 mt-0.5" />
+                <div>
+                  <p className="font-semibold text-amber-800">Reusable Box Deposit</p>
+                  {hasOutstandingBox ? (
+                    <p className="text-sm text-amber-700 mt-1">
+                      You already have a box from a previous order. We&apos;ll swap it on delivery – no extra deposit needed.
+                    </p>
+                  ) : (
+                    <p className="text-sm text-amber-700 mt-1">
+                      A refundable £{BOX_DEPOSIT} deposit will be added for the delivery crate and cool bag. 
+                      On your next delivery, we&apos;ll collect the box and either refund your deposit or swap it for your new order.
+                    </p>
+                  )}
+                </div>
               </div>
             </div>
-          </div>
+          )}
         </div>
       )}
 
@@ -864,12 +905,12 @@ export default function CartPage() {
           disabled={
             topUpOrder 
               ? (belowMinimum || hasHolidayItems || !isSignedIn || placing)
-              : (belowMinimum || hasHolidayItems || !deliveryCheck?.inZone || !addressForm.addressLine1.trim() || !selectedDay || !deliveryWindow || willBeIn === null || (willBeIn === false && !safePlace.trim()) || (hasGlassBottles && hasOwnBottles === null) || placing)
+              : (belowMinimum || hasHolidayItems || !deliveryCheck?.inZone || !addressForm.addressLine1.trim() || !selectedDay || !deliveryWindow || !deliveryOption || (needsSafePlace && !safePlace.trim()) || (hasGlassBottles && hasOwnBottles === null) || placing)
           }
           onClick={handlePlaceOrder}
           className="mt-6 w-full rounded-lg bg-accent py-3 text-center font-semibold text-primary transition hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {placing ? "Redirecting to Checkout..." : hasHolidayItems ? "Remove Holiday Items" : belowMinimum ? `Minimum order £${MINIMUM_ORDER}` : topUpOrder ? "Add to Order & Pay" : !isSignedIn ? "Sign In to Continue" : !deliveryCheck?.inZone ? "Check Postcode First" : !addressForm.addressLine1.trim() ? "Enter Address" : !selectedDay ? "Select Delivery Day" : !deliveryWindow ? "Select Delivery Window" : willBeIn === null ? "Select Attendance" : (willBeIn === false && !safePlace.trim()) ? "Enter Safe Place" : (hasGlassBottles && hasOwnBottles === null) ? "Select Bottle Deposit Option" : "Continue to Checkout"}
+          {placing ? "Redirecting to Checkout..." : hasHolidayItems ? "Remove Holiday Items" : belowMinimum ? `Minimum order £${MINIMUM_ORDER}` : topUpOrder ? "Add to Order & Pay" : !isSignedIn ? "Sign In to Continue" : !deliveryCheck?.inZone ? "Check Postcode First" : !addressForm.addressLine1.trim() ? "Enter Address" : !selectedDay ? "Select Delivery Day" : !deliveryWindow ? "Select Delivery Window" : !deliveryOption ? "Select Delivery Option" : (needsSafePlace && !safePlace.trim()) ? "Enter Safe Place" : (hasGlassBottles && hasOwnBottles === null) ? "Select Bottle Deposit Option" : "Continue to Checkout"}
         </button>
         {!isSignedIn && (
           <p className="mt-2 text-center text-xs text-muted">

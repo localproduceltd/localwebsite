@@ -95,6 +95,15 @@ export interface OrderItem {
 
 export type DeliveryWindow = "morning" | "afternoon";
 
+export type DeliveryOption = "in" | "in_no_disturb" | "out_need_coolbag" | "out_own_coolbag";
+
+export const DELIVERY_OPTION_LABELS: Record<DeliveryOption, string> = {
+  in: "I'll be in",
+  in_no_disturb: "I'm in but don't disturb",
+  out_need_coolbag: "I'm out, I need a cool bag",
+  out_own_coolbag: "I'm out, I'll leave my own cool bag",
+};
+
 export interface Order {
   id: string;
   orderNumber: number;
@@ -108,6 +117,7 @@ export interface Order {
   deliveryDay: string;
   deliveryWindow: DeliveryWindow | null;
   willBeIn: boolean;
+  deliveryOption: DeliveryOption | null;
   safePlace: string | null;
   boxDepositPaid: boolean;
   bottleDepositPaid: boolean;
@@ -465,6 +475,7 @@ export async function getOrders(userId?: string): Promise<Order[]> {
     deliveryDay: o.delivery_day,
     deliveryWindow: o.delivery_window as DeliveryWindow | null,
     willBeIn: o.will_be_in ?? true,
+    deliveryOption: (o.delivery_option as DeliveryOption) ?? null,
     safePlace: o.safe_place ?? null,
     boxDepositPaid: o.box_deposit_paid ?? false,
     bottleDepositPaid: o.bottle_deposit_paid ?? false,
@@ -824,6 +835,7 @@ export async function getOrdersByDeliveryDay(deliveryDate: string): Promise<Orde
     deliveryDay: o.delivery_day,
     deliveryWindow: o.delivery_window as DeliveryWindow | null,
     willBeIn: o.will_be_in ?? true,
+    deliveryOption: (o.delivery_option as DeliveryOption) ?? null,
     safePlace: o.safe_place ?? null,
     boxDepositPaid: o.box_deposit_paid ?? false,
     bottleDepositPaid: o.bottle_deposit_paid ?? false,
@@ -853,6 +865,7 @@ export interface CreateOrderOptions {
   items: OrderItem[];
   deliveryWindow: DeliveryWindow;
   willBeIn: boolean;
+  deliveryOption: DeliveryOption;
   safePlace?: string;
   boxDepositPaid: boolean;
   bottleDepositPaid: boolean;
@@ -889,6 +902,7 @@ export async function getOrderByStripeSession(sessionId: string): Promise<Order 
     deliveryDay: data.delivery_day,
     deliveryWindow: data.delivery_window as DeliveryWindow,
     willBeIn: data.will_be_in ?? true,
+    deliveryOption: (data.delivery_option as DeliveryOption) ?? null,
     safePlace: data.safe_place ?? null,
     boxDepositPaid: data.box_deposit_paid ?? false,
     bottleDepositPaid: data.bottle_deposit_paid ?? false,
@@ -914,6 +928,7 @@ export async function createOrder(options: CreateOrderOptions): Promise<Order> {
       delivery_day: options.deliveryDay,
       delivery_window: options.deliveryWindow,
       will_be_in: options.willBeIn,
+      delivery_option: options.deliveryOption,
       safe_place: options.safePlace ?? null,
       box_deposit_paid: options.boxDepositPaid,
       bottle_deposit_paid: options.bottleDepositPaid,
@@ -960,6 +975,7 @@ export async function createOrder(options: CreateOrderOptions): Promise<Order> {
     deliveryDay: order.delivery_day,
     deliveryWindow: order.delivery_window as DeliveryWindow,
     willBeIn: order.will_be_in ?? true,
+    deliveryOption: options.deliveryOption,
     safePlace: order.safe_place ?? null,
     boxDepositPaid: order.box_deposit_paid ?? false,
     bottleDepositPaid: order.bottle_deposit_paid ?? false,
@@ -1075,6 +1091,7 @@ export async function getOrder(orderId: string, client: SupabaseClient = supabas
     deliveryDay: data.delivery_day,
     deliveryWindow: data.delivery_window as DeliveryWindow,
     willBeIn: data.will_be_in ?? true,
+    deliveryOption: (data.delivery_option as DeliveryOption) ?? null,
     safePlace: data.safe_place ?? null,
     boxDepositPaid: data.box_deposit_paid ?? false,
     bottleDepositPaid: data.bottle_deposit_paid ?? false,
