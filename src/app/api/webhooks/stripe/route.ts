@@ -3,7 +3,21 @@ import { stripe } from "@/lib/stripe";
 import { addItemsToOrder, createOrder, getOrder, getOrderByStripeSession, isTopUpSessionProcessed, markTopUpSessionProcessed, parseItemsFromMetadata, type DeliveryWindow, type DeliveryOption, type OrderItem, setCustomerOutstandingBox, getActiveDeliveryDays } from "@/lib/data";
 import { sendOrderConfirmation } from "@/lib/email";
 import { DELIVERY_FEE } from "@/lib/constants";
+import { clerkClient } from "@clerk/nextjs/server";
 import Stripe from "stripe";
+
+// Resolve a customer's name from their Clerk profile (best-effort).
+async function resolveCustomerName(userId?: string): Promise<string | undefined> {
+  if (!userId) return undefined;
+  try {
+    const clerk = await clerkClient();
+    const u = await clerk.users.getUser(userId);
+    return [u.firstName, u.lastName].filter(Boolean).join(" ") || undefined;
+  } catch (e) {
+    console.error("Webhook: failed to resolve customer name from Clerk:", e);
+    return undefined;
+  }
+}
 
 const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
 
@@ -54,13 +68,14 @@ async function handleTopUpWebhook(
       try {
         await sendOrderConfirmation({
           customerEmail,
-          customerName: "Customer",
+          customerName: existingOrder.customerName || "",
           orderNumber: existingOrder.orderNumber,
           deliveryDay: deliveryDayFormatted,
           items: items.map((item) => ({
             productName: item.productName,
             quantity: item.quantity,
             price: item.price,
+            supplierName: item.supplierName,
           })),
           total: topUpTotal,
           isTopUp: true,
@@ -132,10 +147,14 @@ export async function POST(request: NextRequest) {
       const boxDepositPaid = metadata.boxDepositPaid === "true";
       const bottleDepositPaid = metadata.bottleDepositPaid === "true";
 
+      // Resolve the customer's name from Clerk so the order + emails are personalised
+      const customerName = await resolveCustomerName(metadata.userId);
+
       // Create the order (including address data)
       const order = await createOrder({
         userId: metadata.userId,
         customerEmail: session.customer_email || "",
+        customerName,
         total,
         deliveryDay: metadata.deliveryDay,
         items,
@@ -178,13 +197,14 @@ export async function POST(request: NextRequest) {
           
           await sendOrderConfirmation({
             customerEmail,
-            customerName: "Customer",
+            customerName: customerName || "",
             orderNumber: order.orderNumber,
             deliveryDay: deliveryDayFormatted,
             deliveryWindow,
             address: metadata.addressLine1 ? `${metadata.addressLine1}${metadata.addressLine2 ? ", " + metadata.addressLine2 : ""}, ${metadata.city}, ${metadata.postcode}` : undefined,
             willBeIn: metadata.willBeIn === "true",
             safePlace: metadata.safePlace || undefined,
+            deliveryOption: metadata.deliveryOption || undefined,
             boxDepositPaid,
             bottleDepositPaid,
             deliveryFee: DELIVERY_FEE,
@@ -192,6 +212,7 @@ export async function POST(request: NextRequest) {
               productName: item.productName,
               quantity: item.quantity,
               price: item.price,
+              supplierName: item.supplierName,
             })),
             total,
             cutoffDay: cutoffFormatted,

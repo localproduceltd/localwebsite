@@ -1809,6 +1809,7 @@ export async function parseItemsFromMetadata(metadata: Record<string, string>): 
         quantity: parseInt(quantityStr, 10),
         price: product?.price || 0,
         supplierId,
+        supplierName: product?.supplierName,
       };
     })
   );

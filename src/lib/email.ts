@@ -4,6 +4,69 @@ const resend = new Resend(process.env.RESEND_API_KEY);
 
 const FROM_EMAIL = process.env.FROM_EMAIL || "Local Produce <onboarding@resend.dev>";
 
+// ─── Shared bits (voice + layout) ─────────────────────────────────────────────
+
+const BRAND = "#A30E4E";
+const GREEN = "#3b6d11";
+
+// Greeting: first name only, falls back to "there" when we don't have a real name.
+function firstName(name?: string | null): string {
+  const t = (name || "").trim();
+  if (!t || t.toLowerCase() === "customer") return "there";
+  return t.split(/\s+/)[0];
+}
+
+// For subject lines: ", Clare" or "" when we have no name.
+function subjectName(name?: string | null): string {
+  const f = firstName(name);
+  return f === "there" ? "" : `, ${f}`;
+}
+
+// Josie sign-off used at the bottom of every customer email.
+const SIGNOFF = `
+  <p style="margin: 16px 0 2px;">Josie</p>
+  <p style="margin: 0; font-size: 13px; color: #888;">Local Produce · Bradley, Derbyshire</p>
+`;
+
+// Wraps the email body in the standard container.
+function shell(inner: string): string {
+  return `<div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; color: #3a3a3a; line-height: 1.55;">${inner}</div>`;
+}
+
+// Turns the chosen delivery option into a plain-English "here's what to do" note.
+function deliveryInstruction(option?: string | null, safePlace?: string | null): { title: string; body: string } | null {
+  const place = safePlace && safePlace.trim() ? ` (${safePlace.trim()})` : "";
+  switch (option) {
+    case "in":
+      return { title: "You'll be in", body: "We'll knock and hand your box straight to you." };
+    case "in_no_disturb":
+      return { title: "In, but don't disturb", body: `You've asked us not to disturb you - please leave a box or large bag outside${place} and we'll pop everything in it. Just bring it inside as soon as you can.` };
+    case "out_need_coolbag":
+      return { title: "You're out - we'll leave it safe", body: `You won't be in, so we'll leave everything in one of our cool boxes in your safe place${place}. Bring it in when you're back, and pop the empty cool box out next Friday and we'll collect it.` };
+    case "out_own_coolbag":
+      return { title: "You're out - your own cool bag", body: `You won't be in, so please leave your own cool bag or box out${place} and we'll fill it up. Bring it inside as soon as you're back.` };
+    default:
+      return null;
+  }
+}
+
+// A short one-liner version for the "coming tomorrow" / "on its way" emails.
+function deliveryReminderLine(option?: string | null, safePlace?: string | null): string {
+  const place = safePlace && safePlace.trim() ? ` (${safePlace.trim()})` : "";
+  switch (option) {
+    case "in":
+      return "You've asked us to knock and hand it straight to you - see you at the door.";
+    case "in_no_disturb":
+      return `You've asked us not to disturb you, so if you could leave a box or bag outside${place} we'll pop everything in it.`;
+    case "out_need_coolbag":
+      return `You're out, so we'll leave it all in a cool box in your safe place${place}.`;
+    case "out_own_coolbag":
+      return `You're out, so please have your own cool bag or box out${place} and we'll fill it.`;
+    default:
+      return "";
+  }
+}
+
 // ─── Customer Emails ─────────────────────────────────────────────────────────
 
 interface OrderConfirmationData {
@@ -15,116 +78,95 @@ interface OrderConfirmationData {
   address?: string;
   willBeIn?: boolean;
   safePlace?: string;
+  deliveryOption?: string;
   boxDepositPaid?: boolean;
   bottleDepositPaid?: boolean;
   deliveryFee?: number;
-  items: Array<{ productName: string; quantity: number; price: number }>;
+  items: Array<{ productName: string; quantity: number; price: number; supplierName?: string }>;
   total: number;
   isTopUp?: boolean;
   cutoffDay?: string;
 }
 
 export async function sendOrderConfirmation(data: OrderConfirmationData) {
-  const itemsList = data.items
-    .map((item) => `• ${item.productName} x${item.quantity} - £${(item.price * item.quantity).toFixed(2)}`)
-    .join("\n");
+  const name = firstName(data.customerName);
+  const subject = data.isTopUp
+    ? `Added to your box${subjectName(data.customerName)} 🥕`
+    : `That's your box booked in${subjectName(data.customerName)} 🥕`;
 
-  const subject = data.isTopUp 
-    ? `Items Added to Order #${data.orderNumber}` 
-    : `Order Confirmed - #${data.orderNumber}`;
-  
   const heading = data.isTopUp
-    ? "Items added to your order!"
-    : "Thank you for your order!";
-  
-  const message = data.isTopUp
-    ? `The following items have been added to your order <strong>#${data.orderNumber}</strong>.`
-    : `Your order <strong>#${data.orderNumber}</strong> has been confirmed.`;
+    ? `Added to your box${name === "there" ? "" : `, ${name}`}`
+    : `Thank you${name === "there" ? "" : `, ${name}`} - your box is booked in`;
+
+  const intro = data.isTopUp
+    ? `Good news - we've added those to your box for delivery. Here's everything that's coming and who it's from.`
+    : `Lovely to have your order. We're only a few weeks old, so every single box matters round here - thank you for giving us a go. Here's what's coming and who it's from.`;
 
   const deliveryWindowText = data.deliveryWindow === "morning" ? "9am – 1pm" : data.deliveryWindow === "afternoon" ? "1pm – 5pm" : "";
-  
-  // Build reminders section
-  const reminders: string[] = [];
-  if (data.boxDepositPaid) {
-    reminders.push("🧊 <strong>Cool bag & box:</strong> We'll leave your order in a cool bag and insulated box. Please leave it outside for collection on your next delivery.");
+
+  // Group items by producer so the people behind the food come first.
+  const groups = new Map<string, typeof data.items>();
+  for (const item of data.items) {
+    const key = (item.supplierName && item.supplierName.trim()) || "Your producers";
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key)!.push(item);
   }
-  if (data.bottleDepositPaid === false && data.items.some(i => i.productName.toLowerCase().includes("glass bottle"))) {
-    reminders.push("🍼 <strong>Bottle return:</strong> Please leave your empty glass bottles outside for collection when we deliver.");
-  }
-  if (data.willBeIn === false && data.safePlace) {
-    reminders.push(`📍 <strong>Safe place:</strong> ${data.safePlace}`);
-  }
+  const producerBlocks = Array.from(groups.entries()).map(([producer, items]) => `
+        <div style="margin: 12px 0;">
+          <p style="margin: 0 0 4px; font-weight: bold; color: ${GREEN};">${producer}</p>
+          ${items.map((item) => `
+            <div style="display: flex; justify-content: space-between; margin: 3px 0 3px 14px; font-size: 14px;">
+              <span>${item.productName} ×${item.quantity}</span>
+              <span>£${(item.price * item.quantity).toFixed(2)}</span>
+            </div>
+          `).join("")}
+        </div>
+      `).join("");
+
+  const instruction = deliveryInstruction(data.deliveryOption, data.safePlace);
+  const bottleReturn = data.bottleDepositPaid === false && data.items.some(i => i.productName.toLowerCase().includes("glass bottle"));
 
   const { error } = await resend.emails.send({
     from: FROM_EMAIL,
     to: data.customerEmail,
     subject,
-    html: `
-      <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
-        <h1 style="color: #A30E4E;">${heading}</h1>
-        <p>Hi ${data.customerName},</p>
-        <p>${message}</p>
-        
-        <div style="background: #f9f9f9; padding: 20px; border-radius: 8px; margin: 20px 0;">
-          <h3 style="margin-top: 0; color: #333;">Delivery Details</h3>
-          <p><strong>Date:</strong> ${data.deliveryDay}${deliveryWindowText ? ` (${deliveryWindowText})` : ""}</p>
-          ${data.address ? `<p><strong>Address:</strong> ${data.address}</p>` : ""}
-          <hr style="border: none; border-top: 1px solid #ddd; margin: 15px 0;">
-          <h4 style="margin: 0 0 10px 0; color: #333;">Items</h4>
-          ${data.items.map((item) => `
-            <div style="display: flex; justify-content: space-between; margin: 8px 0;">
-              <span>${item.productName} x${item.quantity}</span>
-              <span>£${(item.price * item.quantity).toFixed(2)}</span>
-            </div>
-          `).join("")}
-          ${data.deliveryFee ? `
-          <div style="display: flex; justify-content: space-between; margin: 8px 0; color: #666;">
-            <span>Delivery Fee</span>
-            <span>£${data.deliveryFee.toFixed(2)}</span>
-          </div>
-          ` : ""}
-          ${data.boxDepositPaid ? `
-          <div style="display: flex; justify-content: space-between; margin: 8px 0; color: #666;">
-            <span>Box Deposit (refundable)</span>
-            <span>£10.00</span>
-          </div>
-          ` : ""}
-          ${data.bottleDepositPaid ? `
-          <div style="display: flex; justify-content: space-between; margin: 8px 0; color: #666;">
-            <span>Bottle Deposit (refundable)</span>
-            <span>£1.00</span>
-          </div>
-          ` : ""}
-          <hr style="border: none; border-top: 1px solid #ddd; margin: 15px 0;">
-          <div style="display: flex; justify-content: space-between; font-weight: bold; font-size: 18px;">
-            <span>Total</span>
-            <span>£${data.total.toFixed(2)}</span>
-          </div>
+    html: shell(`
+        <h1 style="color: ${BRAND}; font-size: 21px; margin: 0 0 14px;">${heading}</h1>
+        <p style="margin: 0 0 12px;">Hi ${name},</p>
+        <p style="margin: 0 0 12px;">${intro}</p>
+
+        <div style="background: #fbf3f6; border-radius: 8px; padding: 14px 16px; margin: 16px 0;">
+          <p style="margin: 0; font-size: 15px;"><strong style="color: ${BRAND};">Arriving ${data.deliveryDay}</strong>${deliveryWindowText ? `, between <strong>${deliveryWindowText}</strong>` : ""}</p>
+          ${data.address ? `<p style="margin: 6px 0 0; font-size: 14px; color: #6b6b6b;">${data.address}</p>` : ""}
         </div>
-        
-        ${reminders.length > 0 ? `
-        <div style="background: #fef3c7; padding: 16px 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #f59e0b;">
-          <h4 style="margin: 0 0 10px 0; color: #92400e;">Reminders</h4>
-          ${reminders.map(r => `<p style="margin: 8px 0; color: #78350f;">${r}</p>`).join("")}
+
+        <h3 style="font-size: 15px; color: #333; margin: 18px 0 8px;">Who you're supporting this week</h3>
+        ${producerBlocks}
+
+        <div style="border-top: 1px solid #eee; margin: 14px 0; padding-top: 10px;">
+          ${data.deliveryFee ? `<div style="display: flex; justify-content: space-between; margin: 4px 0; color: #777; font-size: 14px;"><span>Delivery</span><span>£${data.deliveryFee.toFixed(2)}</span></div>` : ""}
+          ${data.boxDepositPaid ? `<div style="display: flex; justify-content: space-between; margin: 4px 0; color: #777; font-size: 14px;"><span>Cool box deposit (you get this back)</span><span>£10.00</span></div>` : ""}
+          ${data.bottleDepositPaid ? `<div style="display: flex; justify-content: space-between; margin: 4px 0; color: #777; font-size: 14px;"><span>Bottle deposit (you get this back)</span><span>£1.00</span></div>` : ""}
+          <div style="display: flex; justify-content: space-between; font-weight: bold; font-size: 17px; margin-top: 6px;"><span>Total</span><span>£${data.total.toFixed(2)}</span></div>
+        </div>
+
+        ${instruction ? `
+        <div style="background: #eef6e8; border-radius: 8px; padding: 14px 16px; margin: 16px 0;">
+          <p style="margin: 0 0 4px; font-weight: bold; color: ${GREEN};">📍 ${instruction.title}</p>
+          <p style="margin: 0; font-size: 14px; color: #4a4a4a;">${instruction.body}</p>
         </div>
         ` : ""}
-        
+
+        ${bottleReturn ? `<p style="margin: 12px 0; font-size: 14px; color: #4a4a4a;">🍼 You've got glass bottles this week - please leave the empties out for us to collect on your next delivery.</p>` : ""}
+
         ${!data.isTopUp && data.cutoffDay ? `
-        <div style="background: #e0f2fe; padding: 16px 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #0ea5e9;">
-          <p style="margin: 0; color: #0369a1;">
-            💡 <strong>Want to add more?</strong> You can add items to this order until ${data.cutoffDay}. Just visit your account and click "Add to this order".
-          </p>
-        </div>
+        <p style="margin: 14px 0; font-size: 14px; background: #f4f9fd; border-radius: 8px; padding: 12px 16px; color: #0369a1;">💡 Forgotten something? You can keep adding to this box right up to <strong>${data.cutoffDay}</strong> - just head to your account and tap "Add to this order".</p>
         ` : ""}
-        
-        <p>We'll notify you when your order is on its way.</p>
-        <p>Thank you for supporting local producers!</p>
-        
-        <p style="color: #666; font-size: 14px; margin-top: 30px;">
-          — The Local Produce Team
-        </p>
-      </div>
-    `,
+
+        <p style="margin: 16px 0 4px;">Any questions at all, just hit reply - it comes straight to me.</p>
+        <p style="margin: 4px 0 2px;">Thanks again,</p>
+        ${SIGNOFF}
+    `),
   });
 
   if (error) {
@@ -224,19 +266,14 @@ export async function sendBoxDepositRefund(data: BoxDepositRefundData) {
   const { error } = await resend.emails.send({
     from: FROM_EMAIL,
     to: data.customerEmail,
-    subject: "Your Box Deposit Has Been Refunded",
-    html: `
-      <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
-        <h1 style="color: #22c55e;">💰 Deposit Refunded!</h1>
-        <p>Hi${data.customerName ? ` ${data.customerName}` : ""},</p>
-        <p>Thanks for returning your cool box! We've refunded your <strong>£10 deposit</strong>.</p>
-        <p>The refund should appear in your account within <strong>5-10 business days</strong>, depending on your bank.</p>
-        <p>Thanks for shopping with us — we hope to see you again soon!</p>
-        <p style="color: #666; font-size: 14px; margin-top: 30px;">
-          — The Local Produce Team
-        </p>
-      </div>
-    `,
+    subject: "Got the box back - £10 on its way 🥕",
+    html: shell(`
+        <h1 style="color: ${GREEN}; font-size: 21px; margin: 0 0 14px;">Got your box back - thank you!</h1>
+        <p style="margin: 0 0 12px;">Hi ${firstName(data.customerName)},</p>
+        <p style="margin: 0 0 12px;">Thanks for leaving your cool box out - we've got it. Your <strong>£10 deposit</strong> is on its way back to your card, and should land within <strong>5-10 days</strong> depending on your bank.</p>
+        <p style="margin: 0 0 12px;">Returning the box keeps us low-waste and local, so thank you - it genuinely helps a little outfit like ours.</p>
+        ${SIGNOFF}
+    `),
   });
 
   if (error) {
@@ -259,29 +296,20 @@ export async function sendOrderItemRefund(data: OrderItemRefundData) {
   const { error } = await resend.emails.send({
     from: FROM_EMAIL,
     to: data.customerEmail,
-    subject: `Refund Processed - Order #${data.orderNumber}`,
-    html: `
-      <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
-        <h1 style="color: #22c55e;">💰 Refund Processed</h1>
-        <p>Hi${data.customerName ? ` ${data.customerName}` : ""},</p>
-        <p>We're sorry that things didn't go as planned with your order. We've processed a refund for you.</p>
-        
-        <div style="background: #f9fafb; border-radius: 8px; padding: 20px; margin: 20px 0;">
-          <p style="margin: 0 0 10px 0;"><strong>Order:</strong> #${data.orderNumber}</p>
-          <p style="margin: 0 0 10px 0;"><strong>Item:</strong> ${data.productName} x${data.quantity}</p>
-          <p style="margin: 0 0 10px 0;"><strong>Refund Amount:</strong> £${data.refundAmount.toFixed(2)}</p>
-          ${data.reason ? `<p style="margin: 0;"><strong>Reason:</strong> ${data.reason}</p>` : ""}
+    subject: `A refund on your order - #${data.orderNumber}`,
+    html: shell(`
+        <h1 style="color: ${BRAND}; font-size: 21px; margin: 0 0 14px;">A refund on order #${data.orderNumber}</h1>
+        <p style="margin: 0 0 12px;">Hi ${firstName(data.customerName)},</p>
+        <p style="margin: 0 0 12px;">Sometimes a producer comes up short, or the quality isn't good enough to send - when that happens I'd rather refund you than put something in your box I wouldn't want in mine.</p>
+
+        <div style="background: #f7f7f5; border-radius: 8px; padding: 14px 16px; margin: 16px 0;">
+          <p style="margin: 0; font-size: 14px;">Refunded: <strong>${data.productName} ×${data.quantity}</strong> · <strong>£${data.refundAmount.toFixed(2)}</strong> back to your card (5-10 days)</p>
+          ${data.reason ? `<p style="margin: 8px 0 0; font-size: 14px; color: #6b6b6b;">${data.reason}</p>` : ""}
         </div>
-        
-        <p>The refund should appear in your account within <strong>5-10 business days</strong>, depending on your bank.</p>
-        
-        <p>We're really sorry for any inconvenience caused. If you have any questions, just reply to this email.</p>
-        
-        <p style="color: #666; font-size: 14px; margin-top: 30px;">
-          — The Local Produce Team
-        </p>
-      </div>
-    `,
+
+        <p style="margin: 0 0 12px;">Really sorry for the gap in your box this week. Any questions, just reply and it comes straight to me.</p>
+        ${SIGNOFF}
+    `),
   });
 
   if (error) {
@@ -397,88 +425,60 @@ interface OrderStatusUpdateData {
   status: "prepped" | "next_hour" | "delivered" | "cancelled";
   deliveryDay: string;
   deliveryWindow?: "morning" | "afternoon";
+  deliveryOption?: string;
+  safePlace?: string;
 }
 
-const statusMessages = {
-  prepped: {
-    subject: "Your Order is Coming Tomorrow!",
-    emoji: "📦",
-    color: "#3b82f6",
-    heading: "Your order is prepped and ready!",
-    message: "Just to confirm, your order is coming tomorrow.",
-  },
-  next_hour: {
-    subject: "Your Order is Arriving Soon!",
-    emoji: "🚚",
-    color: "#9333ea",
-    heading: "Your order is on its way!",
-    message: "Your order will be with you in the next hour.",
-  },
-  delivered: {
-    subject: "Order Delivered",
-    emoji: "🎉",
-    color: "#22c55e",
-    heading: "Your order has been delivered!",
-    message: "We hope you enjoy your local produce. Don't forget to leave a review!",
-  },
-  cancelled: {
-    subject: "Order Cancelled",
-    emoji: "✕",
-    color: "#ef4444",
-    heading: "Your order has been cancelled",
-    message: "If you didn't request this cancellation, please contact us.",
-  },
-};
-
 export async function sendOrderStatusUpdate(data: OrderStatusUpdateData) {
-  const config = statusMessages[data.status];
-  
+  const name = firstName(data.customerName);
+  const nm = name === "there" ? "" : `, ${name}`;
   const deliveryWindowText = data.deliveryWindow === "morning" ? "9am – 1pm" : data.deliveryWindow === "afternoon" ? "1pm – 5pm" : "";
-  
-  // Special message for prepped status including delivery window
-  const statusMessage = data.status === "prepped" && deliveryWindowText
-    ? `Just to confirm, your order is coming tomorrow between <strong>${deliveryWindowText}</strong>.`
-    : config.message;
-  
-  const feedbackSection = data.status === "delivered" ? `
-        <div style="background: #fef3c7; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #f59e0b;">
-          <h3 style="margin: 0 0 10px 0; color: #92400e;">⭐ How was your order?</h3>
-          <p style="margin: 0 0 15px 0; color: #78350f;">We'd love to hear your feedback! Rate your products and help other customers discover great local produce.</p>
-          <a href="https://www.localproduce.ltd/account" style="display: inline-block; background: #f59e0b; color: white; padding: 10px 20px; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 14px;">
-            Rate Your Products
-          </a>
+  const reminder = deliveryReminderLine(data.deliveryOption, data.safePlace);
+
+  let subject: string;
+  let body: string;
+
+  if (data.status === "prepped") {
+    subject = `Your box is coming tomorrow${nm} 🥕`;
+    body = `
+        <h1 style="color: ${BRAND}; font-size: 21px; margin: 0 0 14px;">🥕 See you tomorrow${nm}</h1>
+        <p style="margin: 0 0 12px;">Hi ${name}, quick heads up - your box is packed and heading out tomorrow, <strong>${data.deliveryDay}</strong>${deliveryWindowText ? `, between <strong>${deliveryWindowText}</strong>` : ""}.</p>
+        ${reminder ? `<p style="margin: 0 0 12px;">${reminder}</p>` : ""}
+        <p style="margin: 12px 0 4px;">See you then,</p>
+        ${SIGNOFF}`;
+  } else if (data.status === "next_hour") {
+    subject = `We're on our way${nm} 🚚`;
+    body = `
+        <h1 style="color: ${BRAND}; font-size: 21px; margin: 0 0 14px;">🚚 Nearly with you</h1>
+        <p style="margin: 0 0 12px;">Hi ${name}, your box is on the van and should be with you within the hour.</p>
+        ${reminder ? `<p style="margin: 0 0 12px;">${reminder}</p>` : ""}
+        ${SIGNOFF}`;
+  } else if (data.status === "delivered") {
+    subject = `Your box has landed${nm} 🥕`;
+    body = `
+        <h1 style="color: ${GREEN}; font-size: 21px; margin: 0 0 14px;">That's delivered - enjoy${nm}!</h1>
+        <p style="margin: 0 0 12px;">Hi ${name}, your box from order <strong>#${data.orderNumber}</strong> is on your doorstep. Hope it all looks lovely.</p>
+        <div style="background: #fbf3f6; border-radius: 8px; padding: 16px; margin: 16px 0; text-align: center;">
+          <p style="margin: 0 0 4px; font-weight: bold; color: ${BRAND}; font-size: 15px;">⭐ How did we do?</p>
+          <p style="margin: 0 0 12px; font-size: 14px; color: #5a5a5a;">We're tiny and still learning - a quick word on what you loved (or didn't) genuinely shapes what we do next.</p>
+          <a href="https://www.localproduce.ltd/account" style="display: inline-block; background: ${BRAND}; color: #fff; padding: 10px 22px; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 14px;">Leave a quick review</a>
         </div>
-  ` : "";
+        <p style="margin: 12px 0 4px;">Thank you for shopping this way - it means the world to the growers and to me.</p>
+        ${SIGNOFF}`;
+  } else {
+    subject = `Your order's been cancelled - #${data.orderNumber}`;
+    body = `
+        <h1 style="color: ${BRAND}; font-size: 21px; margin: 0 0 14px;">Order #${data.orderNumber} cancelled</h1>
+        <p style="margin: 0 0 12px;">Hi ${name}, just confirming order #${data.orderNumber} has been cancelled and anything paid will be refunded within 5-10 days.</p>
+        <p style="margin: 0 0 12px;">If this wasn't you, or something went wrong, just reply and I'll sort it straight away. Sorry for the hassle.</p>
+        ${SIGNOFF}`;
+  }
 
   const { error } = await resend.emails.send({
     from: FROM_EMAIL,
     to: data.customerEmail,
-    subject: `${config.subject} - Order #${data.orderNumber}`,
-    html: `
-      <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
-        <h1 style="color: ${config.color};">${config.emoji} ${config.heading}</h1>
-        <p>Hi ${data.customerName},</p>
-        <p>${statusMessage}</p>
-        
-        <div style="background: #f9f9f9; padding: 20px; border-radius: 8px; margin: 20px 0;">
-          <p style="margin: 0;"><strong>Order:</strong> #${data.orderNumber}</p>
-          <p style="margin: 8px 0 0 0;"><strong>Delivery Day:</strong> ${data.deliveryDay}</p>
-          ${deliveryWindowText ? `<p style="margin: 8px 0 0 0;"><strong>Time Window:</strong> ${deliveryWindowText}</p>` : ""}
-        </div>
-        
-        ${feedbackSection}
-        
-        <p>
-          <a href="https://www.localproduce.ltd/account" style="display: inline-block; background: #A30E4E; color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: bold;">
-            View Order
-          </a>
-        </p>
-        
-        <p style="color: #666; font-size: 14px; margin-top: 30px;">
-          — The Local Produce Team
-        </p>
-      </div>
-    `,
+    subject,
+    html: shell(body),
   });
 
   if (error) {

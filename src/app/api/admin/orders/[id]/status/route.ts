@@ -78,6 +78,8 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
           status: body.status as "prepped" | "next_hour" | "delivered" | "cancelled",
           deliveryDay,
           deliveryWindow: existing.deliveryWindow ?? undefined,
+          deliveryOption: existing.deliveryOption ?? undefined,
+          safePlace: existing.safePlace ?? undefined,
         });
       } catch (emailErr) {
         console.error("[admin/orders/[id]/status PATCH] Failed to send status email:", emailErr);

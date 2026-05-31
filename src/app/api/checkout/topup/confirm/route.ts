@@ -97,6 +97,7 @@ export async function POST(request: NextRequest) {
             productName: item.productName,
             quantity: item.quantity,
             price: item.price,
+            supplierName: item.supplierName,
           })),
           total: topUpTotal,
           isTopUp: true,
