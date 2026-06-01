@@ -14,8 +14,17 @@ const raleway = Raleway({
 });
 
 export const metadata: Metadata = {
-  title: "Local Produce Ltd",
-  description: "Fresh local produce delivered to your door from trusted local suppliers",
+  metadataBase: new URL("https://www.localproduce.ltd"),
+  title: {
+    default: "Local Produce - Fresh Veg Boxes & Local Food Delivery in Derbyshire",
+    template: "%s | Local Produce",
+  },
+  description: "Order fresh fruit, veg and local food from Derbyshire farmers and producers. Order by Wednesday 7pm, delivered to your door on Friday.",
+  openGraph: {
+    type: "website",
+    locale: "en_GB",
+    siteName: "Local Produce",
+  },
 };
 
 export default function RootLayout({
