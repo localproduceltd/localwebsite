@@ -25,8 +25,26 @@ function subjectName(name?: string | null): string {
 // Josie sign-off used at the bottom of every customer email.
 const SIGNOFF = `
   <p style="margin: 16px 0 2px;">Josie</p>
-  <p style="margin: 0; font-size: 13px; color: #888;">Local Produce · Bradley, Derbyshire</p>
+  <p style="margin: 0; font-size: 13px; color: #888;">Local Produce Limited</p>
+  <p style="margin: 6px 0 0; font-size: 13px;">
+    <a href="https://www.localproduce.ltd" style="color: ${BRAND}; text-decoration: none;">www.localproduce.ltd</a>
+    &nbsp;·&nbsp;
+    <a href="https://www.instagram.com/localproduceltd" style="color: ${BRAND}; text-decoration: none;">@localproduceltd</a>
+  </p>
 `;
+
+// Turns a 24h time string like "18:00" into friendly "6pm" / "6.30pm".
+function formatTime(t?: string | null): string {
+  if (!t) return "";
+  const [hStr, mStr] = t.split(":");
+  let h = parseInt(hStr, 10);
+  const m = parseInt(mStr || "0", 10);
+  if (isNaN(h)) return "";
+  const ampm = h >= 12 ? "pm" : "am";
+  h = h % 12;
+  if (h === 0) h = 12;
+  return m === 0 ? `${h}${ampm}` : `${h}.${m.toString().padStart(2, "0")}${ampm}`;
+}
 
 // Wraps the email body in the standard container.
 function shell(inner: string): string {
@@ -86,6 +104,7 @@ interface OrderConfirmationData {
   total: number;
   isTopUp?: boolean;
   cutoffDay?: string;
+  cutoffTime?: string;
 }
 
 export async function sendOrderConfirmation(data: OrderConfirmationData) {
@@ -100,7 +119,7 @@ export async function sendOrderConfirmation(data: OrderConfirmationData) {
 
   const intro = data.isTopUp
     ? `Good news - we've added those to your box for delivery. Here's everything that's coming and who it's from.`
-    : `Lovely to have your order. We're only a few weeks old, so every single box matters round here - thank you for giving us a go. Here's what's coming and who it's from.`;
+    : `Lovely to have your order. We're only a few weeks old, so every single box matters - thank you for giving us a go. Here's what's coming and who it's from.`;
 
   const deliveryWindowText = data.deliveryWindow === "morning" ? "9am – 1pm" : data.deliveryWindow === "afternoon" ? "1pm – 5pm" : "";
 
@@ -116,13 +135,14 @@ export async function sendOrderConfirmation(data: OrderConfirmationData) {
           <p style="margin: 0 0 4px; font-weight: bold; color: ${GREEN};">${producer}</p>
           ${items.map((item) => `
             <div style="display: flex; justify-content: space-between; margin: 3px 0 3px 14px; font-size: 14px;">
-              <span>${item.productName} ×${item.quantity}</span>
+              <span>${item.productName} × ${item.quantity}</span>
               <span>£${(item.price * item.quantity).toFixed(2)}</span>
             </div>
           `).join("")}
         </div>
       `).join("");
 
+  const cutoffTimeText = data.cutoffTime ? ` at ${formatTime(data.cutoffTime)}` : "";
   const instruction = deliveryInstruction(data.deliveryOption, data.safePlace);
   const bottleReturn = data.bottleDepositPaid === false && data.items.some(i => i.productName.toLowerCase().includes("glass bottle"));
 
@@ -160,10 +180,11 @@ export async function sendOrderConfirmation(data: OrderConfirmationData) {
         ${bottleReturn ? `<p style="margin: 12px 0; font-size: 14px; color: #4a4a4a;">🍼 You've got glass bottles this week - please leave the empties out for us to collect on your next delivery.</p>` : ""}
 
         ${!data.isTopUp && data.cutoffDay ? `
-        <p style="margin: 14px 0; font-size: 14px; background: #f4f9fd; border-radius: 8px; padding: 12px 16px; color: #0369a1;">💡 Forgotten something? You can keep adding to this box right up to <strong>${data.cutoffDay}</strong> - just head to your account and tap "Add to this order".</p>
+        <p style="margin: 14px 0 8px; font-size: 14px; background: #f4f9fd; border-radius: 8px; padding: 12px 16px; color: #0369a1;">💡 Want to add anything to your order? You can keep adding to your box right up until <strong>${data.cutoffDay}${cutoffTimeText}</strong> - just head to your account and tap <a href="https://www.localproduce.ltd/account" style="color: ${BRAND}; font-weight: bold;">Add to your order</a>.</p>
+        <p style="margin: 8px 0 14px;">The day before your delivery we'll email to confirm your box, and you'll get another email when we're about an hour away - so you'll always know we're on our way.</p>
         ` : ""}
 
-        <p style="margin: 16px 0 4px;">Any questions at all, just hit reply - it comes straight to me.</p>
+        <p style="margin: 16px 0 4px;">If you have any suggestions on the order and process, or anything that could make our site and process better, please tap the 🥕 carrot on the website to leave feedback - it helps.</p>
         <p style="margin: 4px 0 2px;">Thanks again,</p>
         ${SIGNOFF}
     `),
@@ -303,7 +324,7 @@ export async function sendOrderItemRefund(data: OrderItemRefundData) {
         <p style="margin: 0 0 12px;">Sometimes a producer comes up short, or the quality isn't good enough to send - when that happens I'd rather refund you than put something in your box I wouldn't want in mine.</p>
 
         <div style="background: #f7f7f5; border-radius: 8px; padding: 14px 16px; margin: 16px 0;">
-          <p style="margin: 0; font-size: 14px;">Refunded: <strong>${data.productName} ×${data.quantity}</strong> · <strong>£${data.refundAmount.toFixed(2)}</strong> back to your card (5-10 days)</p>
+          <p style="margin: 0; font-size: 14px;">Refunded: <strong>${data.productName} × ${data.quantity}</strong> · <strong>£${data.refundAmount.toFixed(2)}</strong> back to your card (5-10 days)</p>
           ${data.reason ? `<p style="margin: 8px 0 0; font-size: 14px; color: #6b6b6b;">${data.reason}</p>` : ""}
         </div>
 
@@ -444,6 +465,7 @@ export async function sendOrderStatusUpdate(data: OrderStatusUpdateData) {
         <h1 style="color: ${BRAND}; font-size: 21px; margin: 0 0 14px;">🥕 See you tomorrow${nm}</h1>
         <p style="margin: 0 0 12px;">Hi ${name}, quick heads up - your box is packed and heading out tomorrow, <strong>${data.deliveryDay}</strong>${deliveryWindowText ? `, between <strong>${deliveryWindowText}</strong>` : ""}.</p>
         ${reminder ? `<p style="margin: 0 0 12px;">${reminder}</p>` : ""}
+        <p style="margin: 0 0 12px;">We'll also drop you an email when we're within an hour of your delivery, so you know we're on our way.</p>
         <p style="margin: 12px 0 4px;">See you then,</p>
         ${SIGNOFF}`;
   } else if (data.status === "next_hour") {
@@ -457,13 +479,14 @@ export async function sendOrderStatusUpdate(data: OrderStatusUpdateData) {
     subject = `Your box has landed${nm} 🥕`;
     body = `
         <h1 style="color: ${GREEN}; font-size: 21px; margin: 0 0 14px;">That's delivered - enjoy${nm}!</h1>
-        <p style="margin: 0 0 12px;">Hi ${name}, your box from order <strong>#${data.orderNumber}</strong> is on your doorstep. Hope it all looks lovely.</p>
+        <p style="margin: 0 0 12px;">Hi ${name}, your box from order <strong>#${data.orderNumber}</strong> is on your doorstep.</p>
         <div style="background: #fbf3f6; border-radius: 8px; padding: 16px; margin: 16px 0; text-align: center;">
           <p style="margin: 0 0 4px; font-weight: bold; color: ${BRAND}; font-size: 15px;">⭐ How did we do?</p>
-          <p style="margin: 0 0 12px; font-size: 14px; color: #5a5a5a;">We're tiny and still learning - a quick word on what you loved (or didn't) genuinely shapes what we do next.</p>
+          <p style="margin: 0 0 8px; font-size: 14px; color: #5a5a5a;">We're tiny and still learning. A quick word on what you loved or didn't will really help shape what we do next.</p>
+          <p style="margin: 0 0 12px; font-size: 14px; color: #5a5a5a;">You can review individual products and the service as a whole - both are really appreciated.</p>
           <a href="https://www.localproduce.ltd/account" style="display: inline-block; background: ${BRAND}; color: #fff; padding: 10px 22px; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 14px;">Leave a quick review</a>
         </div>
-        <p style="margin: 12px 0 4px;">Thank you for shopping this way - it means the world to the growers and to me.</p>
+        <p style="margin: 12px 0 4px;">Thank you for shopping this way - it means the world to the producers, suppliers, and to me.</p>
         ${SIGNOFF}`;
   } else {
     subject = `Your order's been cancelled - #${data.orderNumber}`;

@@ -121,6 +121,7 @@ export async function POST(request: NextRequest) {
           })),
           total,
           cutoffDay: cutoffFormatted,
+          cutoffTime: thisDelivery?.cutoffTime,
         });
       } catch (emailError) {
         console.error("Failed to send customer confirmation email:", emailError);

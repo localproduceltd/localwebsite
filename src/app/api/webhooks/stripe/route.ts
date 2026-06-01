@@ -216,6 +216,7 @@ export async function POST(request: NextRequest) {
             })),
             total,
             cutoffDay: cutoffFormatted,
+            cutoffTime: thisDelivery?.cutoffTime,
           });
         } catch (emailError) {
           console.error("Webhook: Failed to send customer email:", emailError);
