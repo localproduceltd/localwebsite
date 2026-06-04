@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo, useCallback } from "react";
-import { type Order, type OrderItem, getOrders, getCustomerBoxStatuses } from "@/lib/data";
+import { type Order, type OrderItem, DELIVERY_OPTION_LABELS, getOrders, getCustomerBoxStatuses } from "@/lib/data";
 import { Printer, RefreshCw, ChevronDown, ChevronRight, Package } from "lucide-react";
 
 // ─── Configurable thresholds ─────────────────────────────────────────────────
@@ -54,6 +54,8 @@ interface PackingOrder extends Order {
   coolKit: "none" | "Cool bag" | "Cool box";
   boxAction: "New" | "Swap" | null;
   displayName: string;
+  isIn: boolean;
+  deliveryLabel: string;
 }
 
 function derivePackingFields(
@@ -87,6 +89,11 @@ function derivePackingFields(
     boxAction = "Swap";
   }
 
+  const isIn = order.deliveryOption ? order.deliveryOption.startsWith("in") : order.willBeIn;
+  const deliveryLabel = order.deliveryOption
+    ? DELIVERY_OPTION_LABELS[order.deliveryOption]
+    : (order.willBeIn ? "I'll be in" : "I'm out");
+
   return {
     ...order,
     totalItems,
@@ -95,6 +102,8 @@ function derivePackingFields(
     coolKit,
     boxAction,
     displayName: getDisplayName(order),
+    isIn,
+    deliveryLabel,
   };
 }
 
@@ -308,6 +317,7 @@ export default function AdminPackingPage() {
               <th className="px-3 py-3 font-medium print:hidden">Done</th>
               <th className="px-3 py-3 font-medium w-16">#</th>
               <th className="px-3 py-3 font-medium">Name</th>
+              <th className="px-3 py-3 font-medium">Delivery</th>
               <th className="px-3 py-3 font-medium text-center">Window</th>
               <th className="px-3 py-3 font-medium text-center">Box size</th>
               <th className="px-3 py-3 font-medium text-center">Cool kit</th>
@@ -317,15 +327,12 @@ export default function AdminPackingPage() {
               <th className="px-2 py-3 w-8 print:hidden"></th>
             </tr>
           </thead>
-          {packingOrders.map((order, idx) => {
+          {packingOrders.map((order) => {
             const isExpanded = expandedOrders.has(order.id);
             const isDone = doneOrders.has(order.id);
-            const isLastMorning = order.deliveryWindow === "morning" 
-              && packingOrders[idx + 1]?.deliveryWindow !== "morning"
-              && packingOrders.some(o => o.deliveryWindow === "afternoon");
 
             return (
-              <tbody key={order.id} className={`divide-y divide-primary/5 ${isLastMorning ? "print:break-after-page" : ""}`}>
+              <tbody key={order.id} className="divide-y divide-primary/5">
                   <tr 
                     className={`hover:bg-primary/5 transition cursor-pointer ${isDone ? "opacity-50" : ""}`}
                     onClick={() => toggleExpand(order.id)}
@@ -348,6 +355,14 @@ export default function AdminPackingPage() {
                     {/* Name */}
                     <td className="px-3 py-3 font-medium text-primary">
                       {order.displayName}
+                    </td>
+
+                    {/* Delivery: in or out + chosen option */}
+                    <td className="px-3 py-3">
+                      <span className={`font-semibold ${order.isIn ? "text-green-700" : "text-amber-700"}`}>
+                        {order.isIn ? "In" : "Out"}
+                      </span>
+                      <span className="block text-xs text-muted">{order.deliveryLabel}</span>
                     </td>
 
                     {/* Window pill */}
@@ -460,7 +475,7 @@ export default function AdminPackingPage() {
                   {/* Expanded row - items by supplier */}
                   {isExpanded && (
                     <tr className="print:hidden">
-                      <td colSpan={10} className="bg-primary/5 px-6 py-4">
+                      <td colSpan={11} className="bg-primary/5 px-6 py-4">
                         <div className="space-y-3">
                           {groupItemsBySupplier(order.items).map((supplierGroup) => (
                             <div key={supplierGroup.supplierId} className="rounded-lg border border-primary/10 bg-surface overflow-hidden">
@@ -500,6 +515,9 @@ export default function AdminPackingPage() {
       {/* Print styles */}
       <style jsx global>{`
         @media print {
+          /* A4 with tight margins so the whole list fits one page */
+          @page { size: A4 portrait; margin: 10mm; }
+
           /* Hide admin nav, header buttons, footer chrome */
           header, aside, footer,
           .print\\:hidden {
@@ -510,7 +528,7 @@ export default function AdminPackingPage() {
           body {
             background: white !important;
             color: black !important;
-            font-size: 10pt !important;
+            font-size: 9pt !important;
           }
 
           /* Table styling */
@@ -521,12 +539,12 @@ export default function AdminPackingPage() {
 
           th, td {
             border: 1px solid #ccc !important;
-            padding: 4px 8px !important;
+            padding: 3px 6px !important;
           }
 
-          /* Page break between AM and PM */
-          .print\\:break-after-page {
-            break-after: page;
+          /* Keep each order's row from splitting across pages */
+          tr, tbody {
+            break-inside: avoid;
           }
 
           /* Show print-only elements */

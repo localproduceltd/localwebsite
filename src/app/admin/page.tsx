@@ -50,13 +50,20 @@ export default async function AdminDashboard() {
     .sort((a, b) => b.revenue - a.revenue)
     .slice(0, 5);
 
-  // Calculate delivery day chart data (last 12 past delivery days, oldest to newest for chart)
-  const today = new Date().toISOString().split("T")[0];
-  const pastDeliveryDaysForChart = [...new Set(orders.filter(o => o.deliveryDay < today).map(o => o.deliveryDay))]
+  // Calculate end of current week (Sunday) for UK Monday-Sunday week
+  const now = new Date();
+  const dayOfWeek = now.getDay(); // 0 = Sunday, 1 = Monday, etc.
+  const daysUntilSunday = dayOfWeek === 0 ? 0 : 7 - dayOfWeek;
+  const endOfWeek = new Date(now);
+  endOfWeek.setDate(now.getDate() + daysUntilSunday);
+  const endOfWeekStr = endOfWeek.toISOString().split("T")[0];
+
+  // Calculate delivery day chart data (last 12 delivery days up to end of current week, oldest to newest for chart)
+  const deliveryDaysForChart = [...new Set(orders.filter(o => o.deliveryDay <= endOfWeekStr).map(o => o.deliveryDay))]
     .sort((a, b) => a.localeCompare(b)) // Oldest first (left side of chart)
     .slice(-12); // Last 12
   
-  const deliveryDayChartData = pastDeliveryDaysForChart.map(deliveryDay => {
+  const deliveryDayChartData = deliveryDaysForChart.map(deliveryDay => {
     const dayOrders = orders.filter(o => o.deliveryDay === deliveryDay);
     const orderCount = dayOrders.length;
     const revenue = dayOrders.reduce((sum, o) => sum + orderRevenue(o), 0);
@@ -71,7 +78,7 @@ export default async function AdminDashboard() {
     };
   });
 
-  // ─── Delivery Day Performance (past 12 delivery days) ───────────────────────
+  // ─── Delivery Day Performance (last 12 delivery days up to end of current week) ───
   // Build firstOrderDateByUser map once
   const firstOrderDateByUser = new Map<string, string>();
   for (const order of orders) {
@@ -81,12 +88,12 @@ export default async function AdminDashboard() {
     }
   }
   
-  // Get unique past delivery days from orders
-  const pastDeliveryDays = [...new Set(orders.filter(o => o.deliveryDay < today).map(o => o.deliveryDay))]
+  // Get unique delivery days up to end of current week
+  const deliveryDays = [...new Set(orders.filter(o => o.deliveryDay <= endOfWeekStr).map(o => o.deliveryDay))]
     .sort((a, b) => b.localeCompare(a)) // Most recent first
     .slice(0, 12);
   
-  const deliveryDayPerformance = pastDeliveryDays.map(deliveryDay => {
+  const deliveryDayPerformance = deliveryDays.map(deliveryDay => {
     const dayOrders = orders.filter(o => o.deliveryDay === deliveryDay);
     const orderCount = dayOrders.length;
     const revenue = dayOrders.reduce((sum, o) => sum + orderRevenue(o), 0);

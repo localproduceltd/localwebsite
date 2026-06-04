@@ -2,7 +2,8 @@
 
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { type Order, type OrderItem, type OrderItemRefund, type RefundPaidBy, type RefundReasonType, DELIVERY_OPTION_LABELS, getOrders, updateOrderStatus, getCustomerBoxStatuses, getRefundsForDeliveryDay, deleteOrderItemRefund, setCustomerOutstandingBox } from "@/lib/data";
-import { Package, Clock, CheckCircle, XCircle, Calendar, ChevronDown, ChevronRight, Home, MapPin, Users, Truck, Search, MoreVertical, Play, Download, ArrowRight } from "lucide-react";
+import { Package, Clock, CheckCircle, XCircle, Calendar, ChevronDown, ChevronRight, Home, MapPin, Users, Truck, Search, MoreVertical, Play, Download, ArrowRight, FileText } from "lucide-react";
+import { jsPDF } from "jspdf";
 import Link from "next/link";
 
 const statusConfig = {
@@ -46,7 +47,7 @@ function formatAddress(order: Order): string {
   return parts.join(", ");
 }
 
-function exportCustomersCSV(
+function exportDeliveryPDF(
   orders: Order[],
   boxStatuses: Map<string, boolean>,
   deliveryDate: string,
@@ -57,34 +58,202 @@ function exportCustomersCSV(
     ? orders
     : orders.filter(o => o.deliveryWindow === windowFilter);
 
-  const headers = ["Order #", "Email", "Name", "Created", "Address Line 1", "Address Line 2", "City", "Postcode", "Delivery Window", "Delivery Option", "Safe Place", "Box Action"];
-  const rows = scoped.map(o => {
-    const hasBox = boxStatuses.get(o.userId) ?? false;
-    const boxAction = o.boxDepositPaid && !hasBox ? "New" : hasBox ? "Swap" : "";
-    return [
-      o.orderNumber.toString(),
-      o.customerEmail || "",
-      o.customerName || "",
-      o.createdAt,
-      o.address?.addressLine1 || "",
-      o.address?.addressLine2 || "",
-      o.address?.city || "",
-      o.address?.postcode || "",
-      o.deliveryWindow === "morning" ? "9am-1pm" : o.deliveryWindow === "afternoon" ? "1pm-5pm" : "",
-      o.deliveryOption ? DELIVERY_OPTION_LABELS[o.deliveryOption] : (o.willBeIn ? "I'll be in" : "I'm out"),
-      o.safePlace || "",
-      boxAction,
-    ];
-  });
-  const csv = [headers, ...rows].map(row => row.map(cell => `"${cell.replace(/"/g, '""')}"`).join(",")).join("\n");
-  const blob = new Blob([csv], { type: "text/csv" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
+  // Sort all orders by order number first
+  const sortByOrderNumber = (a: Order, b: Order) => a.orderNumber - b.orderNumber;
+  const allSorted = [...scoped].sort(sortByOrderNumber);
+  
+  // Then split into sections while preserving order number sort
+  const morningOrders = allSorted.filter(o => o.deliveryWindow === "morning");
+  const afternoonOrders = allSorted.filter(o => o.deliveryWindow === "afternoon");
+
+  // Build sections based on filter
+  const sections: { label: string; orders: Order[] }[] = [];
+  if (windowFilter === "all") {
+    if (morningOrders.length > 0) sections.push({ label: "Morning (9am–1pm)", orders: morningOrders });
+    if (afternoonOrders.length > 0) sections.push({ label: "Afternoon (1pm–5pm)", orders: afternoonOrders });
+  } else if (windowFilter === "morning") {
+    sections.push({ label: "Morning (9am–1pm)", orders: morningOrders });
+  } else {
+    sections.push({ label: "Afternoon (1pm–5pm)", orders: afternoonOrders });
+  }
+
+  // Create PDF (A4 portrait)
+  const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const margin = 10;
+  let y = margin;
+
+  // Format delivery date for title
+  const formattedDate = deliveryDate && deliveryDate !== "unassigned"
+    ? new Date(deliveryDate + "T00:00:00").toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" })
+    : deliveryDate;
+
+  // Title
+  doc.setFontSize(12);
+  doc.setFont("helvetica", "bold");
+  doc.text(`Delivery Sheet – ${formattedDate}`, margin, y);
+  y += 7;
+
+  // Column widths (A4 portrait = 210mm wide, minus margins = 190mm usable)
+  const colWidths = { order: 10, name: 28, address: 52, inOut: 32, safe: 52, box: 12 };
+  const colX = {
+    order: margin,
+    name: margin + colWidths.order,
+    address: margin + colWidths.order + colWidths.name,
+    inOut: margin + colWidths.order + colWidths.name + colWidths.address,
+    safe: margin + colWidths.order + colWidths.name + colWidths.address + colWidths.inOut,
+    box: margin + colWidths.order + colWidths.name + colWidths.address + colWidths.inOut + colWidths.safe,
+  };
+  const rowHeight = 9; // Rows for 2-line address
+
+  const drawTableHeader = () => {
+    doc.setFillColor(240, 240, 240);
+    doc.rect(margin, y, pageWidth - 2 * margin, 6, "F");
+    doc.setFontSize(6);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(60, 60, 60);
+    doc.text("Order", colX.order + 0.5, y + 4);
+    doc.text("Customer", colX.name + 0.5, y + 4);
+    doc.text("Address", colX.address + 0.5, y + 4);
+    doc.text("In/Out", colX.inOut + 0.5, y + 4);
+    doc.text("Safe Place", colX.safe + 0.5, y + 4);
+    doc.text("Box", colX.box + 0.5, y + 4);
+    y += 6;
+  };
+
+  const getInOutLabel = (order: Order): string => {
+    if (order.deliveryOption) {
+      return DELIVERY_OPTION_LABELS[order.deliveryOption];
+    }
+    return order.willBeIn ? "I'll be in" : "I'm out";
+  };
+
+  const getBoxAction = (order: Order): string => {
+    const hasBox = boxStatuses.get(order.userId) ?? false;
+    if (order.boxDepositPaid && !hasBox) return "New";
+    if (hasBox) return "Swap";
+    return "—";
+  };
+
+  // Draw each section
+  for (const section of sections) {
+    // Check if we need a new page for section header
+    if (y > pageHeight - 30) {
+      doc.addPage();
+      y = margin;
+    }
+
+    // Section header
+    doc.setFontSize(9);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(30, 30, 30);
+    doc.text(section.label, margin, y + 3);
+    doc.setFontSize(7);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(100, 100, 100);
+    doc.text(`(${section.orders.length} order${section.orders.length !== 1 ? "s" : ""})`, margin + doc.getTextWidth(section.label) + 2, y + 3);
+    y += 5;
+
+    // Table header
+    drawTableHeader();
+
+    // Table rows
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(30, 30, 30);
+    for (let i = 0; i < section.orders.length; i++) {
+      const order = section.orders[i];
+
+      // Check if we need a new page (need space for 2-line row)
+      if (y > pageHeight - 14) {
+        doc.addPage();
+        y = margin;
+        // Repeat section header on new page
+        doc.setFontSize(7);
+        doc.setFont("helvetica", "italic");
+        doc.setTextColor(100, 100, 100);
+        doc.text(`${section.label} (continued)`, margin, y + 3);
+        y += 4;
+        drawTableHeader();
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(30, 30, 30);
+      }
+
+      // Alternating row background
+      if (i % 2 === 1) {
+        doc.setFillColor(250, 250, 250);
+        doc.rect(margin, y, pageWidth - 2 * margin, rowHeight, "F");
+      }
+
+      // Draw row border
+      doc.setDrawColor(230, 230, 230);
+      doc.line(margin, y + rowHeight, pageWidth - margin, y + rowHeight);
+
+      doc.setFontSize(6);
+      // Order #
+      doc.setFont("helvetica", "bold");
+      doc.text(`#${order.orderNumber}`, colX.order + 0.5, y + 3.5);
+      
+      // Customer name
+      doc.setFont("helvetica", "normal");
+      const customerName = order.customerName || order.customerEmail?.split("@")[0] || "—";
+      doc.text(customerName.substring(0, 15), colX.name + 0.5, y + 3.5);
+      
+      // Address - line 1: street address
+      const addr = order.address;
+      if (addr) {
+        const line1 = addr.addressLine1 + (addr.addressLine2 ? `, ${addr.addressLine2}` : "");
+        doc.text(line1.substring(0, 28), colX.address + 0.5, y + 3.5);
+        // Address - line 2: city + postcode (bold postcode)
+        doc.text(`${addr.city}, `, colX.address + 0.5, y + 7);
+        const cityWidth = doc.getTextWidth(`${addr.city}, `);
+        doc.setFont("helvetica", "bold");
+        doc.text(addr.postcode, colX.address + 0.5 + cityWidth, y + 7);
+        doc.setFont("helvetica", "normal");
+      } else {
+        doc.text("—", colX.address + 0.5, y + 3.5);
+      }
+      
+      // In/Out option
+      const inOut = getInOutLabel(order);
+      doc.text(inOut.substring(0, 18), colX.inOut + 0.5, y + 3.5);
+      
+      // Safe place instructions (2 lines if needed)
+      const safePlace = order.safePlace || "";
+      if (safePlace) {
+        const safeLine1 = safePlace.substring(0, 30);
+        const safeLine2 = safePlace.length > 30 ? safePlace.substring(30, 60) : "";
+        doc.text(safeLine1, colX.safe + 0.5, y + 3.5);
+        if (safeLine2) {
+          doc.text(safeLine2, colX.safe + 0.5, y + 7);
+        }
+      } else {
+        doc.setTextColor(180, 180, 180);
+        doc.text("—", colX.safe + 0.5, y + 3.5);
+        doc.setTextColor(30, 30, 30);
+      }
+      
+      // Box action
+      const boxAction = getBoxAction(order);
+      if (boxAction === "New") {
+        doc.setTextColor(22, 163, 74); // green
+      } else if (boxAction === "Swap") {
+        doc.setTextColor(37, 99, 235); // blue
+      } else {
+        doc.setTextColor(150, 150, 150);
+      }
+      doc.text(boxAction, colX.box + 0.5, y + 3.5);
+      doc.setTextColor(30, 30, 30);
+
+      y += rowHeight;
+    }
+
+    y += 4; // Space between sections
+  }
+
+  // Download the PDF
   const suffix = windowFilter === "all" ? "" : `-${windowFilter}`;
-  a.download = `customers-${deliveryDate}${suffix}.csv`;
-  a.click();
-  URL.revokeObjectURL(url);
+  doc.save(`deliveries-${deliveryDate}${suffix}.pdf`);
 }
 
 function formatAddressOneLine(order: Order): string {
@@ -359,16 +528,14 @@ export default function AdminDeliveriesPage() {
     );
   };
 
-  // Sort orders: morning first, then afternoon, then by postcode
+  // Sort orders: morning first, then afternoon, then by order number
   const sortOrders = (orders: Order[]) => {
     return [...orders].sort((a, b) => {
       const windowOrder = { morning: 0, afternoon: 1 };
       const aWindow = a.deliveryWindow ? windowOrder[a.deliveryWindow] ?? 2 : 2;
       const bWindow = b.deliveryWindow ? windowOrder[b.deliveryWindow] ?? 2 : 2;
       if (aWindow !== bWindow) return aWindow - bWindow;
-      const aPostcode = a.address?.postcode || "";
-      const bPostcode = b.address?.postcode || "";
-      return aPostcode.localeCompare(bPostcode);
+      return a.orderNumber - b.orderNumber;
     });
   };
 
@@ -460,24 +627,24 @@ export default function AdminDeliveriesPage() {
                     <div className="relative">
                       <button
                         onClick={() => setExportMenuOpen(isMenuOpen ? null : deliveryDay)}
-                        title="Export this delivery day as CSV for your route planner"
+                        title="Export this delivery day as PDF"
                         className="inline-flex items-center gap-1.5 rounded-lg bg-secondary/20 px-2 sm:px-3 py-1.5 text-xs font-semibold text-secondary hover:bg-secondary/30 transition"
                       >
-                        <Download size={14} />
-                        <span className="hidden sm:inline">Export CSV</span>
+                        <FileText size={14} />
+                        <span className="hidden sm:inline">Export PDF</span>
                         <ChevronDown size={12} />
                       </button>
                       {isMenuOpen && (
                         <div className="absolute right-0 top-full mt-1 z-10 w-48 rounded-lg border border-primary/10 bg-surface shadow-lg overflow-hidden">
                           <button
-                            onClick={() => { exportCustomersCSV(sortedOrders, boxStatuses, deliveryDay, "all"); setExportMenuOpen(null); }}
+                            onClick={() => { exportDeliveryPDF(sortedOrders, boxStatuses, deliveryDay, "all"); setExportMenuOpen(null); }}
                             className="w-full text-left px-3 py-2 text-sm hover:bg-primary/5 transition border-b border-primary/5"
                           >
                             <span className="font-medium text-primary">All</span>
                             <span className="ml-2 text-xs text-muted">({sortedOrders.length})</span>
                           </button>
                           <button
-                            onClick={() => { exportCustomersCSV(sortedOrders, boxStatuses, deliveryDay, "morning"); setExportMenuOpen(null); }}
+                            onClick={() => { exportDeliveryPDF(sortedOrders, boxStatuses, deliveryDay, "morning"); setExportMenuOpen(null); }}
                             disabled={morningOrders.length === 0}
                             className="w-full text-left px-3 py-2 text-sm hover:bg-primary/5 transition border-b border-primary/5 disabled:opacity-40 disabled:cursor-not-allowed"
                           >
@@ -485,7 +652,7 @@ export default function AdminDeliveriesPage() {
                             <span className="ml-2 text-xs text-muted">9am-1pm · {morningOrders.length}</span>
                           </button>
                           <button
-                            onClick={() => { exportCustomersCSV(sortedOrders, boxStatuses, deliveryDay, "afternoon"); setExportMenuOpen(null); }}
+                            onClick={() => { exportDeliveryPDF(sortedOrders, boxStatuses, deliveryDay, "afternoon"); setExportMenuOpen(null); }}
                             disabled={afternoonOrders.length === 0}
                             className="w-full text-left px-3 py-2 text-sm hover:bg-primary/5 transition disabled:opacity-40 disabled:cursor-not-allowed"
                           >
