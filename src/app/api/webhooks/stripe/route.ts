@@ -150,6 +150,29 @@ export async function POST(request: NextRequest) {
       // Resolve the customer's name from Clerk so the order + emails are personalised
       const customerName = await resolveCustomerName(metadata.userId);
 
+      // Pull any discount/promo code applied at checkout so we can store it on the order
+      let discountCode: string | undefined;
+      let couponName: string | undefined;
+      let discountAmount: number | undefined;
+      try {
+        const full = await stripe.checkout.sessions.retrieve(sessionId, {
+          expand: ["discounts.promotion_code", "discounts.coupon"],
+        });
+        const amt = full.total_details?.amount_discount ?? 0;
+        if (amt > 0) discountAmount = amt / 100;
+        const d = full.discounts?.[0];
+        if (d) {
+          if (d.promotion_code && typeof d.promotion_code !== "string") {
+            discountCode = d.promotion_code.code;
+          }
+          if (d.coupon && typeof d.coupon !== "string") {
+            couponName = d.coupon.name ?? undefined;
+          }
+        }
+      } catch (e) {
+        console.error("Webhook: failed to read discount from session:", e);
+      }
+
       // Create the order (including address data)
       const order = await createOrder({
         userId: metadata.userId,
@@ -165,6 +188,9 @@ export async function POST(request: NextRequest) {
         boxDepositPaid,
         bottleDepositPaid,
         stripeSessionId: sessionId,
+        discountCode,
+        couponName,
+        discountAmount,
         address: metadata.addressLine1 ? {
           addressLine1: metadata.addressLine1,
           addressLine2: metadata.addressLine2 || undefined,

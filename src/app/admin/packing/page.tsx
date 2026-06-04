@@ -1,12 +1,12 @@
 "use client";
 
 import { useState, useEffect, useMemo, useCallback } from "react";
-import { type Order, type OrderItem, DELIVERY_OPTION_LABELS, getOrders, getCustomerBoxStatuses } from "@/lib/data";
+import { type Order, type OrderItem, type OrderItemRefund, DELIVERY_OPTION_LABELS, getOrders, getCustomerBoxStatuses, getRefundsForDeliveryDay } from "@/lib/data";
 import { Printer, RefreshCw, ChevronDown, ChevronRight, Package } from "lucide-react";
 
 // ─── Configurable thresholds ─────────────────────────────────────────────────
-const SIZE_THRESHOLDS = { mediumMin: 12, bigMin: 30 } as const;
-const COOL_THRESHOLDS = { bagMin: 1, boxMin: 4 } as const;
+const SIZE_THRESHOLDS = { mediumMin: 12, bigMin: 16 } as const;
+const COOL_THRESHOLDS = { bagMin: 1, boxMin: 5 } as const;
 const CHILLED_CATEGORIES = ['Meat & Poultry', 'Cheese', 'Dairy', 'Fish & Seafood'] as const;
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -32,6 +32,15 @@ function getDisplayName(order: Order): string {
   return "—";
 }
 
+// Drop items refunded as "not coming" (itemArrived = false) so they aren't
+// listed for packing. Quality/damage refunds still arrived and stay.
+function packableItems(items: OrderItem[], orderRefunds: OrderItemRefund[]): OrderItem[] {
+  return items.filter(item => {
+    const itemRefunds = orderRefunds.filter(r => r.productName === item.productName);
+    return !itemRefunds.some(r => !r.itemArrived);
+  });
+}
+
 function groupItemsBySupplier(items: OrderItem[]): Array<{ supplierId: string; supplierName: string; items: OrderItem[] }> {
   const map = new Map<string, { supplierName: string; items: OrderItem[] }>();
   for (const item of items) {
@@ -50,8 +59,9 @@ function groupItemsBySupplier(items: OrderItem[]): Array<{ supplierId: string; s
 interface PackingOrder extends Order {
   totalItems: number;
   chilledItems: number;
-  boxSize: "Small" | "Medium" | "Big";
+  boxSize: "Small" | "Medium" | "Large";
   coolKit: "none" | "Cool bag" | "Cool box";
+  ambientBox: "Cardboard box" | "Wooden crate";
   boxAction: "New" | "Swap" | null;
   displayName: string;
   isIn: boolean;
@@ -61,12 +71,13 @@ interface PackingOrder extends Order {
 function derivePackingFields(
   order: Order,
   productCategories: Map<string, string>,
-  hasOutstandingBox: boolean
+  hasOutstandingBox: boolean,
+  orderRefunds: OrderItemRefund[]
 ): PackingOrder {
   let totalItems = 0;
   let chilledItems = 0;
 
-  for (const item of order.items) {
+  for (const item of packableItems(order.items, orderRefunds)) {
     totalItems += item.quantity;
     const category = productCategories.get(item.productId) || "";
     if ((CHILLED_CATEGORIES as readonly string[]).includes(category)) {
@@ -74,8 +85,8 @@ function derivePackingFields(
     }
   }
 
-  let boxSize: "Small" | "Medium" | "Big" = "Small";
-  if (totalItems >= SIZE_THRESHOLDS.bigMin) boxSize = "Big";
+  let boxSize: "Small" | "Medium" | "Large" = "Small";
+  if (totalItems >= SIZE_THRESHOLDS.bigMin) boxSize = "Large";
   else if (totalItems >= SIZE_THRESHOLDS.mediumMin) boxSize = "Medium";
 
   let coolKit: "none" | "Cool bag" | "Cool box" = "none";
@@ -94,12 +105,17 @@ function derivePackingFields(
     ? DELIVERY_OPTION_LABELS[order.deliveryOption]
     : (order.willBeIn ? "I'll be in" : "I'm out");
 
+  // Ambient box: cardboard (sized) if customer is in; wooden crate if out
+  // (we unload from the crate into their own / our cool bag at the door)
+  const ambientBox: "Cardboard box" | "Wooden crate" = isIn ? "Cardboard box" : "Wooden crate";
+
   return {
     ...order,
     totalItems,
     chilledItems,
     boxSize,
     coolKit,
+    ambientBox,
     boxAction,
     displayName: getDisplayName(order),
     isIn,
@@ -113,6 +129,7 @@ export default function AdminPackingPage() {
   const [orderList, setOrderList] = useState<Order[]>([]);
   const [boxStatuses, setBoxStatuses] = useState<Map<string, boolean>>(new Map());
   const [productCategories, setProductCategories] = useState<Map<string, string>>(new Map());
+  const [refunds, setRefunds] = useState<Map<string, OrderItemRefund[]>>(new Map());
   const [selectedDay, setSelectedDay] = useState<string>("");
   const [expandedOrders, setExpandedOrders] = useState<Set<string>>(new Set());
   const [doneOrders, setDoneOrders] = useState<Set<string>>(new Set());
@@ -179,7 +196,7 @@ export default function AdminPackingPage() {
     }
   }, [deliveryDays, selectedDay]);
 
-  // Load done state from localStorage when day changes
+  // Load done state and refunds when day changes
   useEffect(() => {
     if (selectedDay) {
       const stored = localStorage.getItem(`packing-done-${selectedDay}`);
@@ -192,6 +209,16 @@ export default function AdminPackingPage() {
       } else {
         setDoneOrders(new Set());
       }
+      
+      // Load refunds for the selected day
+      getRefundsForDeliveryDay(selectedDay).then(dayRefunds => {
+        const refundsMap = new Map<string, OrderItemRefund[]>();
+        for (const r of dayRefunds) {
+          if (!refundsMap.has(r.orderId)) refundsMap.set(r.orderId, []);
+          refundsMap.get(r.orderId)!.push(r);
+        }
+        setRefunds(refundsMap);
+      }).catch(console.error);
     }
   }, [selectedDay]);
 
@@ -224,18 +251,18 @@ export default function AdminPackingPage() {
     );
 
     const derived = dayOrders.map(order => 
-      derivePackingFields(order, productCategories, boxStatuses.get(order.userId) ?? false)
+      derivePackingFields(order, productCategories, boxStatuses.get(order.userId) ?? false, refunds.get(order.id) || [])
     );
 
     // Sort by order number
     return derived.sort((a, b) => a.orderNumber - b.orderNumber);
-  }, [selectedDay, orderList, productCategories, boxStatuses]);
+  }, [selectedDay, orderList, productCategories, boxStatuses, refunds]);
 
   // Summary stats
   const summary = useMemo(() => {
     const morning = packingOrders.filter(o => o.deliveryWindow === "morning").length;
     const afternoon = packingOrders.filter(o => o.deliveryWindow === "afternoon").length;
-    const big = packingOrders.filter(o => o.boxSize === "Big").length;
+    const big = packingOrders.filter(o => o.boxSize === "Large").length;
     const medium = packingOrders.filter(o => o.boxSize === "Medium").length;
     const small = packingOrders.filter(o => o.boxSize === "Small").length;
     return { total: packingOrders.length, morning, afternoon, big, medium, small };
@@ -319,11 +346,10 @@ export default function AdminPackingPage() {
               <th className="px-3 py-3 font-medium">Name</th>
               <th className="px-3 py-3 font-medium">Delivery</th>
               <th className="px-3 py-3 font-medium text-center">Window</th>
-              <th className="px-3 py-3 font-medium text-center">Box size</th>
-              <th className="px-3 py-3 font-medium text-center">Cool kit</th>
-              <th className="px-3 py-3 font-medium text-center">Box</th>
               <th className="px-3 py-3 font-medium text-center">Items</th>
-              <th className="px-3 py-3 font-medium text-right">Total</th>
+              <th className="px-3 py-3 font-medium text-center">Cool kit</th>
+              <th className="px-3 py-3 font-medium text-center">Ambient box</th>
+              <th className="px-3 py-3 font-medium text-center">Box swaps</th>
               <th className="px-2 py-3 w-8 print:hidden"></th>
             </tr>
           </thead>
@@ -385,24 +411,9 @@ export default function AdminPackingPage() {
                       )}
                     </td>
 
-                    {/* Box size pill */}
-                    <td className="px-3 py-3 text-center">
-                      {order.boxSize === "Big" ? (
-                        <>
-                          <span className="print:hidden inline-block rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-700">Big</span>
-                          <span className="hidden print:inline font-bold">B</span>
-                        </>
-                      ) : order.boxSize === "Medium" ? (
-                        <>
-                          <span className="print:hidden inline-block rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700">Medium</span>
-                          <span className="hidden print:inline">M</span>
-                        </>
-                      ) : (
-                        <>
-                          <span className="print:hidden inline-block rounded-full bg-gray-100 px-2 py-0.5 text-xs font-semibold text-gray-500">Small</span>
-                          <span className="hidden print:inline">S</span>
-                        </>
-                      )}
+                    {/* Items count */}
+                    <td className="px-3 py-3 text-center font-medium text-primary">
+                      {order.totalItems}
                     </td>
 
                     {/* Cool kit pill */}
@@ -429,7 +440,34 @@ export default function AdminPackingPage() {
                       )}
                     </td>
 
-                    {/* Box action pill */}
+                    {/* Ambient box: cardboard (sized) if in, wooden crate if out */}
+                    <td className="px-3 py-3 text-center">
+                      {order.ambientBox === "Wooden crate" ? (
+                        <>
+                          <span className="print:hidden inline-block rounded-full bg-amber-900 px-2 py-0.5 text-xs font-semibold text-white">
+                            Wooden crate
+                          </span>
+                          <span className="hidden print:inline font-bold">CRATE</span>
+                        </>
+                      ) : order.boxSize === "Large" ? (
+                        <>
+                          <span className="print:hidden inline-block rounded-full bg-yellow-500 px-2 py-0.5 text-xs font-semibold text-yellow-950">Cardboard - Large</span>
+                          <span className="hidden print:inline">Card L</span>
+                        </>
+                      ) : order.boxSize === "Medium" ? (
+                        <>
+                          <span className="print:hidden inline-block rounded-full bg-yellow-300 px-2 py-0.5 text-xs font-semibold text-yellow-900">Cardboard - Medium</span>
+                          <span className="hidden print:inline">Card M</span>
+                        </>
+                      ) : (
+                        <>
+                          <span className="print:hidden inline-block rounded-full bg-yellow-100 px-2 py-0.5 text-xs font-semibold text-yellow-800">Cardboard - Small</span>
+                          <span className="hidden print:inline">Card S</span>
+                        </>
+                      )}
+                    </td>
+
+                    {/* Box swaps pill */}
                     <td className="px-3 py-3 text-center">
                       {order.boxAction === "New" ? (
                         <>
@@ -452,16 +490,6 @@ export default function AdminPackingPage() {
                       )}
                     </td>
 
-                    {/* Items count */}
-                    <td className="px-3 py-3 text-center font-medium text-primary">
-                      {order.totalItems}
-                    </td>
-
-                    {/* Total */}
-                    <td className="px-3 py-3 text-right font-semibold text-primary">
-                      £{order.total.toFixed(2)}
-                    </td>
-
                     {/* Expand chevron */}
                     <td className="px-2 py-3 print:hidden">
                       {isExpanded ? (
@@ -475,9 +503,9 @@ export default function AdminPackingPage() {
                   {/* Expanded row - items by supplier */}
                   {isExpanded && (
                     <tr className="print:hidden">
-                      <td colSpan={11} className="bg-primary/5 px-6 py-4">
+                      <td colSpan={10} className="bg-primary/5 px-6 py-4">
                         <div className="space-y-3">
-                          {groupItemsBySupplier(order.items).map((supplierGroup) => (
+                          {groupItemsBySupplier(packableItems(order.items, refunds.get(order.id) || [])).map((supplierGroup) => (
                             <div key={supplierGroup.supplierId} className="rounded-lg border border-primary/10 bg-surface overflow-hidden">
                               <div className="px-3 py-2 border-b border-primary/10">
                                 <span className="font-medium text-sm text-primary">{supplierGroup.supplierName}</span>

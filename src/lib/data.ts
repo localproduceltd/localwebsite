@@ -123,6 +123,9 @@ export interface Order {
   bottleDepositPaid: boolean;
   address: OrderAddress | null;
   stripeSessionId: string | null;
+  discountCode: string | null;
+  couponName: string | null;
+  discountAmount: number | null;
 }
 
 export interface DeliveryDay {
@@ -486,6 +489,9 @@ export async function getOrders(userId?: string): Promise<Order[]> {
       postcode: o.postcode,
     } : null,
     stripeSessionId: o.stripe_session_id ?? null,
+    discountCode: o.discount_code ?? null,
+    couponName: o.coupon_name ?? null,
+    discountAmount: o.discount_amount != null ? Number(o.discount_amount) : null,
   }));
 }
 
@@ -846,6 +852,9 @@ export async function getOrdersByDeliveryDay(deliveryDate: string): Promise<Orde
       postcode: o.postcode,
     } : null,
     stripeSessionId: o.stripe_session_id ?? null,
+    discountCode: o.discount_code ?? null,
+    couponName: o.coupon_name ?? null,
+    discountAmount: o.discount_amount != null ? Number(o.discount_amount) : null,
   }));
 }
 
@@ -870,6 +879,9 @@ export interface CreateOrderOptions {
   boxDepositPaid: boolean;
   bottleDepositPaid: boolean;
   stripeSessionId?: string;
+  discountCode?: string;
+  couponName?: string;
+  discountAmount?: number;
   address?: OrderAddress;
 }
 
@@ -913,6 +925,9 @@ export async function getOrderByStripeSession(sessionId: string): Promise<Order 
       postcode: data.postcode,
     } : null,
     stripeSessionId: data.stripe_session_id ?? null,
+    discountCode: data.discount_code ?? null,
+    couponName: data.coupon_name ?? null,
+    discountAmount: data.discount_amount != null ? Number(data.discount_amount) : null,
   };
 }
 
@@ -933,6 +948,9 @@ export async function createOrder(options: CreateOrderOptions): Promise<Order> {
       box_deposit_paid: options.boxDepositPaid,
       bottle_deposit_paid: options.bottleDepositPaid,
       stripe_session_id: options.stripeSessionId ?? null,
+      discount_code: options.discountCode ?? null,
+      coupon_name: options.couponName ?? null,
+      discount_amount: options.discountAmount ?? null,
       address_line1: options.address?.addressLine1 ?? null,
       address_line2: options.address?.addressLine2 ?? null,
       city: options.address?.city ?? null,
@@ -981,6 +999,9 @@ export async function createOrder(options: CreateOrderOptions): Promise<Order> {
     bottleDepositPaid: order.bottle_deposit_paid ?? false,
     address: options.address ?? null,
     stripeSessionId: order.stripe_session_id ?? null,
+    discountCode: order.discount_code ?? null,
+    couponName: order.coupon_name ?? null,
+    discountAmount: order.discount_amount != null ? Number(order.discount_amount) : null,
   };
 }
 
@@ -1102,6 +1123,9 @@ export async function getOrder(orderId: string, client: SupabaseClient = supabas
       postcode: data.postcode,
     } : null,
     stripeSessionId: data.stripe_session_id ?? null,
+    discountCode: data.discount_code ?? null,
+    couponName: data.coupon_name ?? null,
+    discountAmount: data.discount_amount != null ? Number(data.discount_amount) : null,
   };
 }
 
@@ -1868,7 +1892,7 @@ export interface OrderItemCheckin {
 }
 
 export type RefundPaidBy = "local" | "supplier" | "50-50";
-export type RefundReasonType = "didnt_arrive" | "quality" | "damaged" | "changed_mind" | "other";
+export type RefundReasonType = "didnt_arrive" | "quality" | "damaged" | "other";
 
 export interface OrderItemRefund {
   id: string;
@@ -2153,6 +2177,121 @@ export async function deleteOrderItemRefund(refundId: string): Promise<void> {
     .from("order_item_refunds")
     .delete()
     .eq("id", refundId);
+  if (error) throw error;
+}
+
+// ─── Supplier Product Flags (can't supply this week) ─────────────────────────
+
+export interface SupplierProductFlag {
+  id: string;
+  deliveryDay: string;
+  supplierId: string;
+  productName: string;
+  quantityUnavailable: number | null; // null = whole line can't be supplied
+  flaggedAt: string;
+  flaggedBy: "supplier" | "admin";
+  resolved: boolean;
+  resolvedAt: string | null;
+}
+
+export async function getSupplierProductFlags(deliveryDay: string): Promise<SupplierProductFlag[]> {
+  const { data, error } = await supabase
+    .from("supplier_product_flags")
+    .select("*")
+    .eq("delivery_day", deliveryDay);
+  if (error) throw error;
+  return (data ?? []).map((f) => ({
+    id: f.id,
+    deliveryDay: f.delivery_day,
+    supplierId: f.supplier_id,
+    productName: f.product_name,
+    quantityUnavailable: f.quantity_unavailable ?? null,
+    flaggedAt: f.flagged_at,
+    flaggedBy: f.flagged_by as "supplier" | "admin",
+    resolved: f.resolved ?? false,
+    resolvedAt: f.resolved_at,
+  }));
+}
+
+export async function createSupplierProductFlag(
+  deliveryDay: string,
+  supplierId: string,
+  productName: string,
+  flaggedBy: "supplier" | "admin",
+  quantityUnavailable: number | null = null
+): Promise<void> {
+  const { error } = await supabase
+    .from("supplier_product_flags")
+    .upsert({
+      delivery_day: deliveryDay,
+      supplier_id: supplierId,
+      product_name: productName,
+      quantity_unavailable: quantityUnavailable,
+      flagged_by: flaggedBy,
+      flagged_at: new Date().toISOString(),
+      resolved: false,
+    }, { onConflict: "delivery_day,supplier_id,product_name" });
+  if (error) throw error;
+}
+
+export async function resolveSupplierProductFlag(
+  deliveryDay: string,
+  supplierId: string,
+  productName: string
+): Promise<void> {
+  const { error } = await supabase
+    .from("supplier_product_flags")
+    .update({ resolved: true, resolved_at: new Date().toISOString() })
+    .eq("delivery_day", deliveryDay)
+    .eq("supplier_id", supplierId)
+    .eq("product_name", productName);
+  if (error) throw error;
+}
+
+export async function removeSupplierProductFlag(
+  deliveryDay: string,
+  supplierId: string,
+  productName: string
+): Promise<void> {
+  const { error } = await supabase
+    .from("supplier_product_flags")
+    .delete()
+    .eq("delivery_day", deliveryDay)
+    .eq("supplier_id", supplierId)
+    .eq("product_name", productName);
+  if (error) throw error;
+}
+
+// ─── Supplier Check-in Completion ────────────────────────────────────────────
+// A supplier's check-in is "complete" for a delivery day when a row exists.
+// Until then, under-counts are still "in progress" (not treated as shortages).
+
+export async function getCompletedCheckins(deliveryDay: string): Promise<Set<string>> {
+  const { data, error } = await supabase
+    .from("supplier_checkin_status")
+    .select("supplier_id")
+    .eq("delivery_day", deliveryDay);
+  if (error) throw error;
+  return new Set((data ?? []).map((r) => r.supplier_id as string));
+}
+
+export async function setCheckinComplete(deliveryDay: string, supplierId: string): Promise<void> {
+  const { error } = await supabase
+    .from("supplier_checkin_status")
+    .upsert({
+      delivery_day: deliveryDay,
+      supplier_id: supplierId,
+      completed_at: new Date().toISOString(),
+    }, { onConflict: "delivery_day,supplier_id" });
+  if (error) throw error;
+}
+
+export async function reopenCheckin(deliveryDay: string, supplierId: string): Promise<void> {
+  const { error } = await supabase
+    .from("supplier_checkin_status")
+    .delete()
+    .eq("delivery_day", deliveryDay)
+    .eq("supplier_id", supplierId);
   if (error) throw error;
 }
 

@@ -1,16 +1,35 @@
 "use client";
 
 import { useState, useEffect, useMemo, useCallback } from "react";
-import { type Order, type OrderItem, type DeliveryStockTracking, type OrderItemRefund, type OrderItemCheckin, type RefundPaidBy, getOrders, getDeliveryStockTracking, upsertDeliveryStockTracking, getRefundsForDeliveryDay, getOrderItemCheckins, toggleOrderItemCheckin } from "@/lib/data";
-import { Package, Clock, CheckCircle, XCircle, Calendar, ChevronDown, ChevronRight, Truck, AlertTriangle, FileText, Mail, Download, Send } from "lucide-react";
+import { type Order, type OrderItem, type DeliveryStockTracking, type OrderItemRefund, type OrderItemCheckin, type RefundPaidBy, type RefundReasonType, type SupplierProductFlag, getOrders, getDeliveryStockTracking, upsertDeliveryStockTracking, getRefundsForDeliveryDay, getOrderItemCheckins, toggleOrderItemCheckin, getSupplierProductFlags, resolveSupplierProductFlag, createSupplierProductFlag, getCompletedCheckins, setCheckinComplete, reopenCheckin } from "@/lib/data";
+import { Package, Clock, CheckCircle, XCircle, Calendar, ChevronDown, ChevronRight, Truck, AlertTriangle, FileText, Mail, Download, Send, Users, Eye } from "lucide-react";
 
-const refundReasonConfig: Record<string, { label: string }> = {
-  didnt_arrive: { label: "Didn't arrive" },
-  quality: { label: "Quality issue" },
-  damaged: { label: "Damaged in transit" },
-  changed_mind: { label: "Customer changed mind" },
-  other: { label: "Other" },
+const refundReasonConfig: Record<RefundReasonType, { label: string; itemArrived: boolean; defaultPaidBy: RefundPaidBy }> = {
+  didnt_arrive: { label: "Didn't arrive", itemArrived: false, defaultPaidBy: "supplier" },
+  quality: { label: "Quality issue", itemArrived: true, defaultPaidBy: "supplier" },
+  damaged: { label: "Damaged in transit", itemArrived: true, defaultPaidBy: "50-50" },
+  other: { label: "Other", itemArrived: true, defaultPaidBy: "local" },
 };
+
+interface StockIssue {
+  type: "shortage" | "flagged";
+  deliveryDay: string;
+  supplierId: string;
+  supplierName: string;
+  productName: string;
+  shortfall: number;
+  orderedQty: number;
+  arrivedQty: number | null;
+  affectedOrders: Array<{ orderId: string; orderNumber: number; customerName: string | null; customerEmail: string | null; quantity: number; price: number }>;
+}
+
+interface ReviewModalState {
+  issue: StockIssue;
+  selectedOrders: Set<string>;
+  reasonType: RefundReasonType;
+  paidBy: RefundPaidBy;
+  notes: string;
+}
 
 function formatDeliveryDate(dateStr: string) {
   if (!dateStr) return "No date";
@@ -88,9 +107,17 @@ export default function AdminStockPage() {
   const [stockTracking, setStockTracking] = useState<Map<string, DeliveryStockTracking>>(new Map());
   const [orderCheckins, setOrderCheckins] = useState<Map<string, OrderItemCheckin>>(new Map());
   const [refunds, setRefunds] = useState<Map<string, OrderItemRefund[]>>(new Map());
+  const [productFlags, setProductFlags] = useState<Map<string, SupplierProductFlag>>(new Map());
+  // Keys are `${deliveryDay}-${supplierId}` for suppliers whose check-in is marked complete.
+  const [completedCheckins, setCompletedCheckins] = useState<Set<string>>(new Set());
   const [payoutModal, setPayoutModal] = useState<string | null>(null);
   const [sendingPayouts, setSendingPayouts] = useState(false);
   const [sendingSummaries, setSendingSummaries] = useState<string | null>(null);
+  
+  // Issue review modal state
+  const [reviewModal, setReviewModal] = useState<ReviewModalState | null>(null);
+  const [refundLoading, setRefundLoading] = useState(false);
+  const [refundError, setRefundError] = useState<string | null>(null);
 
   const handleOrderCheckIn = async (
     deliveryDay: string,
@@ -150,7 +177,9 @@ export default function AdminStockPage() {
     const trackingMap = new Map<string, DeliveryStockTracking>();
     const checkinsMap = new Map<string, OrderItemCheckin>();
     const refundsMap = new Map<string, OrderItemRefund[]>();
-    
+    const flagsMap = new Map<string, SupplierProductFlag>();
+    const completeSet = new Set<string>();
+
     for (const day of deliveryDays) {
       const tracking = await getDeliveryStockTracking(day);
       for (const t of tracking) {
@@ -168,10 +197,22 @@ export default function AdminStockPage() {
         if (!refundsMap.has(key)) refundsMap.set(key, []);
         refundsMap.get(key)!.push(r);
       }
+      
+      const flags = await getSupplierProductFlags(day);
+      for (const f of flags) {
+        flagsMap.set(`${f.deliveryDay}-${f.supplierId}-${f.productName}`, f);
+      }
+
+      const completed = await getCompletedCheckins(day);
+      for (const supplierId of completed) {
+        completeSet.add(`${day}-${supplierId}`);
+      }
     }
     setStockTracking(trackingMap);
     setOrderCheckins(checkinsMap);
     setRefunds(refundsMap);
+    setProductFlags(flagsMap);
+    setCompletedCheckins(completeSet);
   }, []);
 
   useEffect(() => {
@@ -217,6 +258,50 @@ export default function AdminStockPage() {
       }
       return next;
     });
+    // Marking everything arrived in full also completes check-in for this supplier.
+    await markCheckinComplete(deliveryDay, supplierId);
+  };
+
+  // Whether a supplier's check-in is marked complete for a delivery day.
+  const isSupplierComplete = useCallback(
+    (deliveryDay: string, supplierId: string) => completedCheckins.has(`${deliveryDay}-${supplierId}`),
+    [completedCheckins]
+  );
+
+  const markCheckinComplete = async (deliveryDay: string, supplierId: string) => {
+    await setCheckinComplete(deliveryDay, supplierId);
+    setCompletedCheckins(prev => new Set(prev).add(`${deliveryDay}-${supplierId}`));
+  };
+
+  // "Done checking in" - completes as-is, locking in any shortages. Warns first.
+  const handleDoneCheckin = async (deliveryDay: string, supplier: SupplierSummary) => {
+    const shortItems: string[] = [];
+    const notChecked: string[] = [];
+    for (const item of supplier.items) {
+      const t = stockTracking.get(`${deliveryDay}-${supplier.supplierId}-${item.productName}`);
+      const arrived = t?.quantityArrived;
+      if (arrived === null || arrived === undefined) notChecked.push(item.productName);
+      else if (arrived < item.quantity) shortItems.push(item.productName);
+    }
+
+    let msg = `Mark ${supplier.supplierName}'s check-in as complete?`;
+    if (shortItems.length > 0) {
+      msg += `\n\nShort: ${shortItems.join(", ")}.\nThis will raise refund issues for the affected customers.`;
+    }
+    if (notChecked.length > 0) {
+      msg += `\n\nNot checked in yet: ${notChecked.join(", ")}.\nThese won't raise an issue - tick them in first if they arrived.`;
+    }
+    if (!confirm(msg)) return;
+    await markCheckinComplete(deliveryDay, supplier.supplierId);
+  };
+
+  const handleReopenCheckin = async (deliveryDay: string, supplierId: string) => {
+    await reopenCheckin(deliveryDay, supplierId);
+    setCompletedCheckins(prev => {
+      const next = new Set(prev);
+      next.delete(`${deliveryDay}-${supplierId}`);
+      return next;
+    });
   };
 
   const handleSendSupplierSummaries = async (deliveryDay: string) => {
@@ -249,6 +334,192 @@ export default function AdminStockPage() {
       else next.add(key);
       return next;
     });
+  };
+
+  // Build issue queue for a delivery day
+  const getIssuesForDay = useCallback((deliveryDay: string, orders: Order[], supplierSummaries: SupplierSummary[]): StockIssue[] => {
+    const issues: StockIssue[] = [];
+    
+    for (const supplier of supplierSummaries) {
+      for (const item of supplier.items) {
+        const trackingKey = `${deliveryDay}-${supplier.supplierId}-${item.productName}`;
+        const tracking = stockTracking.get(trackingKey);
+        const flag = productFlags.get(trackingKey);
+
+        // A resolved flag means this product has been dismissed/handled for the
+        // day (a dismissed shortage, or a "won't arrive" flag that's been
+        // refunded out). Skip it so it doesn't reappear as a shortage.
+        if (flag && flag.resolved) continue;
+
+        // Check for supplier flag (won't arrive)
+        const isFlagged = flag && !flag.resolved;
+
+        // Check for shortage (arrived < ordered). Only count it once the
+        // supplier's check-in is marked complete - otherwise an in-progress
+        // count looks short while you're still ticking bags in.
+        const supplierComplete = isSupplierComplete(deliveryDay, supplier.supplierId);
+        const hasShortage = supplierComplete &&
+                           tracking?.quantityArrived !== null &&
+                           tracking?.quantityArrived !== undefined &&
+                           tracking.quantityArrived < item.quantity;
+
+        if (!isFlagged && !hasShortage) continue;
+        
+        // Flagged: use the quantity the supplier said they can't supply (may be
+        // partial), capped at what was ordered. Falls back to the whole line if
+        // no quantity was recorded. Shortage: ordered minus what arrived.
+        const shortfall = isFlagged
+          ? Math.min(flag?.quantityUnavailable ?? item.quantity, item.quantity)
+          : item.quantity - (tracking?.quantityArrived ?? 0);
+        
+        // Count total refunded quantity for this product across all orders
+        let totalRefundedQty = 0;
+        
+        // Find affected orders (customers who ordered this product)
+        const affectedOrders: StockIssue["affectedOrders"] = [];
+        for (const order of orders) {
+          if (order.status === "cancelled") continue;
+          for (const orderItem of order.items) {
+            if (orderItem.supplierId === supplier.supplierId && orderItem.productName === item.productName) {
+              // Check if already refunded for this product
+              const orderRefunds = refunds.get(order.id) || [];
+              const productRefunds = orderRefunds.filter(r => r.productName === item.productName);
+              const alreadyRefunded = productRefunds.length > 0;
+              
+              if (alreadyRefunded) {
+                // Sum up refunded quantities
+                totalRefundedQty += productRefunds.reduce((sum, r) => sum + r.quantityRefunded, 0);
+              } else {
+                affectedOrders.push({
+                  orderId: order.id,
+                  orderNumber: order.orderNumber,
+                  customerName: order.customerName,
+                  customerEmail: order.customerEmail,
+                  quantity: orderItem.quantity,
+                  price: orderItem.price,
+                });
+              }
+            }
+          }
+        }
+        
+        // Issue is handled if refunds cover the shortfall
+        if (totalRefundedQty >= shortfall) continue;
+        
+        // No affected orders left = all refunded, but shortfall not fully covered
+        // This shouldn't happen normally, but skip if no one left to refund
+        if (affectedOrders.length === 0) continue;
+        
+        issues.push({
+          type: isFlagged ? "flagged" : "shortage",
+          deliveryDay,
+          supplierId: supplier.supplierId,
+          supplierName: supplier.supplierName,
+          productName: item.productName,
+          shortfall,
+          orderedQty: item.quantity,
+          arrivedQty: tracking?.quantityArrived ?? null,
+          affectedOrders,
+        });
+      }
+    }
+    
+    return issues;
+  }, [stockTracking, productFlags, refunds, isSupplierComplete]);
+
+  // Handle opening the review modal for an issue
+  const openReviewModal = (issue: StockIssue) => {
+    setReviewModal({
+      issue,
+      selectedOrders: new Set(),
+      reasonType: "didnt_arrive",
+      paidBy: "supplier",
+      notes: "",
+    });
+    setRefundError(null);
+  };
+
+  // Handle refunding selected orders
+  const handleRefundSelected = async () => {
+    if (!reviewModal || reviewModal.selectedOrders.size === 0) return;
+    
+    setRefundLoading(true);
+    setRefundError(null);
+    
+    const { issue, selectedOrders, reasonType, paidBy, notes } = reviewModal;
+    const reasonConfig = refundReasonConfig[reasonType];
+    
+    try {
+      for (const orderId of selectedOrders) {
+        const orderInfo = issue.affectedOrders.find(o => o.orderId === orderId);
+        if (!orderInfo) continue;
+        
+        const refundAmount = orderInfo.quantity * orderInfo.price;
+        
+        const response = await fetch("/api/refund-order-item", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            orderId,
+            productName: issue.productName,
+            quantity: orderInfo.quantity,
+            refundAmount,
+            reasonType,
+            refundReason: notes || null,
+            itemArrived: reasonConfig.itemArrived,
+            paidBy,
+            supplierId: issue.supplierId,
+          }),
+        });
+        
+        if (!response.ok) {
+          const data = await response.json();
+          throw new Error(data.error || "Failed to process refund");
+        }
+      }
+      
+      // If flagged issue and all affected orders refunded, resolve the flag
+      if (issue.type === "flagged" && selectedOrders.size === issue.affectedOrders.length) {
+        await resolveSupplierProductFlag(issue.deliveryDay, issue.supplierId, issue.productName);
+      }
+      
+      // Reload data to reflect changes
+      const deliveryDays = [...new Set(orderList.map(o => o.deliveryDay).filter(Boolean))];
+      await loadTrackingData(deliveryDays);
+      
+      setReviewModal(null);
+      alert(`✅ Refunded ${selectedOrders.size} order${selectedOrders.size !== 1 ? "s" : ""}`);
+    } catch (error) {
+      setRefundError(error instanceof Error ? error.message : "Failed to process refunds");
+    } finally {
+      setRefundLoading(false);
+    }
+  };
+
+  // Handle dismissing an issue without refunding
+  const handleDismissIssue = async (issue: StockIssue) => {
+    if (!confirm(`Dismiss this issue without issuing refunds?\n\n${issue.productName} from ${issue.supplierName}\n\nThis will clear the issue from the queue.`)) {
+      return;
+    }
+    
+    try {
+      if (issue.type === "flagged") {
+        // Resolve the supplier flag
+        await resolveSupplierProductFlag(issue.deliveryDay, issue.supplierId, issue.productName);
+      } else {
+        // For shortages, create a resolved flag to mark as dismissed
+        await createSupplierProductFlag(issue.deliveryDay, issue.supplierId, issue.productName, "admin");
+        await resolveSupplierProductFlag(issue.deliveryDay, issue.supplierId, issue.productName);
+      }
+      
+      // Reload data to reflect changes
+      const deliveryDays = [...new Set(orderList.map(o => o.deliveryDay).filter(Boolean))];
+      await loadTrackingData(deliveryDays);
+      
+      alert("✅ Issue dismissed");
+    } catch (error) {
+      alert(`Error: ${error instanceof Error ? error.message : "Failed to dismiss issue"}`);
+    }
   };
 
   const grouped = useMemo(() => {
@@ -345,62 +616,77 @@ export default function AdminStockPage() {
 
             {isOpen && (
               <div className="space-y-6">
-                {/* DAY SUMMARY */}
+                {/* ISSUE QUEUE */}
                 {(() => {
-                  // Only roll up shortages from suppliers where every item has been counted.
-                  // While items are still "Not checked" (quantityArrived === null), the supplier
-                  // isn't done yet and its partial state shouldn't fire alarms at the top.
-                  const shortages: Array<{ supplierName: string; productName: string; short: number }> = [];
-                  let suppliersComplete = 0;
-                  for (const supplier of supplierSummaries) {
-                    const trackings = supplier.items.map(item =>
-                      stockTracking.get(`${deliveryDay}-${supplier.supplierId}-${item.productName}`)
-                    );
-                    const allCounted = trackings.every(
-                      t => t?.quantityArrived !== null && t?.quantityArrived !== undefined,
-                    );
-                    if (!allCounted) continue;
-                    suppliersComplete++;
-                    for (const item of supplier.items) {
-                      const tracking = stockTracking.get(`${deliveryDay}-${supplier.supplierId}-${item.productName}`);
-                      if (tracking && tracking.quantityArrived !== null && tracking.quantityArrived < item.quantity) {
-                        shortages.push({ supplierName: supplier.supplierName, productName: item.productName, short: item.quantity - tracking.quantityArrived });
-                      }
-                    }
-                  }
+                  const issues = getIssuesForDay(deliveryDay, orders, supplierSummaries);
                   const dayRefunds = orders.flatMap(o => refunds.get(o.id) || []);
                   const totalRefunds = dayRefunds.reduce((sum, r) => sum + r.refundAmount, 0);
-                  const totalSuppliers = supplierSummaries.length;
-                  const allSuppliersDone = suppliersComplete === totalSuppliers;
 
-                  if (shortages.length === 0 && totalRefunds === 0) return null;
+                  if (issues.length === 0 && totalRefunds === 0) return null;
 
                   return (
-                    <div className="rounded-xl bg-amber-50 border border-amber-200 px-6 py-4">
-                      <h3 className="font-bold text-amber-800 mb-2 flex items-center gap-2">
-                        <AlertTriangle size={18} />
-                        Day Summary - {allSuppliersDone ? "Issues" : `Check-in ${suppliersComplete}/${totalSuppliers} suppliers complete · ${shortages.length} shortage${shortages.length !== 1 ? "s" : ""} so far`}
-                      </h3>
-                      <div className="flex flex-wrap gap-6">
-                        {shortages.length > 0 && (
-                          <div>
-                            <p className="text-xs font-semibold text-amber-700 uppercase mb-1">Stock Shortages</p>
-                            <ul className="text-sm text-amber-800 space-y-0.5">
-                              {shortages.map((s, i) => (
-                                <li key={i}>• {s.supplierName}: {s.productName} (short by {s.short})</li>
-                              ))}
-                            </ul>
-                          </div>
-                        )}
+                    <div className="rounded-xl bg-amber-50 border border-amber-200 overflow-hidden">
+                      <div className="px-6 py-3 border-b border-amber-200 flex items-center justify-between">
+                        <h3 className="font-bold text-amber-800 flex items-center gap-2">
+                          <AlertTriangle size={18} />
+                          Issues Requiring Action
+                          {issues.length > 0 && (
+                            <span className="rounded-full bg-amber-200 px-2 py-0.5 text-xs font-bold text-amber-800">
+                              {issues.length}
+                            </span>
+                          )}
+                        </h3>
                         {totalRefunds > 0 && (
-                          <div>
-                            <p className="text-xs font-semibold text-amber-700 uppercase mb-1">Refunds Issued</p>
-                            <p className="text-sm text-amber-800">
-                              {dayRefunds.length} refund{dayRefunds.length !== 1 ? "s" : ""} totalling <strong>£{totalRefunds.toFixed(2)}</strong>
-                            </p>
-                          </div>
+                          <span className="text-xs text-amber-700">
+                            {dayRefunds.length} refund{dayRefunds.length !== 1 ? "s" : ""} issued · £{totalRefunds.toFixed(2)}
+                          </span>
                         )}
                       </div>
+                      {issues.length > 0 && (
+                        <div className="divide-y divide-amber-200">
+                          {issues.map((issue, i) => (
+                            <div key={i} className="px-6 py-3 flex items-center justify-between gap-4">
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${
+                                    issue.type === "flagged" 
+                                      ? "bg-red-100 text-red-700" 
+                                      : "bg-amber-200 text-amber-800"
+                                  }`}>
+                                    {issue.type === "flagged" && issue.shortfall >= issue.orderedQty ? "Won't arrive" : `Short by ${issue.shortfall}`}
+                                  </span>
+                                  <span className="font-medium text-amber-900">{issue.productName}</span>
+                                  <span className="text-xs text-amber-700">from {issue.supplierName}</span>
+                                </div>
+                                <p className="text-xs text-amber-700 mt-0.5 flex items-center gap-1">
+                                  <Users size={12} />
+                                  {issue.affectedOrders.length} customer{issue.affectedOrders.length !== 1 ? "s" : ""} affected
+                                  {issue.arrivedQty !== null && (
+                                    <span className="ml-2">· {issue.arrivedQty}/{issue.orderedQty} arrived</span>
+                                  )}
+                                </p>
+                              </div>
+                              <div className="flex items-center gap-2 flex-shrink-0">
+                                <button
+                                  onClick={() => openReviewModal(issue)}
+                                  className="inline-flex items-center gap-1.5 rounded-lg bg-amber-200 px-3 py-1.5 text-xs font-semibold text-amber-800 hover:bg-amber-300 transition"
+                                >
+                                  <Eye size={14} />
+                                  Review
+                                </button>
+                                <button
+                                  onClick={() => handleDismissIssue(issue)}
+                                  className="inline-flex items-center gap-1.5 rounded-lg bg-gray-100 px-3 py-1.5 text-xs font-semibold text-gray-600 hover:bg-gray-200 transition"
+                                  title="Dismiss without refunding"
+                                >
+                                  <XCircle size={14} />
+                                  Dismiss
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   );
                 })()}
@@ -476,19 +762,32 @@ export default function AdminStockPage() {
                               <div className="rounded-lg border border-primary/10 bg-surface overflow-x-auto">
                                 <div className="px-3 py-2 border-b border-primary/10 flex items-center justify-between">
                                   <span className="text-xs font-semibold text-muted uppercase">Stock Arrivals</span>
-                                  <div className="flex items-center gap-2">
-                                    {supplier.items.every(item => {
-                                      const tracking = stockTracking.get(`${deliveryDay}-${supplier.supplierId}-${item.productName}`);
-                                      return tracking?.quantityArrived !== null && tracking?.quantityArrived !== undefined;
-                                    }) ? (
-                                      <span className="text-xs font-semibold text-green-600">✓ All checked in</span>
+                                  <div className="flex items-center gap-3">
+                                    {isSupplierComplete(deliveryDay, supplier.supplierId) ? (
+                                      <>
+                                        <span className="text-xs font-semibold text-green-600">✓ Check-in complete</span>
+                                        <button
+                                          onClick={() => handleReopenCheckin(deliveryDay, supplier.supplierId)}
+                                          className="text-xs font-medium text-muted hover:text-primary transition"
+                                        >
+                                          Reopen
+                                        </button>
+                                      </>
                                     ) : (
-                                      <button
-                                        onClick={() => handleMarkAllArrived(deliveryDay, supplier.supplierId, supplier.items)}
-                                        className="text-xs font-medium text-secondary hover:text-secondary/80 transition"
-                                      >
-                                        Mark All Arrived
-                                      </button>
+                                      <>
+                                        <button
+                                          onClick={() => handleMarkAllArrived(deliveryDay, supplier.supplierId, supplier.items)}
+                                          className="text-xs font-medium text-secondary hover:text-secondary/80 transition"
+                                        >
+                                          Mark all arrived
+                                        </button>
+                                        <button
+                                          onClick={() => handleDoneCheckin(deliveryDay, supplier)}
+                                          className="text-xs font-semibold text-green-600 hover:text-green-700 transition"
+                                        >
+                                          Done checking in
+                                        </button>
+                                      </>
                                     )}
                                   </div>
                                 </div>
@@ -505,16 +804,29 @@ export default function AdminStockPage() {
                                     {supplier.items.map((item) => {
                                       const trackingKey = `${deliveryDay}-${supplier.supplierId}-${item.productName}`;
                                       const tracking = stockTracking.get(trackingKey);
+                                      const flag = productFlags.get(trackingKey);
+                                      const isFlagged = flag && !flag.resolved;
                                       const arrived = tracking?.quantityArrived;
                                       const hasOverride = tracking?.quantityArrivedOverride !== null && tracking?.quantityArrivedOverride !== undefined;
                                       const computedDiffers = hasOverride && tracking?.quantityArrivedComputed !== tracking?.quantityArrivedOverride;
-                                      const hasShortage = arrived !== null && arrived !== undefined && arrived < item.quantity;
-                                      const isComplete = arrived !== null && arrived !== undefined && arrived >= item.quantity;
-                                      
+                                      const supplierComplete = isSupplierComplete(deliveryDay, supplier.supplierId);
+                                      const isUnder = arrived !== null && arrived !== undefined && arrived < item.quantity;
+                                      // Only a genuine shortage once check-in is marked complete.
+                                      const hasShortage = isUnder && supplierComplete;
+                                      const inProgress = isUnder && !supplierComplete;
+                                      const isComplete = arrived !== null && arrived !== undefined && arrived >= item.quantity && !isFlagged;
+
                                       return (
-                                        <tr key={`${item.productName}|${item.unit}`} className={`border-t border-primary/5 ${isComplete ? 'bg-green-50' : hasShortage ? 'bg-amber-50' : ''}`}>
+                                        <tr key={`${item.productName}|${item.unit}`} className={`border-t border-primary/5 ${isFlagged ? 'bg-red-50' : isComplete ? 'bg-green-50' : hasShortage ? 'bg-amber-50' : ''}`}>
                                           <td className="px-3 py-2">
-                                            <span className="text-primary">{item.productName}</span>
+                                            <div className="flex items-center gap-2">
+                                              <span className="text-primary">{item.productName}</span>
+                                              {isFlagged && (
+                                                <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-bold text-red-700 uppercase">
+                                                  Won&apos;t arrive
+                                                </span>
+                                              )}
+                                            </div>
                                             {item.unit && <span className="block text-xs text-muted">{item.unit}</span>}
                                           </td>
                                           <td className="px-3 py-2 text-center font-semibold text-primary">{item.quantity}</td>
@@ -526,11 +838,12 @@ export default function AdminStockPage() {
                                                 max={item.quantity * 2}
                                                 value={arrived ?? ""}
                                                 placeholder="—"
+                                                disabled={isFlagged}
                                                 onChange={(e) => {
                                                   const val = e.target.value === "" ? null : parseInt(e.target.value);
                                                   handleArrivalUpdate(deliveryDay, supplier.supplierId, item.productName, item.quantity, val, tracking?.arrivalNotes ?? null);
                                                 }}
-                                                className="w-16 rounded border border-primary/20 px-2 py-1 text-center text-sm focus:border-secondary focus:outline-none"
+                                                className={`w-16 rounded border border-primary/20 px-2 py-1 text-center text-sm focus:border-secondary focus:outline-none ${isFlagged ? 'bg-gray-100 text-gray-400' : ''}`}
                                               />
                                               {computedDiffers && (
                                                 <span className="text-[10px] text-amber-600" title={`Computed from check-ins: ${tracking?.quantityArrivedComputed}`}>(override)</span>
@@ -538,8 +851,26 @@ export default function AdminStockPage() {
                                             </div>
                                           </td>
                                           <td className="px-3 py-2">
-                                            {arrived === null || arrived === undefined ? (
+                                            {isFlagged ? (
+                                              <div>
+                                                <span className="inline-flex items-center gap-1 text-xs font-semibold text-red-700">
+                                                  <XCircle size={12} />
+                                                  Flagged by supplier
+                                                </span>
+                                                <p className="text-[10px] text-red-600 mt-0.5">
+                                                  Affects: {supplier.orders
+                                                    .filter(o => o.items.some(i => i.productName === item.productName))
+                                                    .map(o => `#${o.orderNumber}`)
+                                                    .join(", ")}
+                                                </p>
+                                              </div>
+                                            ) : arrived === null || arrived === undefined ? (
                                               <span className="text-xs text-muted">Not checked</span>
+                                            ) : inProgress ? (
+                                              <span className="inline-flex items-center gap-1 text-xs font-medium text-muted">
+                                                <Clock size={12} />
+                                                Checking in ({arrived}/{item.quantity})
+                                              </span>
                                             ) : hasShortage ? (
                                               <div>
                                                 <span className="inline-flex items-center gap-1 text-xs font-semibold text-amber-700">
@@ -907,6 +1238,202 @@ export default function AdminStockPage() {
           </div>
         );
       })()}
+
+      {/* Issue Review Modal */}
+      {reviewModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-surface rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-hidden flex flex-col">
+            <div className="px-6 py-4 border-b border-primary/10 flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-bold text-primary">Review Issue</h2>
+                <p className="text-sm text-muted">
+                  {reviewModal.issue.productName} from {reviewModal.issue.supplierName}
+                </p>
+              </div>
+              <button
+                onClick={() => setReviewModal(null)}
+                className="text-muted hover:text-primary transition"
+              >
+                <XCircle size={24} />
+              </button>
+            </div>
+            
+            <div className="flex-1 overflow-y-auto p-6 space-y-6">
+              {/* Issue summary */}
+              <div className="rounded-lg bg-amber-50 border border-amber-200 px-4 py-3">
+                <div className="flex items-center gap-2">
+                  <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${
+                    reviewModal.issue.type === "flagged" 
+                      ? "bg-red-100 text-red-700" 
+                      : "bg-amber-200 text-amber-800"
+                  }`}>
+                    {reviewModal.issue.type === "flagged" && reviewModal.issue.shortfall >= reviewModal.issue.orderedQty ? "Won't arrive" : `Short by ${reviewModal.issue.shortfall}`}
+                  </span>
+                  {reviewModal.issue.arrivedQty !== null && (
+                    <span className="text-sm text-amber-700">
+                      {reviewModal.issue.arrivedQty} of {reviewModal.issue.orderedQty} arrived
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Customer selection */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-sm font-medium text-primary">
+                    Select customers to refund ({reviewModal.selectedOrders.size} of {reviewModal.issue.affectedOrders.length})
+                  </label>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setReviewModal(prev => prev ? {
+                        ...prev,
+                        selectedOrders: new Set(prev.issue.affectedOrders.map(o => o.orderId))
+                      } : null)}
+                      className="text-xs text-secondary hover:underline"
+                    >
+                      Select all
+                    </button>
+                    <button
+                      onClick={() => setReviewModal(prev => prev ? {
+                        ...prev,
+                        selectedOrders: new Set()
+                      } : null)}
+                      className="text-xs text-muted hover:underline"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                </div>
+                <div className="rounded-lg border border-primary/10 divide-y divide-primary/5 max-h-48 overflow-y-auto">
+                  {reviewModal.issue.affectedOrders.map((order) => (
+                    <label
+                      key={order.orderId}
+                      className="flex items-center gap-3 px-4 py-2.5 hover:bg-primary/5 cursor-pointer"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={reviewModal.selectedOrders.has(order.orderId)}
+                        onChange={(e) => {
+                          setReviewModal(prev => {
+                            if (!prev) return null;
+                            const next = new Set(prev.selectedOrders);
+                            if (e.target.checked) next.add(order.orderId);
+                            else next.delete(order.orderId);
+                            return { ...prev, selectedOrders: next };
+                          });
+                        }}
+                        className="w-4 h-4 rounded border-primary/30 text-secondary focus:ring-secondary"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-primary">
+                          #{order.orderNumber} · {order.customerName || order.customerEmail?.split("@")[0] || "Customer"}
+                        </p>
+                        <p className="text-xs text-muted">
+                          {order.quantity} × £{order.price.toFixed(2)} = £{(order.quantity * order.price).toFixed(2)}
+                        </p>
+                      </div>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              {/* Refund options */}
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="block text-sm font-medium text-primary mb-1">Reason</label>
+                  <div className="flex flex-wrap gap-2">
+                    {(Object.keys(refundReasonConfig) as RefundReasonType[]).map((type) => (
+                      <button
+                        key={type}
+                        type="button"
+                        onClick={() => setReviewModal(prev => prev ? {
+                          ...prev,
+                          reasonType: type,
+                          paidBy: refundReasonConfig[type].defaultPaidBy,
+                        } : null)}
+                        className={`rounded-lg px-3 py-1.5 text-xs font-medium transition ${
+                          reviewModal.reasonType === type 
+                            ? "bg-secondary text-white" 
+                            : "border border-primary/20 text-muted hover:bg-primary/5"
+                        }`}
+                      >
+                        {refundReasonConfig[type].label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-primary mb-1">Who pays?</label>
+                  <div className="flex gap-2">
+                    {(["supplier", "50-50", "local"] as RefundPaidBy[]).map((who) => (
+                      <button
+                        key={who}
+                        type="button"
+                        onClick={() => setReviewModal(prev => prev ? { ...prev, paidBy: who } : null)}
+                        className={`rounded-lg px-3 py-1.5 text-xs font-medium transition ${
+                          reviewModal.paidBy === who 
+                            ? "bg-primary text-white" 
+                            : "border border-primary/20 text-muted hover:bg-primary/5"
+                        }`}
+                      >
+                        {who === "supplier" ? "Supplier" : who === "50-50" ? "50-50" : "Local Produce"}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-primary mb-1">Notes (optional)</label>
+                <input
+                  type="text"
+                  value={reviewModal.notes}
+                  onChange={(e) => setReviewModal(prev => prev ? { ...prev, notes: e.target.value } : null)}
+                  placeholder="Additional notes for the refund..."
+                  className="w-full rounded-lg border border-primary/20 px-3 py-2 text-sm focus:border-secondary focus:outline-none"
+                />
+              </div>
+
+              {refundError && (
+                <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
+                  {refundError}
+                </div>
+              )}
+            </div>
+
+            <div className="px-6 py-4 border-t border-primary/10 flex items-center justify-between">
+              <p className="text-sm text-muted">
+                {reviewModal.selectedOrders.size > 0 && (
+                  <>
+                    Total refund: <strong className="text-primary">
+                      £{reviewModal.issue.affectedOrders
+                        .filter(o => reviewModal.selectedOrders.has(o.orderId))
+                        .reduce((sum, o) => sum + o.quantity * o.price, 0)
+                        .toFixed(2)}
+                    </strong>
+                  </>
+                )}
+              </p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setReviewModal(null)}
+                  className="rounded-lg border border-primary/20 px-4 py-2 text-sm font-medium text-muted hover:bg-primary/5 transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleRefundSelected}
+                  disabled={refundLoading || reviewModal.selectedOrders.size === 0}
+                  className="rounded-lg bg-secondary px-4 py-2 text-sm font-semibold text-white hover:bg-secondary/90 transition disabled:opacity-50"
+                >
+                  {refundLoading ? "Processing..." : `Refund ${reviewModal.selectedOrders.size} selected`}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

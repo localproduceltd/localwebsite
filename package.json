@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "backfill-discounts": "npx -y tsx scripts/backfill-order-discounts.ts"
   },
   "dependencies": {
     "@clerk/nextjs": "^6.38.1",

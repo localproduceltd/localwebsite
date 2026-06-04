@@ -1,16 +1,18 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { useUser } from "@clerk/nextjs";
 import {
   type SupplierOrderItem,
   type SupplierOrderStatus,
   type SupplierUser,
+  type SupplierProductFlag,
   getSupplierUser,
   getSupplierOrders,
   updateSupplierOrderItemStatus,
+  getSupplierProductFlags,
 } from "@/lib/data";
-import { Loader2, Calendar, Package, ChefHat, Warehouse, Truck, XCircle, ChevronDown, ChevronRight, Gift } from "lucide-react";
+import { Loader2, Calendar, Package, ChefHat, Warehouse, Truck, XCircle, ChevronDown, ChevronRight, Gift, AlertTriangle } from "lucide-react";
 
 function formatCustomerName(name: string | null, email: string | null): string {
   if (name && name.trim()) {
@@ -78,8 +80,23 @@ export default function SupplierOrdersPage() {
   const { user, isLoaded } = useUser();
   const [supplierUser, setSupplierUser] = useState<SupplierUser | null>(null);
   const [orderItems, setOrderItems] = useState<SupplierOrderItem[]>([]);
+  const [productFlags, setProductFlags] = useState<Map<string, SupplierProductFlag>>(new Map());
   const [loading, setLoading] = useState(true);
   const [showDeliveredByAdmin, setShowDeliveredByAdmin] = useState(false);
+  const [flaggingProduct, setFlaggingProduct] = useState<string | null>(null);
+
+  const loadProductFlags = useCallback(async (supplierId: string, deliveryDays: string[]) => {
+    const flagsMap = new Map<string, SupplierProductFlag>();
+    for (const day of deliveryDays) {
+      const flags = await getSupplierProductFlags(day);
+      for (const f of flags) {
+        if (f.supplierId === supplierId) {
+          flagsMap.set(`${f.deliveryDay}-${f.productName}`, f);
+        }
+      }
+    }
+    setProductFlags(flagsMap);
+  }, []);
 
   useEffect(() => {
     if (!isLoaded || !user) return;
@@ -89,10 +106,105 @@ export default function SupplierOrdersPage() {
       if (su) {
         const items = await getSupplierOrders(su.supplierId);
         setOrderItems(items);
+        
+        // Load product flags for all delivery days
+        const deliveryDays = [...new Set(items.map(i => i.deliveryDay).filter(Boolean))];
+        await loadProductFlags(su.supplierId, deliveryDays);
       }
       setLoading(false);
     })();
-  }, [isLoaded, user]);
+  }, [isLoaded, user, loadProductFlags]);
+
+  const handleFlagProduct = async (deliveryDay: string, productName: string, orderedQty: number) => {
+    if (!supplierUser) return;
+
+    // Ask how many of the ordered total they can't supply (default = all of it).
+    const input = prompt(
+      `How many of the ${orderedQty} ${productName} can't you supply?\n\n` +
+      `Leave it as ${orderedQty} if you can't bring any. Enter a smaller number if you can bring some.`,
+      String(orderedQty)
+    );
+    if (input === null) return; // cancelled
+
+    const parsed = Math.floor(Number(input));
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      alert("Please enter a whole number of 1 or more.");
+      return;
+    }
+    const quantityUnavailable = Math.min(parsed, orderedQty);
+
+    const shortNote = quantityUnavailable >= orderedQty
+      ? `none of the ${orderedQty} ${productName}`
+      : `${quantityUnavailable} of the ${orderedQty} ${productName}`;
+    if (!confirm(`Are you sure? This tells Local you can't supply ${shortNote} for this delivery.`)) {
+      return;
+    }
+
+    const flagKey = `${deliveryDay}-${productName}`;
+    setFlaggingProduct(flagKey);
+
+    try {
+      const response = await fetch("/api/supplier-product-flag", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          deliveryDay,
+          supplierId: supplierUser.supplierId,
+          productName,
+          quantityUnavailable,
+        }),
+      });
+      
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || "Failed to flag product");
+      }
+      
+      // Reload flags
+      const deliveryDays = [...new Set(orderItems.map(i => i.deliveryDay).filter(Boolean))];
+      await loadProductFlags(supplierUser.supplierId, deliveryDays);
+      
+      alert("✅ Product flagged as unavailable. Admin has been notified.");
+    } catch (error) {
+      alert(`Error: ${error instanceof Error ? error.message : "Failed to flag product"}`);
+    } finally {
+      setFlaggingProduct(null);
+    }
+  };
+
+  const handleUndoFlag = async (deliveryDay: string, productName: string) => {
+    if (!supplierUser) return;
+    
+    const flagKey = `${deliveryDay}-${productName}`;
+    setFlaggingProduct(flagKey);
+    
+    try {
+      const response = await fetch("/api/supplier-product-flag", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          deliveryDay,
+          supplierId: supplierUser.supplierId,
+          productName,
+        }),
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || "Failed to remove flag");
+      }
+
+      // Reload flags
+      const deliveryDays = [...new Set(orderItems.map(i => i.deliveryDay).filter(Boolean))];
+      await loadProductFlags(supplierUser.supplierId, deliveryDays);
+
+      alert("✅ Flag removed. Product is back on the order list.");
+    } catch (error) {
+      alert(`Error: ${error instanceof Error ? error.message : "Failed to remove flag"}`);
+    } finally {
+      setFlaggingProduct(null);
+    }
+  };
 
   // Group items into sub-orders, then separate active vs delivered by admin
   const { activeGroups, deliveredByAdminGroups, positionByOrderId } = useMemo(() => {
@@ -281,12 +393,44 @@ export default function SupplierOrdersPage() {
                     </td>
                     {demandGrid.deliveryDays.map((day) => {
                       const qty = p.days.get(day) ?? 0;
+                      const flagKey = `${day}-${p.name}`;
+                      const flag = productFlags.get(flagKey);
+                      const isFlagged = flag && !flag.resolved;
+                      const isFlagging = flaggingProduct === flagKey;
+                      
                       return (
-                        <td key={day} className="px-3 py-2.5 text-center">
-                          {qty > 0 ? (
-                            <span className="inline-block rounded-full bg-primary/15 px-2.5 py-0.5 text-xs font-bold text-primary">
-                              {qty}
-                            </span>
+                        <td key={day} className={`px-3 py-2.5 text-center ${isFlagged ? 'bg-red-50' : ''}`}>
+                          {isFlagged ? (
+                            <div className="flex flex-col items-center gap-1">
+                              <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-bold text-red-700">
+                                <XCircle size={10} />
+                                {flag && flag.quantityUnavailable !== null && flag.quantityUnavailable < qty
+                                  ? `${flag.quantityUnavailable} short`
+                                  : "Won't arrive"}
+                              </span>
+                              <button
+                                onClick={() => handleUndoFlag(day, p.name)}
+                                disabled={isFlagging}
+                                className="text-[10px] text-green-600 hover:text-green-700 hover:underline transition disabled:opacity-50"
+                              >
+                                {isFlagging ? "..." : "Actually, I can supply"}
+                              </button>
+                            </div>
+                          ) : qty > 0 ? (
+                            <div className="flex flex-col items-center gap-1">
+                              <span className="inline-block rounded-full bg-primary/15 px-2.5 py-0.5 text-xs font-bold text-primary">
+                                {qty}
+                              </span>
+                              {day !== "unassigned" && (
+                                <button
+                                  onClick={() => handleFlagProduct(day, p.name, qty)}
+                                  disabled={isFlagging}
+                                  className="text-[10px] text-amber-600 hover:text-red-600 hover:underline transition disabled:opacity-50"
+                                >
+                                  {isFlagging ? "..." : "Can't supply"}
+                                </button>
+                              )}
+                            </div>
                           ) : (
                             <span className="text-muted/30">—</span>
                           )}

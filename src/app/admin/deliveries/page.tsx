@@ -20,7 +20,6 @@ const refundReasonConfig: Record<RefundReasonType, { label: string; itemArrived:
   didnt_arrive: { label: "Didn't arrive", itemArrived: false, defaultPaidBy: "supplier" },
   quality: { label: "Quality issue", itemArrived: true, defaultPaidBy: "supplier" },
   damaged: { label: "Damaged in transit", itemArrived: true, defaultPaidBy: "50-50" },
-  changed_mind: { label: "Customer changed mind", itemArrived: true, defaultPaidBy: "local" },
   other: { label: "Other", itemArrived: true, defaultPaidBy: "local" },
 };
 
@@ -825,15 +824,23 @@ export default function AdminDeliveriesPage() {
                                           {supplierGroup.items.map((item, i) => {
                                             const itemRefunds = orderRefunds.filter(r => r.productName === item.productName);
                                             const itemRefunded = itemRefunds.reduce((sum, r) => sum + r.refundAmount, 0);
+                                            const itemNotComing = itemRefunds.some(r => !r.itemArrived);
                                             return (
-                                              <div key={i} className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
+                                              <div key={i} className={`px-3 py-2 ${itemNotComing ? 'bg-red-50' : ''}`} onClick={(e) => e.stopPropagation()}>
                                                 <div className="flex items-center justify-between gap-2">
                                                   <div className="min-w-0 flex-1">
-                                                    <p className="text-sm text-primary break-words">{item.productName}</p>
-                                                    {item.unit && <p className="text-xs text-muted">{item.unit}</p>}
+                                                    <div className="flex items-center gap-2">
+                                                      <p className={`text-sm break-words ${itemNotComing ? 'text-red-400 line-through' : 'text-primary'}`}>{item.productName}</p>
+                                                      {itemNotComing && (
+                                                        <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-bold text-red-700">
+                                                          Not coming
+                                                        </span>
+                                                      )}
+                                                    </div>
+                                                    {item.unit && <p className={`text-xs ${itemNotComing ? 'text-red-300' : 'text-muted'}`}>{item.unit}</p>}
                                                   </div>
                                                   <div className="flex items-center gap-3 flex-shrink-0">
-                                                    <span className="text-sm font-medium text-primary">×{item.quantity} = £{(item.quantity * item.price).toFixed(2)}</span>
+                                                    <span className={`text-sm font-medium ${itemNotComing ? 'text-red-400 line-through' : 'text-primary'}`}>×{item.quantity} = £{(item.quantity * item.price).toFixed(2)}</span>
                                                     {itemRefunded > 0 ? (
                                                       <div className="flex items-center gap-1">
                                                         <span className="text-xs text-red-600 font-medium">-£{itemRefunded.toFixed(2)}</span>
