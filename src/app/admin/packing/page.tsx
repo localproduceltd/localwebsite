@@ -262,10 +262,11 @@ export default function AdminPackingPage() {
   const summary = useMemo(() => {
     const morning = packingOrders.filter(o => o.deliveryWindow === "morning").length;
     const afternoon = packingOrders.filter(o => o.deliveryWindow === "afternoon").length;
+    const either = packingOrders.filter(o => o.deliveryWindow === "any").length;
     const big = packingOrders.filter(o => o.boxSize === "Large").length;
     const medium = packingOrders.filter(o => o.boxSize === "Medium").length;
     const small = packingOrders.filter(o => o.boxSize === "Small").length;
-    return { total: packingOrders.length, morning, afternoon, big, medium, small };
+    return { total: packingOrders.length, morning, afternoon, either, big, medium, small };
   }, [packingOrders]);
 
   if (loading) {
@@ -402,6 +403,11 @@ export default function AdminPackingPage() {
                         <>
                           <span className="print:hidden inline-block rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700">PM</span>
                           <span className="hidden print:inline">PM</span>
+                        </>
+                      ) : order.deliveryWindow === "any" ? (
+                        <>
+                          <span className="print:hidden inline-block rounded-full bg-sky-100 px-2 py-0.5 text-xs font-semibold text-sky-700">Any</span>
+                          <span className="hidden print:inline">Any</span>
                         </>
                       ) : (
                         <>

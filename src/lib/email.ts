@@ -92,7 +92,7 @@ interface OrderConfirmationData {
   customerName: string;
   orderNumber: number;
   deliveryDay: string;
-  deliveryWindow?: "morning" | "afternoon";
+  deliveryWindow?: "morning" | "afternoon" | "any";
   address?: string;
   willBeIn?: boolean;
   safePlace?: string;
@@ -121,7 +121,7 @@ export async function sendOrderConfirmation(data: OrderConfirmationData) {
     ? `Good news - we've added those to your box for delivery. Here's everything that's coming and who it's from.`
     : `Lovely to have your order. We're only a few weeks old, so every single box matters - thank you for giving us a go. Here's what's coming and who it's from.`;
 
-  const deliveryWindowText = data.deliveryWindow === "morning" ? "9am – 1pm" : data.deliveryWindow === "afternoon" ? "1pm – 5pm" : "";
+  const deliveryWindowText = data.deliveryWindow === "morning" ? "9am – 1pm" : data.deliveryWindow === "afternoon" ? "1pm – 5pm" : data.deliveryWindow === "any" ? "we'll confirm the day before" : "";
 
   // Group items by producer so the people behind the food come first.
   const groups = new Map<string, typeof data.items>();
@@ -445,7 +445,7 @@ interface OrderStatusUpdateData {
   orderNumber: number;
   status: "prepped" | "next_hour" | "delivered" | "cancelled";
   deliveryDay: string;
-  deliveryWindow?: "morning" | "afternoon";
+  deliveryWindow?: "morning" | "afternoon" | "any";
   deliveryOption?: string;
   safePlace?: string;
 }
@@ -453,7 +453,7 @@ interface OrderStatusUpdateData {
 export async function sendOrderStatusUpdate(data: OrderStatusUpdateData) {
   const name = firstName(data.customerName);
   const nm = name === "there" ? "" : `, ${name}`;
-  const deliveryWindowText = data.deliveryWindow === "morning" ? "9am – 1pm" : data.deliveryWindow === "afternoon" ? "1pm – 5pm" : "";
+  const deliveryWindowText = data.deliveryWindow === "morning" ? "9am – 1pm" : data.deliveryWindow === "afternoon" ? "1pm – 5pm" : data.deliveryWindow === "any" ? "we'll confirm the day before" : "";
   const reminder = deliveryReminderLine(data.deliveryOption, data.safePlace);
 
   let subject: string;

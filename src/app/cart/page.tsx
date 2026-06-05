@@ -11,6 +11,8 @@ import { lookupPostcode } from "@/lib/postcode";
 import { BOX_DEPOSIT, BOTTLE_DEPOSIT, MINIMUM_ORDER, DELIVERY_FEE } from "@/lib/constants";
 import booleanPointInPolygon from "@turf/boolean-point-in-polygon";
 import { point as turfPoint } from "@turf/helpers";
+import MapPicker from "@/components/MapPicker";
+import MiniMapPreview from "@/components/MiniMapPreview";
 
 export default function CartPage() {
   const { items, updateQuantity, removeItem, totalPrice, getProduct, clearCart, topUpOrder, clearTopUpOrder } = useCart();
@@ -47,6 +49,15 @@ export default function CartPage() {
   const [expansionEmail, setExpansionEmail] = useState("");
   const [submittingExpansion, setSubmittingExpansion] = useState(false);
   const [expansionSubmitted, setExpansionSubmitted] = useState(false);
+
+  // Delivery instructions and pin confirmation state
+  const [deliveryInstructions, setDeliveryInstructions] = useState("");
+  const [geocodedLat, setGeocodedLat] = useState<number | null>(null);
+  const [geocodedLng, setGeocodedLng] = useState<number | null>(null);
+  const [pinLat, setPinLat] = useState<number | null>(null);
+  const [pinLng, setPinLng] = useState<number | null>(null);
+  const [showMapPicker, setShowMapPicker] = useState(false);
+  const [pinConfirmed, setPinConfirmed] = useState(false);
 
   // Holiday suppliers state
   const [holidaySuppliers, setHolidaySuppliers] = useState<SupplierHolidayInfo[]>([]);
@@ -91,6 +102,14 @@ export default function CartPage() {
 
     // Update postcode to formatted version
     setAddressForm(prev => ({ ...prev, postcode: result.postcode }));
+
+    // Store geocoded coordinates
+    setGeocodedLat(result.lat);
+    setGeocodedLng(result.lng);
+    // Reset pin to geocoded location (user can adjust later)
+    setPinLat(result.lat);
+    setPinLng(result.lng);
+    setPinConfirmed(false);
 
     // Check if inside delivery area polygon
     if (!deliveryArea) {
@@ -232,6 +251,9 @@ export default function CartPage() {
             bottleDepositQty: hasGlassBottles && hasOwnBottles === false ? bottleDepositQty : 0,
             total: finalTotal,
             address: addressForm,
+            instructions: deliveryInstructions.trim() || undefined,
+            pinLat: pinLat ?? undefined,
+            pinLng: pinLng ?? undefined,
           }),
         });
 
@@ -488,6 +510,49 @@ export default function CartPage() {
               <p className="text-sm text-green-700 mt-1">Choose your delivery date below to continue.</p>
             </div>
           )}
+
+          {/* Delivery instructions - only show if in zone */}
+          {deliveryCheck?.inZone && (
+            <div className="mt-4">
+              <label className="block text-sm font-medium text-primary mb-1">
+                Delivery instructions <span className="text-muted font-normal">(optional)</span>
+              </label>
+              <textarea
+                placeholder="Help us find you - e.g. &quot;second gate on the left&quot;, &quot;flat above the shop&quot;, &quot;park on the lane&quot;"
+                value={deliveryInstructions}
+                onChange={(e) => setDeliveryInstructions(e.target.value)}
+                rows={2}
+                className="w-full rounded-lg border border-primary/20 bg-white px-4 py-2.5 text-base sm:text-sm outline-none transition focus:border-secondary resize-none"
+              />
+            </div>
+          )}
+
+          {/* Map pin confirmation - only show if in zone and we have geocoded coords */}
+          {deliveryCheck?.inZone && geocodedLat !== null && geocodedLng !== null && (
+            <div className="mt-4 rounded-lg bg-sky-50 border border-sky-200 p-4">
+              <div className="flex items-start gap-4">
+                {/* Mini map preview */}
+                <MiniMapPreview
+                  lat={pinLat!}
+                  lng={pinLng!}
+                  onClick={() => setShowMapPicker(true)}
+                  size={96}
+                />
+                <div className="flex-1">
+                  <p className="font-medium text-sky-800">Is your pin in the right place?</p>
+                  <p className="text-sm text-sky-700 mt-1">
+                    If your address is tricky to find, please make sure that the pin here is in the correct place so that we can locate you.
+                  </p>
+                  {pinConfirmed && (
+                    <p className="text-sm text-green-700 mt-2 flex items-center gap-1">
+                      <CheckCircle size={14} />
+                      Pin location confirmed
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
           
           {deliveryCheck?.checked && !deliveryCheck.inZone && (
             <div className="rounded-lg bg-red-50 border border-red-200 p-4">
@@ -576,29 +641,52 @@ export default function CartPage() {
             <h2 className="text-lg font-semibold text-primary">Delivery Window</h2>
           </div>
           <p className="mt-1 text-sm text-muted">Choose your preferred delivery time</p>
-          <div className="mt-4 flex flex-wrap gap-3">
+          <div className="mt-4 space-y-3">
+            {/* I don't mind - full width */}
             <button
-              onClick={() => setDeliveryWindow("morning")}
-              className={`flex-1 min-w-[140px] rounded-lg border-2 px-4 py-3 text-sm font-semibold transition ${
-                deliveryWindow === "morning"
+              onClick={() => setDeliveryWindow("any")}
+              className={`w-full rounded-lg border-2 px-4 py-3 text-left text-sm font-semibold transition ${
+                deliveryWindow === "any"
                   ? "border-primary bg-primary text-background"
                   : "border-primary/20 bg-surface text-primary hover:border-secondary"
               }`}
             >
-              <span className="block">Morning</span>
-              <span className="block text-xs font-normal opacity-70">9am – 1pm</span>
+              <span className="block">I don&apos;t mind</span>
+              <span className={`block text-xs font-normal mt-1 ${deliveryWindow === "any" ? "opacity-80" : "text-muted"}`}>
+                Choosing this really helps us out 😊 The day before your delivery, we&apos;ll email to let you know whether it&apos;s morning or afternoon.
+              </span>
             </button>
-            <button
-              onClick={() => setDeliveryWindow("afternoon")}
-              className={`flex-1 min-w-[140px] rounded-lg border-2 px-4 py-3 text-sm font-semibold transition ${
-                deliveryWindow === "afternoon"
-                  ? "border-primary bg-primary text-background"
-                  : "border-primary/20 bg-surface text-primary hover:border-secondary"
-              }`}
-            >
-              <span className="block">Afternoon</span>
-              <span className="block text-xs font-normal opacity-70">1pm – 5pm</span>
-            </button>
+            {/* Morning / Afternoon row */}
+            <div className="flex flex-wrap gap-3">
+              <button
+                onClick={() => setDeliveryWindow("morning")}
+                className={`flex-1 min-w-[140px] rounded-lg border-2 px-4 py-3 text-sm font-semibold transition ${
+                  deliveryWindow === "morning"
+                    ? "border-primary bg-primary text-background"
+                    : "border-primary/20 bg-surface text-primary hover:border-secondary"
+                }`}
+              >
+                <span className="block">Morning</span>
+                <span className="block text-xs font-normal opacity-70">9:00am - 1:00pm</span>
+              </button>
+              <button
+                onClick={() => setDeliveryWindow("afternoon")}
+                className={`flex-1 min-w-[140px] rounded-lg border-2 px-4 py-3 text-sm font-semibold transition ${
+                  deliveryWindow === "afternoon"
+                    ? "border-primary bg-primary text-background"
+                    : "border-primary/20 bg-surface text-primary hover:border-secondary"
+                }`}
+              >
+                <span className="block">Afternoon</span>
+                <span className="block text-xs font-normal opacity-70">1:00pm - 5:00pm</span>
+              </button>
+            </div>
+          </div>
+          {/* Info note */}
+          <div className="mt-4 rounded-lg bg-sky-50 border border-sky-200 px-4 py-3">
+            <p className="text-sm text-sky-800">
+              On the day of your delivery, you&apos;ll get an email when we&apos;re within an hour of you, so you know when to expect us.
+            </p>
           </div>
         </div>
       )}
@@ -634,14 +722,17 @@ export default function CartPage() {
                 : "border-primary/20 bg-surface hover:border-secondary"
             }`}
           >
-            <span className="block font-semibold text-primary">I&apos;m in but don&apos;t disturb</span>
-            <span className="block text-sm text-muted mt-1">Confirm that you will leave a box or large bag outside and we will deposit your produce (but please bring it inside pronto)</span>
+            <span className="block font-semibold text-primary">I&apos;m in but don&apos;t disturb (for Teams calls etc)</span>
+            <span className="block text-sm text-muted mt-1">Please leave a large box or bag outside and we&apos;ll deposit your produce - but please bring it inside pronto!</span>
           </button>
           
           {/* I'm out, I need a cool bag */}
-          <button
+          <div
+            role="button"
+            tabIndex={0}
             onClick={() => setDeliveryOption("out_need_coolbag")}
-            className={`w-full rounded-lg border-2 px-4 py-4 text-left transition ${
+            onKeyDown={(e) => e.key === "Enter" && setDeliveryOption("out_need_coolbag")}
+            className={`w-full rounded-lg border-2 px-4 py-4 text-left transition cursor-pointer ${
               deliveryOption === "out_need_coolbag"
                 ? "border-primary bg-primary/5"
                 : "border-primary/20 bg-surface hover:border-secondary"
@@ -649,9 +740,9 @@ export default function CartPage() {
           >
             <div className="flex items-start justify-between">
               <div>
-                <span className="block font-semibold text-primary">I&apos;m out, I need a cool bag</span>
+                <span className="block font-semibold text-primary">I&apos;m out - I need a Local cool bag/box</span>
                 <span className="block text-sm text-muted mt-1">
-                  Pay a small deposit and we&apos;ll leave one of our crates &amp; cool boxes in your designated safe place
+                  Pay a £{BOX_DEPOSIT} deposit and we&apos;ll leave one of our wooden crates and cool boxes with an ice pack in your designated safe place.
                   {!hasOutstandingBox && (
                     <span className="block mt-1 font-medium text-secondary">
                       £{BOX_DEPOSIT} refundable deposit
@@ -667,7 +758,7 @@ export default function CartPage() {
                 <HelpCircle size={22} />
               </button>
             </div>
-          </button>
+          </div>
           
           {/* I'm out, I'll leave my own cool bag */}
           <button
@@ -678,11 +769,25 @@ export default function CartPage() {
                 : "border-primary/20 bg-surface hover:border-secondary"
             }`}
           >
-            <span className="block font-semibold text-primary">I&apos;m out, I&apos;ll leave my own cool bag</span>
-            <span className="block text-sm text-muted mt-1">Leave your own cool bag &amp; box out and we&apos;ll fill it, no deposit needed</span>
+            <span className="block font-semibold text-primary">I&apos;m out but I&apos;ll leave my own cool bag</span>
+            <span className="block text-sm text-muted mt-1">Please leave your own cardboard box or bag AND a cool bag, and we&apos;ll fill it. No deposit needed.</span>
           </button>
         </div>
       </div>
+      )}
+
+      {/* Map Pin Picker Modal */}
+      {showMapPicker && (
+        <MapPicker
+          lat={pinLat}
+          lng={pinLng}
+          onLocationSelect={(lat: number, lng: number) => {
+            setPinLat(lat);
+            setPinLng(lng);
+            setPinConfirmed(true);
+          }}
+          onClose={() => setShowMapPicker(false)}
+        />
       )}
 
       {/* Box Info Modal */}
@@ -873,7 +978,7 @@ export default function CartPage() {
             <span className="text-muted">Delivery Date</span>
             <span className="font-semibold text-primary">
               {new Date(selectedDay + "T00:00:00").toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })}
-              {deliveryWindow && ` (${deliveryWindow === "morning" ? "9am–1pm" : "1pm–5pm"})`}
+              {deliveryWindow && ` (${deliveryWindow === "morning" ? "9am–1pm" : deliveryWindow === "afternoon" ? "1pm–5pm" : "I don't mind"})`}
             </span>
           </div>
         )}

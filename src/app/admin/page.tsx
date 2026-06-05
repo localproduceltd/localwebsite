@@ -135,6 +135,7 @@ export default async function AdminDashboard() {
     // Delivery window split
     const morningCount = dayOrders.filter(o => o.deliveryWindow === "morning").length;
     const afternoonCount = dayOrders.filter(o => o.deliveryWindow === "afternoon").length;
+    const eitherCount = dayOrders.filter(o => o.deliveryWindow === "any").length;
     
     return {
       deliveryDay,
@@ -148,6 +149,7 @@ export default async function AdminDashboard() {
       supplierCount,
       morningCount,
       afternoonCount,
+      eitherCount,
     };
   });
 
@@ -248,9 +250,9 @@ export default async function AdminDashboard() {
                     </td>
                     <td className="py-3 pr-4 text-right">{day.supplierCount}</td>
                     <td className="py-3">
-                      {day.morningCount === 0 && day.afternoonCount === 0 
+                      {day.morningCount === 0 && day.afternoonCount === 0 && day.eitherCount === 0
                         ? "—" 
-                        : `${day.morningCount} AM / ${day.afternoonCount} PM`}
+                        : `${day.morningCount} AM / ${day.afternoonCount} PM${day.eitherCount > 0 ? ` / ${day.eitherCount} Either` : ""}`}
                     </td>
                   </tr>
                 ))}

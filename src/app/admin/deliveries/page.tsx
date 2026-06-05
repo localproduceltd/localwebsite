@@ -50,7 +50,7 @@ function exportDeliveryPDF(
   orders: Order[],
   boxStatuses: Map<string, boolean>,
   deliveryDate: string,
-  windowFilter: "all" | "morning" | "afternoon" = "all",
+  windowFilter: "all" | "morning" | "afternoon" | "any" = "all",
 ) {
   // Filter by window if requested
   const scoped = windowFilter === "all"
@@ -64,16 +64,20 @@ function exportDeliveryPDF(
   // Then split into sections while preserving order number sort
   const morningOrders = allSorted.filter(o => o.deliveryWindow === "morning");
   const afternoonOrders = allSorted.filter(o => o.deliveryWindow === "afternoon");
+  const eitherOrders = allSorted.filter(o => o.deliveryWindow === "any");
 
   // Build sections based on filter
   const sections: { label: string; orders: Order[] }[] = [];
   if (windowFilter === "all") {
     if (morningOrders.length > 0) sections.push({ label: "Morning (9am–1pm)", orders: morningOrders });
     if (afternoonOrders.length > 0) sections.push({ label: "Afternoon (1pm–5pm)", orders: afternoonOrders });
+    if (eitherOrders.length > 0) sections.push({ label: "Either (I don't mind)", orders: eitherOrders });
   } else if (windowFilter === "morning") {
     sections.push({ label: "Morning (9am–1pm)", orders: morningOrders });
-  } else {
+  } else if (windowFilter === "afternoon") {
     sections.push({ label: "Afternoon (1pm–5pm)", orders: afternoonOrders });
+  } else {
+    sections.push({ label: "Either (I don't mind)", orders: eitherOrders });
   }
 
   // Create PDF (A4 portrait)
@@ -527,12 +531,12 @@ export default function AdminDeliveriesPage() {
     );
   };
 
-  // Sort orders: morning first, then afternoon, then by order number
+  // Sort orders: morning first, then afternoon, then either, then unscheduled, then by order number
   const sortOrders = (orders: Order[]) => {
     return [...orders].sort((a, b) => {
-      const windowOrder = { morning: 0, afternoon: 1 };
-      const aWindow = a.deliveryWindow ? windowOrder[a.deliveryWindow] ?? 2 : 2;
-      const bWindow = b.deliveryWindow ? windowOrder[b.deliveryWindow] ?? 2 : 2;
+      const windowOrder: Record<string, number> = { morning: 0, afternoon: 1, any: 2 };
+      const aWindow = a.deliveryWindow ? windowOrder[a.deliveryWindow] ?? 3 : 3;
+      const bWindow = b.deliveryWindow ? windowOrder[b.deliveryWindow] ?? 3 : 3;
       if (aWindow !== bWindow) return aWindow - bWindow;
       return a.orderNumber - b.orderNumber;
     });
@@ -609,9 +613,11 @@ export default function AdminDeliveriesPage() {
                   // Build window groups from the already-filtered + sorted set
                   const morningOrders = sortedOrders.filter(o => o.deliveryWindow === "morning");
                   const afternoonOrders = sortedOrders.filter(o => o.deliveryWindow === "afternoon");
-                  const unscheduledOrders = sortedOrders.filter(o => o.deliveryWindow !== "morning" && o.deliveryWindow !== "afternoon");
+                  const eitherOrders = sortedOrders.filter(o => o.deliveryWindow === "any");
+                  const unscheduledOrders = sortedOrders.filter(o => !o.deliveryWindow || (o.deliveryWindow !== "morning" && o.deliveryWindow !== "afternoon" && o.deliveryWindow !== "any"));
                   const morningTotal = morningOrders.reduce((sum, o) => sum + o.total, 0);
                   const afternoonTotal = afternoonOrders.reduce((sum, o) => sum + o.total, 0);
+                  const eitherTotal = eitherOrders.reduce((sum, o) => sum + o.total, 0);
                   const unscheduledTotal = unscheduledOrders.reduce((sum, o) => sum + o.total, 0);
                   const isMenuOpen = exportMenuOpen === deliveryDay;
 
@@ -653,10 +659,18 @@ export default function AdminDeliveriesPage() {
                           <button
                             onClick={() => { exportDeliveryPDF(sortedOrders, boxStatuses, deliveryDay, "afternoon"); setExportMenuOpen(null); }}
                             disabled={afternoonOrders.length === 0}
-                            className="w-full text-left px-3 py-2 text-sm hover:bg-primary/5 transition disabled:opacity-40 disabled:cursor-not-allowed"
+                            className="w-full text-left px-3 py-2 text-sm hover:bg-primary/5 transition border-b border-primary/5 disabled:opacity-40 disabled:cursor-not-allowed"
                           >
                             <span className="font-medium text-primary">Afternoon</span>
                             <span className="ml-2 text-xs text-muted">1pm-5pm · {afternoonOrders.length}</span>
+                          </button>
+                          <button
+                            onClick={() => { exportDeliveryPDF(sortedOrders, boxStatuses, deliveryDay, "any"); setExportMenuOpen(null); }}
+                            disabled={eitherOrders.length === 0}
+                            className="w-full text-left px-3 py-2 text-sm hover:bg-primary/5 transition disabled:opacity-40 disabled:cursor-not-allowed"
+                          >
+                            <span className="font-medium text-primary">Either</span>
+                            <span className="ml-2 text-xs text-muted">I don't mind · {eitherOrders.length}</span>
                           </button>
                         </div>
                       )}
@@ -665,6 +679,7 @@ export default function AdminDeliveriesPage() {
                   {[
                     { label: "Morning", subLabel: "9am-1pm", orders: morningOrders, total: morningTotal },
                     { label: "Afternoon", subLabel: "1pm-5pm", orders: afternoonOrders, total: afternoonTotal },
+                    { label: "Either", subLabel: "I don't mind", orders: eitherOrders, total: eitherTotal },
                     { label: "Unscheduled", subLabel: "No window set", orders: unscheduledOrders, total: unscheduledTotal },
                   ].filter(g => g.orders.length > 0).map((group) => (
                     <div key={group.label}>
@@ -712,8 +727,8 @@ export default function AdminDeliveriesPage() {
                             {/* Window pill */}
                             <div className="hidden sm:flex flex-col items-center gap-1 w-16 flex-shrink-0">
                               {order.deliveryWindow && (
-                                <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${order.deliveryWindow === "morning" ? "bg-amber-100 text-amber-700" : "bg-purple-100 text-purple-700"}`}>
-                                  {order.deliveryWindow === "morning" ? "9–1" : "1–5"}
+                                <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${order.deliveryWindow === "morning" ? "bg-amber-100 text-amber-700" : order.deliveryWindow === "afternoon" ? "bg-purple-100 text-purple-700" : "bg-sky-100 text-sky-700"}`}>
+                                  {order.deliveryWindow === "morning" ? "9–1" : order.deliveryWindow === "afternoon" ? "1–5" : "Any"}
                                 </span>
                               )}
                               <span className="inline-flex items-center gap-1 text-[10px] text-muted">
@@ -899,7 +914,7 @@ export default function AdminDeliveriesPage() {
                                   )}
                                   {order.deliveryWindow && (
                                     <p className="text-sm text-muted mb-2">
-                                      Window: {order.deliveryWindow === "morning" ? "9am – 1pm" : "1pm – 5pm"}
+                                      Window: {order.deliveryWindow === "morning" ? "9am – 1pm" : order.deliveryWindow === "afternoon" ? "1pm – 5pm" : "I don't mind"}
                                     </p>
                                   )}
                                   {order.deliveryOption && (
@@ -913,6 +928,22 @@ export default function AdminDeliveriesPage() {
                                       <MapPin size={12} className="inline mr-1" />
                                       {order.safePlace}
                                     </p>
+                                  )}
+                                  {order.instructions && (
+                                    <p className="text-xs text-amber-700 mt-2 bg-amber-50 rounded px-2 py-1">
+                                      📍 {order.instructions}
+                                    </p>
+                                  )}
+                                  {order.pinLat && order.pinLng && (
+                                    <a
+                                      href={`https://www.google.com/maps?q=${order.pinLat},${order.pinLng}`}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="inline-flex items-center gap-1 text-xs text-sky-600 hover:text-sky-800 mt-1"
+                                    >
+                                      <MapPin size={10} />
+                                      View pin on map
+                                    </a>
                                   )}
                                 </div>
                               </div>

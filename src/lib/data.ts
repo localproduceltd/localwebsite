@@ -93,7 +93,7 @@ export interface OrderItem {
   supplierStatus?: SupplierOrderStatus;
 }
 
-export type DeliveryWindow = "morning" | "afternoon";
+export type DeliveryWindow = "morning" | "afternoon" | "any";
 
 export type DeliveryOption = "in" | "in_no_disturb" | "out_need_coolbag" | "out_own_coolbag";
 
@@ -126,6 +126,9 @@ export interface Order {
   discountCode: string | null;
   couponName: string | null;
   discountAmount: number | null;
+  instructions: string | null;
+  pinLat: number | null;
+  pinLng: number | null;
 }
 
 export interface DeliveryDay {
@@ -492,6 +495,9 @@ export async function getOrders(userId?: string): Promise<Order[]> {
     discountCode: o.discount_code ?? null,
     couponName: o.coupon_name ?? null,
     discountAmount: o.discount_amount != null ? Number(o.discount_amount) : null,
+    instructions: o.instructions ?? null,
+    pinLat: o.pin_lat != null ? Number(o.pin_lat) : null,
+    pinLng: o.pin_lng != null ? Number(o.pin_lng) : null,
   }));
 }
 
@@ -855,6 +861,9 @@ export async function getOrdersByDeliveryDay(deliveryDate: string): Promise<Orde
     discountCode: o.discount_code ?? null,
     couponName: o.coupon_name ?? null,
     discountAmount: o.discount_amount != null ? Number(o.discount_amount) : null,
+    instructions: o.instructions ?? null,
+    pinLat: o.pin_lat != null ? Number(o.pin_lat) : null,
+    pinLng: o.pin_lng != null ? Number(o.pin_lng) : null,
   }));
 }
 
@@ -863,6 +872,9 @@ export interface OrderAddress {
   addressLine2?: string;
   city: string;
   postcode: string;
+  instructions?: string;
+  pinLat?: number;
+  pinLng?: number;
 }
 
 export interface CreateOrderOptions {
@@ -883,6 +895,9 @@ export interface CreateOrderOptions {
   couponName?: string;
   discountAmount?: number;
   address?: OrderAddress;
+  instructions?: string;
+  pinLat?: number;
+  pinLng?: number;
 }
 
 export async function getOrderByStripeSession(sessionId: string): Promise<Order | null> {
@@ -928,6 +943,9 @@ export async function getOrderByStripeSession(sessionId: string): Promise<Order 
     discountCode: data.discount_code ?? null,
     couponName: data.coupon_name ?? null,
     discountAmount: data.discount_amount != null ? Number(data.discount_amount) : null,
+    instructions: data.instructions ?? null,
+    pinLat: data.pin_lat != null ? Number(data.pin_lat) : null,
+    pinLng: data.pin_lng != null ? Number(data.pin_lng) : null,
   };
 }
 
@@ -955,6 +973,9 @@ export async function createOrder(options: CreateOrderOptions): Promise<Order> {
       address_line2: options.address?.addressLine2 ?? null,
       city: options.address?.city ?? null,
       postcode: options.address?.postcode ?? null,
+      instructions: options.instructions ?? null,
+      pin_lat: options.pinLat ?? null,
+      pin_lng: options.pinLng ?? null,
     })
     .select()
     .single();
@@ -1002,6 +1023,9 @@ export async function createOrder(options: CreateOrderOptions): Promise<Order> {
     discountCode: order.discount_code ?? null,
     couponName: order.coupon_name ?? null,
     discountAmount: order.discount_amount != null ? Number(order.discount_amount) : null,
+    instructions: order.instructions ?? null,
+    pinLat: order.pin_lat != null ? Number(order.pin_lat) : null,
+    pinLng: order.pin_lng != null ? Number(order.pin_lng) : null,
   };
 }
 
@@ -1126,6 +1150,9 @@ export async function getOrder(orderId: string, client: SupabaseClient = supabas
     discountCode: data.discount_code ?? null,
     couponName: data.coupon_name ?? null,
     discountAmount: data.discount_amount != null ? Number(data.discount_amount) : null,
+    instructions: data.instructions ?? null,
+    pinLat: data.pin_lat != null ? Number(data.pin_lat) : null,
+    pinLng: data.pin_lng != null ? Number(data.pin_lng) : null,
   };
 }
 
