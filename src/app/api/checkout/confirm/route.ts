@@ -94,7 +94,7 @@ export async function POST(request: NextRequest) {
       
       // Send customer confirmation email
       try {
-        const deliveryWindow = metadata.deliveryWindow as "morning" | "afternoon" | undefined;
+        const deliveryWindow = metadata.deliveryWindow as "morning" | "afternoon" | "any" | undefined;
         
         // Get cutoff day for this delivery
         const deliveryDays = await getActiveDeliveryDays();
