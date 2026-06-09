@@ -10,7 +10,7 @@
     "backfill-discounts": "npx -y tsx scripts/backfill-order-discounts.ts"
   },
   "dependencies": {
-    "@clerk/nextjs": "^6.38.1",
+    "@clerk/nextjs": "^6.39.5",
     "@stripe/stripe-js": "^9.4.0",
     "@supabase/supabase-js": "^2.97.0",
     "@turf/boolean-point-in-polygon": "^7.3.5",
