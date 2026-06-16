@@ -529,7 +529,7 @@ export default function CartPage() {
 
           {/* Map pin confirmation - only show if in zone and we have geocoded coords */}
           {deliveryCheck?.inZone && geocodedLat !== null && geocodedLng !== null && (
-            <div className="mt-4 rounded-lg bg-sky-50 border border-sky-200 p-4">
+            <div className={`mt-4 rounded-lg p-4 ${pinConfirmed ? "bg-green-50 border-2 border-green-300" : "bg-red-50 border-2 border-red-300"}`}>
               <div className="flex items-start gap-4">
                 {/* Mini map preview */}
                 <MiniMapPreview
@@ -539,16 +539,21 @@ export default function CartPage() {
                   size={96}
                 />
                 <div className="flex-1">
-                  <p className="font-medium text-sky-800">Is your pin in the right place?</p>
-                  <p className="text-sm text-sky-700 mt-1">
-                    If your address is tricky to find, please make sure that the pin here is in the correct place so that we can locate you.
+                  <p className={`font-bold ${pinConfirmed ? "text-green-800" : "text-red-800"}`}>
+                    📍 Please check your pin location
                   </p>
-                  {pinConfirmed && (
-                    <p className="text-sm text-green-700 mt-2 flex items-center gap-1">
-                      <CheckCircle size={14} />
-                      Pin location confirmed
-                    </p>
-                  )}
+                  <p className={`text-sm mt-1 ${pinConfirmed ? "text-green-700" : "text-red-700"}`}>
+                    Even if you&apos;ve ordered before, please confirm your pin is correct — we may have a new driver who doesn&apos;t know the area. Tap the map to adjust if needed.
+                  </p>
+                  <label className={`mt-3 flex items-center gap-2 cursor-pointer ${pinConfirmed ? "text-green-800" : "text-red-800"}`}>
+                    <input
+                      type="checkbox"
+                      checked={pinConfirmed}
+                      onChange={(e) => setPinConfirmed(e.target.checked)}
+                      className="w-5 h-5 rounded border-2 border-current accent-green-600"
+                    />
+                    <span className="font-semibold text-sm">I&apos;ve confirmed my pin is in the right place</span>
+                  </label>
                 </div>
               </div>
             </div>
@@ -1010,12 +1015,12 @@ export default function CartPage() {
           disabled={
             topUpOrder 
               ? (belowMinimum || hasHolidayItems || !isSignedIn || placing)
-              : (belowMinimum || hasHolidayItems || !deliveryCheck?.inZone || !addressForm.addressLine1.trim() || !selectedDay || !deliveryWindow || !deliveryOption || (needsSafePlace && !safePlace.trim()) || (hasGlassBottles && hasOwnBottles === null) || placing)
+              : (belowMinimum || hasHolidayItems || !deliveryCheck?.inZone || !addressForm.addressLine1.trim() || !selectedDay || !deliveryWindow || !deliveryOption || (needsSafePlace && !safePlace.trim()) || (hasGlassBottles && hasOwnBottles === null) || !pinConfirmed || placing)
           }
           onClick={handlePlaceOrder}
           className="mt-6 w-full rounded-lg bg-accent py-3 text-center font-semibold text-primary transition hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {placing ? "Redirecting to Checkout..." : hasHolidayItems ? "Remove Holiday Items" : belowMinimum ? `Minimum order £${MINIMUM_ORDER}` : topUpOrder ? "Add to Order & Pay" : !isSignedIn ? "Sign In to Continue" : !deliveryCheck?.inZone ? "Check Postcode First" : !addressForm.addressLine1.trim() ? "Enter Address" : !selectedDay ? "Select Delivery Day" : !deliveryWindow ? "Select Delivery Window" : !deliveryOption ? "Select Delivery Option" : (needsSafePlace && !safePlace.trim()) ? "Enter Safe Place" : (hasGlassBottles && hasOwnBottles === null) ? "Select Bottle Deposit Option" : "Continue to Checkout"}
+          {placing ? "Redirecting to Checkout..." : hasHolidayItems ? "Remove Holiday Items" : belowMinimum ? `Minimum order £${MINIMUM_ORDER}` : topUpOrder ? "Add to Order & Pay" : !isSignedIn ? "Sign In to Continue" : !deliveryCheck?.inZone ? "Check Postcode First" : !addressForm.addressLine1.trim() ? "Enter Address" : !pinConfirmed ? "Confirm Pin Location Above" : !selectedDay ? "Select Delivery Day" : !deliveryWindow ? "Select Delivery Window" : !deliveryOption ? "Select Delivery Option" : (needsSafePlace && !safePlace.trim()) ? "Enter Safe Place" : (hasGlassBottles && hasOwnBottles === null) ? "Select Bottle Deposit Option" : "Continue to Checkout"}
         </button>
         {!isSignedIn && (
           <p className="mt-2 text-center text-xs text-muted">

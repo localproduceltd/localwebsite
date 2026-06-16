@@ -12,6 +12,10 @@ const nextConfig: NextConfig = {
         protocol: "https",
         hostname: "*.supabase.in",
       },
+      {
+        protocol: "https",
+        hostname: "static.wixstatic.com",
+      },
     ],
     minimumCacheTTL: 60 * 60 * 24 * 365,
   },

@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Package, Users, Calendar, MessageCircleHeart, MapPin, UserCircle, Menu, X, Truck } from "lucide-react";
+import { LayoutDashboard, Package, Users, Calendar, MessageCircleHeart, MapPin, UserCircle, Menu, X, Truck, Navigation } from "lucide-react";
 import { SignedIn } from "@clerk/nextjs";
 import UserAvatar from "@/components/UserAvatar";
 
@@ -11,6 +11,7 @@ const adminLinks = [
   { href: "/admin", label: "Dashboard", icon: LayoutDashboard },
   { href: "/admin/stock", label: "Stock", icon: Package },
   { href: "/admin/deliveries", label: "Deliveries", icon: Truck },
+  { href: "/admin/driver", label: "Driver Run", icon: Navigation },
   { href: "/admin/customers", label: "Customers", icon: UserCircle },
   { href: "/admin/delivery", label: "Delivery Zones", icon: MapPin },
   { href: "/admin/delivery-days", label: "Delivery Days", icon: Calendar },
