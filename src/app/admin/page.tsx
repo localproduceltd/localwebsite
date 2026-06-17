@@ -2,6 +2,10 @@ import { Calendar, ShoppingCart, TrendingUp, Package, Users, Star, TrendingDown 
 import { getOrders, getProductRatingAverages, orderRevenue, orderBasket, type Order } from "@/lib/data";
 import AdminCharts from "@/components/AdminCharts";
 
+// Disable caching - always fetch fresh data
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 function formatDeliveryDate(dateStr: string) {
   if (!dateStr) return "No date";
   const d = new Date(dateStr + "T00:00:00");
