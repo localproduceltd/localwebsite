@@ -317,18 +317,18 @@ export async function sendOrderItemRefund(data: OrderItemRefundData) {
   const { error } = await resend.emails.send({
     from: FROM_EMAIL,
     to: data.customerEmail,
-    subject: `A refund on your order - #${data.orderNumber}`,
+    subject: `A refund on order #${data.orderNumber}`,
     html: shell(`
         <h1 style="color: ${BRAND}; font-size: 21px; margin: 0 0 14px;">A refund on order #${data.orderNumber}</h1>
         <p style="margin: 0 0 12px;">Hi ${firstName(data.customerName)},</p>
-        <p style="margin: 0 0 12px;">Sometimes a producer comes up short, or the quality isn't good enough to send - when that happens I'd rather refund you than put something in your box I wouldn't want in mine.</p>
+        <p style="margin: 0 0 12px;">Really sorry to let you know we've had to process a refund for part of your order this week.</p>
 
-        <div style="background: #f7f7f5; border-radius: 8px; padding: 14px 16px; margin: 16px 0;">
-          <p style="margin: 0; font-size: 14px;">Refunded: <strong>${data.productName} × ${data.quantity}</strong> · <strong>£${data.refundAmount.toFixed(2)}</strong> back to your card (5-10 days)</p>
-          ${data.reason ? `<p style="margin: 8px 0 0; font-size: 14px; color: #6b6b6b;">${data.reason}</p>` : ""}
+        <div style="background: #f7f7f5; border: 1px solid #e5e5e5; border-radius: 8px; padding: 14px 16px; margin: 16px 0;">
+          <p style="margin: 0; font-size: 14px;"><strong>Refunded:</strong> ${data.productName} × ${data.quantity} · £${data.refundAmount.toFixed(2)} back to your card (5-10 days)</p>
+          ${data.reason ? `<p style="margin: 10px 0 0; font-size: 14px;"><strong>Refund reason:</strong> ${data.reason}</p>` : ""}
         </div>
 
-        <p style="margin: 0 0 12px;">Really sorry for the gap in your box this week. Any questions, just reply and it comes straight to me.</p>
+        <p style="margin: 0 0 12px;">As you know we're still really new, so this is all part of the learning experience for us. I really hope it doesn't take away from your overall experience with Local, and we'll keep striving to do better and better. 💚</p>
         ${SIGNOFF}
     `),
   });
