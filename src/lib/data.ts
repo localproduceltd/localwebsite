@@ -2537,14 +2537,18 @@ export async function getSavedBaskets(): Promise<SavedBasketWithProducts[]> {
     .in("id", Array.from(allProductIds));
 
   const productMap = new Map(
-    (products ?? []).map((p) => [
-      p.id,
-      {
-        name: p.name,
-        price: Number(p.price),
-        supplierName: (p.suppliers as { name: string } | null)?.name ?? "Unknown",
-      },
-    ])
+    (products ?? []).map((p) => {
+      const supplier = p.suppliers as { name: string } | { name: string }[] | null;
+      const supplierName = Array.isArray(supplier) ? supplier[0]?.name : supplier?.name;
+      return [
+        p.id,
+        {
+          name: p.name,
+          price: Number(p.price),
+          supplierName: supplierName ?? "Unknown",
+        },
+      ];
+    })
   );
 
   return (data ?? []).map((b) => ({
