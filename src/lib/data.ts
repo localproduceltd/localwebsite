@@ -2444,3 +2444,152 @@ export async function getSupplierOrderFeedback(supplierId: string): Promise<Supp
     customerName: f.name,
   }));
 }
+
+// ─── Saved Baskets ────────────────────────────────────────────────────────────
+
+export interface SavedBasket {
+  id: string;
+  userId: string;
+  customerEmail: string | null;
+  items: Array<{ productId: string; quantity: number }>;
+  total: number;
+  createdAt: string;
+  updatedAt: string;
+  convertedAt: string | null;
+}
+
+export interface SavedBasketWithProducts extends SavedBasket {
+  products: Array<{
+    productId: string;
+    productName: string;
+    quantity: number;
+    price: number;
+    supplierName: string;
+  }>;
+}
+
+export async function saveBasket(
+  userId: string,
+  customerEmail: string | null,
+  items: Array<{ productId: string; quantity: number }>,
+  total: number
+): Promise<void> {
+  // Upsert - update if exists, insert if not
+  const { data: existing } = await supabase
+    .from("saved_baskets")
+    .select("id")
+    .eq("user_id", userId)
+    .is("converted_at", null)
+    .single();
+
+  if (existing) {
+    const { error } = await supabase
+      .from("saved_baskets")
+      .update({
+        customer_email: customerEmail,
+        items,
+        total,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", existing.id);
+    if (error) throw error;
+  } else {
+    const { error } = await supabase
+      .from("saved_baskets")
+      .insert({
+        user_id: userId,
+        customer_email: customerEmail,
+        items,
+        total,
+      });
+    if (error) throw error;
+  }
+}
+
+export async function markBasketConverted(userId: string): Promise<void> {
+  const { error } = await supabase
+    .from("saved_baskets")
+    .update({ converted_at: new Date().toISOString() })
+    .eq("user_id", userId)
+    .is("converted_at", null);
+  if (error) throw error;
+}
+
+export async function getSavedBaskets(): Promise<SavedBasketWithProducts[]> {
+  const { data, error } = await supabase
+    .from("saved_baskets")
+    .select("*")
+    .order("updated_at", { ascending: false });
+  if (error) throw error;
+
+  // Get all product IDs from all baskets
+  const allProductIds = new Set<string>();
+  for (const basket of data ?? []) {
+    for (const item of (basket.items as Array<{ productId: string }>) ?? []) {
+      allProductIds.add(item.productId);
+    }
+  }
+
+  // Fetch product details
+  const { data: products } = await supabase
+    .from("products")
+    .select("id, name, price, supplier_id, suppliers(name)")
+    .in("id", Array.from(allProductIds));
+
+  const productMap = new Map(
+    (products ?? []).map((p) => [
+      p.id,
+      {
+        name: p.name,
+        price: Number(p.price),
+        supplierName: (p.suppliers as { name: string } | null)?.name ?? "Unknown",
+      },
+    ])
+  );
+
+  return (data ?? []).map((b) => ({
+    id: b.id,
+    userId: b.user_id,
+    customerEmail: b.customer_email,
+    items: b.items as Array<{ productId: string; quantity: number }>,
+    total: Number(b.total),
+    createdAt: b.created_at,
+    updatedAt: b.updated_at,
+    convertedAt: b.converted_at,
+    products: ((b.items as Array<{ productId: string; quantity: number }>) ?? []).map((item) => {
+      const product = productMap.get(item.productId);
+      return {
+        productId: item.productId,
+        productName: product?.name ?? "Unknown product",
+        quantity: item.quantity,
+        price: product?.price ?? 0,
+        supplierName: product?.supplierName ?? "Unknown",
+      };
+    }),
+  }));
+}
+
+export async function getUserSavedBasket(userId: string): Promise<SavedBasket | null> {
+  const { data, error } = await supabase
+    .from("saved_baskets")
+    .select("*")
+    .eq("user_id", userId)
+    .is("converted_at", null)
+    .single();
+  if (error) return null;
+  return {
+    id: data.id,
+    userId: data.user_id,
+    customerEmail: data.customer_email,
+    items: data.items as Array<{ productId: string; quantity: number }>,
+    total: Number(data.total),
+    createdAt: data.created_at,
+    updatedAt: data.updated_at,
+    convertedAt: data.converted_at,
+  };
+}
+
+export async function deleteSavedBasket(id: string): Promise<void> {
+  const { error } = await supabase.from("saved_baskets").delete().eq("id", id);
+  if (error) throw error;
+}

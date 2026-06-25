@@ -3,10 +3,10 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Trash2, Plus, Minus, ShoppingCart, CheckCircle, Calendar, Clock, Home, Package, MapPin, HelpCircle, X, Loader2, MessageCircle } from "lucide-react";
+import { Trash2, Plus, Minus, ShoppingCart, CheckCircle, Calendar, Clock, Home, Package, MapPin, HelpCircle, X, Loader2, MessageCircle, Bookmark } from "lucide-react";
 import { useUser } from "@clerk/nextjs";
 import { useCart } from "@/lib/cart-context";
-import { type DeliveryDay, type DeliveryWindow, type DeliveryArea, type SupplierHolidayInfo, type DeliveryOption, getActiveDeliveryDays, getCustomerProfile, getDeliveryArea, submitExpansionRequest, getSuppliersHolidayInfo, isSupplierOnHoliday } from "@/lib/data";
+import { type DeliveryDay, type DeliveryWindow, type DeliveryArea, type SupplierHolidayInfo, type DeliveryOption, getActiveDeliveryDays, getCustomerProfile, getDeliveryArea, submitExpansionRequest, getSuppliersHolidayInfo, isSupplierOnHoliday, saveBasket } from "@/lib/data";
 import { lookupPostcode } from "@/lib/postcode";
 import { BOX_DEPOSIT, BOTTLE_DEPOSIT, MINIMUM_ORDER, DELIVERY_FEE } from "@/lib/constants";
 import booleanPointInPolygon from "@turf/boolean-point-in-polygon";
@@ -62,6 +62,11 @@ export default function CartPage() {
   // Holiday suppliers state
   const [holidaySuppliers, setHolidaySuppliers] = useState<SupplierHolidayInfo[]>([]);
 
+  // Save basket state
+  const [savingBasket, setSavingBasket] = useState(false);
+  const [basketSaved, setBasketSaved] = useState(false);
+  const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
+
   useEffect(() => {
     getActiveDeliveryDays().then(setDeliveryDays).catch(console.error);
     getDeliveryArea().then(setDeliveryArea).catch(console.error);
@@ -86,6 +91,45 @@ export default function CartPage() {
       }).catch(console.error);
     }
   }, [user]);
+
+  // Auto-save basket every 2 minutes if logged in and cart has items
+  useEffect(() => {
+    if (!isSignedIn || !user || items.length === 0) return;
+    
+    const autoSave = async () => {
+      try {
+        const email = user.primaryEmailAddress?.emailAddress ?? null;
+        await saveBasket(user.id, email, items, totalPrice);
+        setLastSavedAt(new Date());
+      } catch (error) {
+        console.error("Auto-save basket failed:", error);
+      }
+    };
+
+    const interval = setInterval(autoSave, 2 * 60 * 1000); // 2 minutes
+    return () => clearInterval(interval);
+  }, [isSignedIn, user, items, totalPrice]);
+
+  const handleSaveBasket = async () => {
+    if (!user) {
+      router.push("/sign-in?redirect_url=/cart");
+      return;
+    }
+    
+    setSavingBasket(true);
+    try {
+      const email = user.primaryEmailAddress?.emailAddress ?? null;
+      await saveBasket(user.id, email, items, totalPrice);
+      setBasketSaved(true);
+      setLastSavedAt(new Date());
+      setTimeout(() => setBasketSaved(false), 3000);
+    } catch (error) {
+      console.error("Save basket failed:", error);
+      alert("Failed to save basket. Please try again.");
+    } finally {
+      setSavingBasket(false);
+    }
+  };
 
   const handleCheckPostcode = async () => {
     if (!addressForm.postcode.trim()) return;
@@ -333,6 +377,43 @@ export default function CartPage() {
           <p className="text-sm text-sky-800">
             💡 <strong>Don&apos;t worry!</strong> Once you checkout, you can add more items to your order from the <strong>My Account</strong> tab until the cutoff date.
           </p>
+        </div>
+      )}
+
+      {/* Save Basket Banner - only show for new orders, not top-ups */}
+      {!topUpOrder && items.length > 0 && (
+        <div className="mt-4 rounded-lg bg-amber-50 border border-amber-200 px-4 py-3">
+          <div className="flex items-center justify-between gap-4">
+            <p className="text-sm text-amber-800">
+              <strong>Not ready to check out?</strong> Save your basket and come back later.
+            </p>
+            <button
+              onClick={handleSaveBasket}
+              disabled={savingBasket}
+              className={`flex-shrink-0 inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium transition ${
+                basketSaved
+                  ? "bg-green-600 text-white"
+                  : "bg-amber-600 text-white hover:bg-amber-700"
+              }`}
+            >
+              {savingBasket ? (
+                <>
+                  <Loader2 size={14} className="animate-spin" />
+                  Saving...
+                </>
+              ) : basketSaved ? (
+                <>
+                  <CheckCircle size={14} />
+                  Basket Saved
+                </>
+              ) : (
+                <>
+                  <Bookmark size={14} />
+                  {isSignedIn ? "Save Basket" : "Log in to Save"}
+                </>
+              )}
+            </button>
+          </div>
         </div>
       )}
 
@@ -1022,6 +1103,7 @@ export default function CartPage() {
         >
           {placing ? "Redirecting to Checkout..." : hasHolidayItems ? "Remove Holiday Items" : belowMinimum ? `Minimum order £${MINIMUM_ORDER}` : topUpOrder ? "Add to Order & Pay" : !isSignedIn ? "Sign In to Continue" : !deliveryCheck?.inZone ? "Check Postcode First" : !addressForm.addressLine1.trim() ? "Enter Address" : !pinConfirmed ? "Confirm Pin Location Above" : !selectedDay ? "Select Delivery Day" : !deliveryWindow ? "Select Delivery Window" : !deliveryOption ? "Select Delivery Option" : (needsSafePlace && !safePlace.trim()) ? "Enter Safe Place" : (hasGlassBottles && hasOwnBottles === null) ? "Select Bottle Deposit Option" : "Continue to Checkout"}
         </button>
+        
         {!isSignedIn && (
           <p className="mt-2 text-center text-xs text-muted">
             You&apos;ll need to <Link href="/sign-in" className="text-secondary hover:underline">sign in</Link> to complete your order

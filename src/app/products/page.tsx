@@ -181,8 +181,7 @@ export default function ProductsPage() {
               }`}
             >
               <Heart size={14} className={showFavourites ? "fill-white" : ""} />
-              <span className="hidden sm:inline">My Favourites</span>
-              <span className="sm:hidden">Favourites</span>
+              My Favourites
               {showFavourites && favouriteProductIds.size > 0 && (
                 <span className="rounded-full bg-white/20 px-1.5 text-xs">{favouriteProductIds.size}</span>
               )}

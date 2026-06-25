@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { stripe } from "@/lib/stripe";
-import { addItemsToOrder, createOrder, getOrder, getOrderByStripeSession, isTopUpSessionProcessed, markTopUpSessionProcessed, parseItemsFromMetadata, type DeliveryWindow, type DeliveryOption, type OrderItem, setCustomerOutstandingBox, getActiveDeliveryDays } from "@/lib/data";
+import { addItemsToOrder, createOrder, getOrder, getOrderByStripeSession, isTopUpSessionProcessed, markTopUpSessionProcessed, parseItemsFromMetadata, type DeliveryWindow, type DeliveryOption, type OrderItem, setCustomerOutstandingBox, getActiveDeliveryDays, markBasketConverted } from "@/lib/data";
 import { sendOrderConfirmation } from "@/lib/email";
 import { DELIVERY_FEE } from "@/lib/constants";
 import { clerkClient } from "@clerk/nextjs/server";
@@ -203,6 +203,15 @@ export async function POST(request: NextRequest) {
       });
 
       console.log(`Order ${order.orderNumber} created via webhook for session ${sessionId}`);
+
+      // Mark any saved basket as converted
+      if (metadata.userId) {
+        try {
+          await markBasketConverted(metadata.userId);
+        } catch (e) {
+          console.error("Failed to mark basket converted:", e);
+        }
+      }
 
       // Note: has_outstanding_box is set when order is marked delivered, not at checkout
       // This ensures the flag reflects physical possession of a box
