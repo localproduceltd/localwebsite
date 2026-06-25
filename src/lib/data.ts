@@ -501,6 +501,21 @@ export async function getOrders(userId?: string): Promise<Order[]> {
   }));
 }
 
+export async function getUserOrderedProductIds(userId: string): Promise<Set<string>> {
+  const { data, error } = await supabase
+    .from("orders")
+    .select("order_items(product_id)")
+    .eq("user_id", userId);
+  if (error) throw error;
+  const productIds = new Set<string>();
+  for (const order of data ?? []) {
+    for (const item of (order.order_items as Array<{ product_id: string }>) ?? []) {
+      productIds.add(item.product_id);
+    }
+  }
+  return productIds;
+}
+
 export async function getDeliveryDay(id: string, client: SupabaseClient = supabase): Promise<DeliveryDay | null> {
   const { data, error } = await client
     .from("delivery_days")

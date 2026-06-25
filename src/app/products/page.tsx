@@ -1,10 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Image from "next/image";
-import { Search, Check, Plus, Minus, Star, HelpCircle, X } from "lucide-react";
+import Link from "next/link";
+import { Search, Check, Plus, Minus, Star, HelpCircle, X, Heart, ChevronDown } from "lucide-react";
+import { useUser } from "@clerk/nextjs";
 import { useCart } from "@/lib/cart-context";
-import { LOCALITY_OPTIONS } from "@/lib/data";
+import { LOCALITY_OPTIONS, getUserOrderedProductIds } from "@/lib/data";
 import type { Locality, Product } from "@/lib/data";
 import { LOCALITY_COLORS } from "@/lib/locality";
 import { PRODUCT_CATEGORIES, PRODUCT_TAGS } from "@/lib/categories";
@@ -19,6 +21,17 @@ export default function ProductsPage() {
   const [justAdded, setJustAdded] = useState<string | null>(null);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [showLocalityInfo, setShowLocalityInfo] = useState(false);
+  const [showDietaryDropdown, setShowDietaryDropdown] = useState(false);
+  const [showFavourites, setShowFavourites] = useState(false);
+  const [favouriteProductIds, setFavouriteProductIds] = useState<Set<string>>(new Set());
+  const { user, isLoaded } = useUser();
+
+  // Fetch user's ordered products for favourites
+  useEffect(() => {
+    if (isLoaded && user) {
+      getUserOrderedProductIds(user.id).then(setFavouriteProductIds).catch(console.error);
+    }
+  }, [isLoaded, user]);
 
   const categories = ["All", ...PRODUCT_CATEGORIES];
 
@@ -61,7 +74,8 @@ export default function ProductsPage() {
       const matchesCategory = category === "All" || p.category === category;
       const matchesLocality = selectedLocalities.size === 0 || selectedLocalities.has(p.locality);
       const matchesTags = selectedTags.size === 0 || Array.from(selectedTags).every((tag) => p.tags?.includes(tag));
-      return matchesSearch && matchesCategory && matchesLocality && matchesTags;
+      const matchesFavourites = !showFavourites || favouriteProductIds.has(p.id);
+      return matchesSearch && matchesCategory && matchesLocality && matchesTags && matchesFavourites;
     });
 
     // If searching, sort by relevance score then locality
@@ -135,37 +149,68 @@ export default function ProductsPage() {
       </div>
 
       {/* Filters (not sticky) */}
-      <div className="flex flex-col gap-4 mt-2">
-        <div className="flex items-center gap-3">
-          <label htmlFor="category-select" className="text-sm font-semibold text-muted">
-            Category:
-          </label>
-          <select
-            id="category-select"
-            value={category}
-            onChange={(e) => setCategory(e.target.value)}
-            className="rounded-lg border border-primary/20 bg-surface px-4 py-2 text-sm font-medium text-primary outline-none transition focus:border-secondary focus:ring-2 focus:ring-secondary/20"
-          >
-            {categories.map((cat) => (
-              <option key={cat} value={cat}>
-                {cat}
-              </option>
-            ))}
-          </select>
+      <div className="flex flex-col gap-3 mt-2">
+        {/* Row 1: Category + Favourites */}
+        <div className="flex items-center gap-3 flex-wrap">
+          <div className="flex items-center gap-2">
+            <label htmlFor="category-select" className="text-sm font-semibold text-muted">
+              Category:
+            </label>
+            <select
+              id="category-select"
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+              className="rounded-lg border border-primary/20 bg-surface px-3 py-1.5 text-sm font-medium text-primary outline-none transition focus:border-secondary focus:ring-2 focus:ring-secondary/20"
+            >
+              {categories.map((cat) => (
+                <option key={cat} value={cat}>
+                  {cat}
+                </option>
+              ))}
+            </select>
+          </div>
+          
+          {/* Favourites Button */}
+          {isLoaded && user ? (
+            <button
+              onClick={() => setShowFavourites(!showFavourites)}
+              className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-semibold transition ${
+                showFavourites
+                  ? "bg-accent text-white"
+                  : "bg-accent/10 text-accent hover:bg-accent/20"
+              }`}
+            >
+              <Heart size={14} className={showFavourites ? "fill-white" : ""} />
+              <span className="hidden sm:inline">My Favourites</span>
+              <span className="sm:hidden">Favourites</span>
+              {showFavourites && favouriteProductIds.size > 0 && (
+                <span className="rounded-full bg-white/20 px-1.5 text-xs">{favouriteProductIds.size}</span>
+              )}
+            </button>
+          ) : (
+            <Link
+              href="/sign-in"
+              className="inline-flex items-center gap-1.5 rounded-full bg-gray-100 px-3 py-1.5 text-sm font-semibold text-gray-500 hover:bg-gray-200 transition"
+            >
+              <Heart size={14} />
+              <span className="hidden sm:inline">Log in for favourites</span>
+              <span className="sm:hidden">Log in</span>
+            </Link>
+          )}
         </div>
 
-        {/* Locality Filter */}
-        <div className="flex flex-wrap items-center gap-2">
+        {/* Row 2: Locality Filter */}
+        <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
           <button
             onClick={() => setShowLocalityInfo(true)}
-            className="inline-flex items-center gap-1 text-xs font-semibold text-muted uppercase tracking-wide mr-1 hover:text-secondary transition cursor-pointer"
+            className="inline-flex items-center gap-1 text-xs font-semibold text-muted uppercase tracking-wide mr-0.5 hover:text-secondary transition cursor-pointer"
           >
             Locality:
-            <HelpCircle size={14} className="text-secondary" />
+            <HelpCircle size={12} className="text-secondary" />
           </button>
           <button
             onClick={() => setSelectedLocalities(new Set())}
-            className="rounded-full px-3 py-1 text-xs font-semibold transition"
+            className="rounded-full px-2.5 py-0.5 text-xs font-semibold transition"
             style={{
               background: selectedLocalities.size === 0 ? "#A30E4E" : "#e5e7eb",
               color: selectedLocalities.size === 0 ? "#fff" : "#A30E4E",
@@ -188,7 +233,7 @@ export default function ProductsPage() {
                   }
                   setSelectedLocalities(newSet);
                 }}
-                className="rounded-full px-3 py-1 text-xs font-semibold transition"
+                className="rounded-full px-2.5 py-0.5 text-xs font-semibold transition"
                 style={{
                   background: isActive ? colors.dot : colors.bg,
                   color: isActive ? "#fff" : colors.text,
@@ -201,31 +246,76 @@ export default function ProductsPage() {
           })}
         </div>
 
-        {/* Tags Filter */}
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-xs font-semibold text-muted uppercase tracking-wide mr-1">Dietary:</span>
-          {PRODUCT_TAGS.map((tag) => {
-            const isActive = selectedTags.has(tag.id);
-            return (
-              <button
-                key={tag.id}
-                onClick={() => {
-                  const newSet = new Set(selectedTags);
-                  if (isActive) {
-                    newSet.delete(tag.id);
-                  } else {
-                    newSet.add(tag.id);
-                  }
-                  setSelectedTags(newSet);
-                }}
-                className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
-                  isActive ? tag.color : "bg-gray-100 text-gray-500 hover:bg-gray-200"
-                }`}
-              >
-                {tag.label}
-              </button>
-            );
-          })}
+        {/* Row 3: Dietary Filter - Dropdown on mobile, inline on desktop */}
+        <div className="relative">
+          {/* Mobile: Dropdown trigger */}
+          <button
+            onClick={() => setShowDietaryDropdown(!showDietaryDropdown)}
+            className="sm:hidden inline-flex items-center gap-1.5 rounded-lg border border-primary/20 bg-surface px-3 py-1.5 text-sm font-medium text-primary"
+          >
+            Dietary
+            {selectedTags.size > 0 && (
+              <span className="rounded-full bg-secondary px-1.5 text-xs text-white">{selectedTags.size}</span>
+            )}
+            <ChevronDown size={14} className={`transition ${showDietaryDropdown ? "rotate-180" : ""}`} />
+          </button>
+          
+          {/* Mobile: Dropdown content */}
+          {showDietaryDropdown && (
+            <div className="sm:hidden absolute left-0 top-full mt-1 z-20 rounded-lg border border-primary/10 bg-surface p-2 shadow-lg">
+              <div className="flex flex-wrap gap-1.5 max-w-[280px]">
+                {PRODUCT_TAGS.map((tag) => {
+                  const isActive = selectedTags.has(tag.id);
+                  return (
+                    <button
+                      key={tag.id}
+                      onClick={() => {
+                        const newSet = new Set(selectedTags);
+                        if (isActive) {
+                          newSet.delete(tag.id);
+                        } else {
+                          newSet.add(tag.id);
+                        }
+                        setSelectedTags(newSet);
+                      }}
+                      className={`rounded-full px-2.5 py-1 text-xs font-semibold transition ${
+                        isActive ? tag.color : "bg-gray-100 text-gray-500"
+                      }`}
+                    >
+                      {tag.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+          
+          {/* Desktop: Inline tags */}
+          <div className="hidden sm:flex flex-wrap items-center gap-2">
+            <span className="text-xs font-semibold text-muted uppercase tracking-wide mr-1">Dietary:</span>
+            {PRODUCT_TAGS.map((tag) => {
+              const isActive = selectedTags.has(tag.id);
+              return (
+                <button
+                  key={tag.id}
+                  onClick={() => {
+                    const newSet = new Set(selectedTags);
+                    if (isActive) {
+                      newSet.delete(tag.id);
+                    } else {
+                      newSet.add(tag.id);
+                    }
+                    setSelectedTags(newSet);
+                  }}
+                  className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
+                    isActive ? tag.color : "bg-gray-100 text-gray-500 hover:bg-gray-200"
+                  }`}
+                >
+                  {tag.label}
+                </button>
+              );
+            })}
+          </div>
         </div>
       </div>
 
@@ -235,8 +325,24 @@ export default function ProductsPage() {
         </div>
       ) : filtered.length === 0 ? (
         <div className="mt-16 text-center">
-          <p className="text-lg font-medium text-primary">No products found</p>
-          <p className="mt-1 text-sm text-muted">Try adjusting your search or filter</p>
+          {showFavourites && favouriteProductIds.size === 0 ? (
+            <>
+              <Heart size={48} className="mx-auto text-accent/30 mb-4" />
+              <p className="text-lg font-medium text-primary">No favourites yet</p>
+              <p className="mt-1 text-sm text-muted">Products you order will appear here for easy reordering</p>
+              <button
+                onClick={() => setShowFavourites(false)}
+                className="mt-4 rounded-full bg-secondary px-4 py-2 text-sm font-semibold text-white hover:bg-secondary/90 transition"
+              >
+                Browse all products
+              </button>
+            </>
+          ) : (
+            <>
+              <p className="text-lg font-medium text-primary">No products found</p>
+              <p className="mt-1 text-sm text-muted">Try adjusting your search or filters</p>
+            </>
+          )}
         </div>
       ) : (
         <div className="mt-8 grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-4 xl:grid-cols-5">
