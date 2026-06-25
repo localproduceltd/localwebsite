@@ -80,17 +80,14 @@ export default function ProductsPage() {
     const withActivity = matchingProducts.filter(p => (p.orderCount ?? 0) > 0 || (p.ratingCount ?? 0) > 0);
     const withoutActivity = matchingProducts.filter(p => !((p.orderCount ?? 0) > 0 || (p.ratingCount ?? 0) > 0));
 
-    // Sort products with activity by: locality (international last), then orders (desc), then rating (desc)
+    // Sort products with activity by: orders (desc), then rating (desc), with slight variety
     withActivity.sort((a, b) => {
-      // International goes to bottom
-      const aIsIntl = a.locality === "International" ? 1 : 0;
-      const bIsIntl = b.locality === "International" ? 1 : 0;
-      if (aIsIntl !== bIsIntl) return aIsIntl - bIsIntl;
       const orderDiff = (b.orderCount ?? 0) - (a.orderCount ?? 0);
-      if (orderDiff !== 0) return orderDiff;
+      if (Math.abs(orderDiff) > 2) return orderDiff; // Only separate if difference is meaningful
       const ratingDiff = (b.avgRating ?? 0) - (a.avgRating ?? 0);
-      if (ratingDiff !== 0) return ratingDiff;
-      return a.name.localeCompare(b.name);
+      if (Math.abs(ratingDiff) > 0.3) return ratingDiff;
+      // Slight shuffle for variety (deterministic based on id)
+      return a.id.localeCompare(b.id) * (a.id.charCodeAt(0) % 2 === 0 ? 1 : -1);
     });
 
     // For products without activity: group by category, sort by locality, then interleave
@@ -263,6 +260,7 @@ export default function ProductsPage() {
                       fill
                       sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
                       className="object-cover transition-transform group-hover:scale-105"
+                      unoptimized
                     />
                   ) : (
                     <div className="flex h-full w-full items-center justify-center text-muted text-sm">No image</div>

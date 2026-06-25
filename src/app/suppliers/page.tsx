@@ -49,6 +49,7 @@ function SupplierCard({ supplier }: { supplier: Supplier }) {
           fill
           sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
           className={`object-cover ${isLive ? "transition-transform group-hover:scale-105" : ""}`}
+          unoptimized
         />
       </div>
       <div className={`p-4 ${!isLive && !onHoliday ? "opacity-80" : ""}`}>

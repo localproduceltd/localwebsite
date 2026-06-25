@@ -35,7 +35,19 @@ export default function SupplierDetailPage({ params }: { params: Promise<{ id: s
       }
       setSupplier(sup);
       const prods = await getProductsBySupplier(id);
-      setProducts(prods.filter((p) => p.status === "approved"));
+      // Sort by popularity/rating with slight variety
+      const approved = prods.filter((p) => p.status === "approved");
+      approved.sort((a, b) => {
+        // Primary: order count (desc)
+        const orderDiff = (b.orderCount ?? 0) - (a.orderCount ?? 0);
+        if (Math.abs(orderDiff) > 2) return orderDiff; // Only separate if difference is meaningful
+        // Secondary: rating (desc)
+        const ratingDiff = (b.avgRating ?? 0) - (a.avgRating ?? 0);
+        if (Math.abs(ratingDiff) > 0.3) return ratingDiff;
+        // Tertiary: slight shuffle for variety (deterministic based on id)
+        return a.id.localeCompare(b.id) * (a.id.charCodeAt(0) % 2 === 0 ? 1 : -1);
+      });
+      setProducts(approved);
       setLoading(false);
     })();
   }, [id]);
@@ -55,7 +67,7 @@ export default function SupplierDetailPage({ params }: { params: Promise<{ id: s
         <div className="flex flex-col items-center gap-6 p-6 sm:flex-row sm:items-start">
           {/* Supplier Image - smaller and centered/left-aligned */}
           <div className="relative w-48 aspect-square flex-shrink-0 overflow-hidden rounded-xl">
-            <Image src={supplier.image || "/images/Holding Image - Supplier.png"} alt={supplier.name} fill sizes="192px" className="object-cover" />
+            <Image src={supplier.image || "/images/Holding Image - Supplier.png"} alt={supplier.name} fill sizes="192px" className="object-cover" unoptimized />
           </div>
           
           {/* Supplier Info */}

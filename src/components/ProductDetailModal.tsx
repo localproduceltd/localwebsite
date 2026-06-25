@@ -56,7 +56,7 @@ export default function ProductDetailModal({ product, onClose }: ProductDetailMo
         <div className="flex justify-center bg-surface py-4">
           <div className="relative aspect-square overflow-hidden max-h-64 w-64">
             {product.image ? (
-              <Image src={product.image} alt={product.name} fill sizes="256px" className="object-cover" />
+              <Image src={product.image} alt={product.name} fill sizes="256px" className="object-cover" unoptimized />
             ) : (
               <div className="flex h-full w-full items-center justify-center bg-secondary/10 text-muted">No image</div>
             )}
