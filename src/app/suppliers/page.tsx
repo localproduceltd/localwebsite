@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { getLiveSuppliers, isOnHoliday } from "@/lib/data";
+import { getLiveSuppliers, isOnHoliday, getSupplierOrderCounts } from "@/lib/data";
 import type { Supplier } from "@/lib/data";
 import { MapPin } from "lucide-react";
 import SupplierDistance from "@/components/SupplierDistance";
@@ -92,9 +92,13 @@ export default function SuppliersPage() {
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
 
   useEffect(() => {
-    getLiveSuppliers().then((data) => {
-      // Sort alphabetically within each status group
-      const sorted = data.sort((a, b) => a.name.localeCompare(b.name));
+    Promise.all([getLiveSuppliers(), getSupplierOrderCounts()]).then(([data, orderCounts]) => {
+      // Sort by popularity (order count desc), then alphabetically as tiebreaker
+      const sorted = data.sort((a, b) => {
+        const countDiff = (orderCounts[b.id] || 0) - (orderCounts[a.id] || 0);
+        if (countDiff !== 0) return countDiff;
+        return a.name.localeCompare(b.name);
+      });
       setSuppliers(sorted);
     }).catch(console.error);
   }, []);

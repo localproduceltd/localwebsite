@@ -1313,6 +1313,20 @@ export async function updateSupplierOrderItemStatus(
   if (error) throw error;
 }
 
+export async function getSupplierOrderCounts(): Promise<Record<string, number>> {
+  const { data, error } = await supabase
+    .from("order_items")
+    .select("supplier_id, quantity");
+  if (error) throw error;
+  const counts: Record<string, number> = {};
+  for (const item of data) {
+    if (item.supplier_id) {
+      counts[item.supplier_id] = (counts[item.supplier_id] || 0) + item.quantity;
+    }
+  }
+  return counts;
+}
+
 // ─── Feedback ─────────────────────────────────────────────────────────────────
 
 export async function submitFeedback(name: string, message: string, source: "carrie" | "order_review" | "expansion" = "carrie", orderNumber?: number, postcode?: string, pageUrl?: string): Promise<void> {

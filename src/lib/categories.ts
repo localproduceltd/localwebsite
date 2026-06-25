@@ -1,18 +1,31 @@
 // Fixed product categories for the marketplace
+// Order: fresh first, cupboard middle, non-food last
 export const PRODUCT_CATEGORIES = [
   "Vegetables",
   "Fruit",
   "Salad & Herbs",
   "Meat & Poultry",
   "Fish & Seafood",
+  "Eggs",
   "Dairy",
   "Cheese",
-  "Eggs",
   "Bread",
   "Pastries & Cakes",
-  "Pantry",
+  "Pasta, Rice & Grains",
+  "Tins, Beans & Pulses",
+  "Oils & Vinegars",
+  "Baking & Flour",
+  "Herbs, Spices & Seasoning",
+  "Nuts, Seeds & Dried Fruit",
+  "Snacks & Treats",
   "Preserves & Condiments",
   "Drinks",
+  "Bath & Body",
+  "Household & Refill",
+  "Home & Gift",
+  "Plants & Flowers",
+  "Pet",
+  "Health & Wellbeing",
   "Other",
 ] as const;
 
