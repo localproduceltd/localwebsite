@@ -448,25 +448,61 @@ interface OrderStatusUpdateData {
   deliveryWindow?: "morning" | "afternoon" | "any";
   deliveryOption?: string;
   safePlace?: string;
+  // Route info for prepped emails - resolved slot and position
+  routeLeg?: "morning" | "afternoon";
+  routePosition?: number;
+  legSize?: number;
 }
 
 export async function sendOrderStatusUpdate(data: OrderStatusUpdateData) {
   const name = firstName(data.customerName);
   const nm = name === "there" ? "" : `, ${name}`;
-  const deliveryWindowText = data.deliveryWindow === "morning" ? "9am – 1pm" : data.deliveryWindow === "afternoon" ? "1pm – 5pm" : data.deliveryWindow === "any" ? "we'll confirm the day before" : "";
   const reminder = deliveryReminderLine(data.deliveryOption, data.safePlace);
+
+  // Resolve delivery slot: use routeLeg from delivery_routes if available, else fall back to order's deliveryWindow
+  const resolvedSlot = data.routeLeg ?? data.deliveryWindow;
+  const deliveryWindowText = resolvedSlot === "morning" ? "9am - 1pm" : resolvedSlot === "afternoon" ? "1pm - 5pm" : "";
+  const runName = resolvedSlot === "morning" ? "morning" : resolvedSlot === "afternoon" ? "afternoon" : "";
+
+  // Customer chose "any" at checkout and now has a slot worked out from the route.
+  const wasAny = data.deliveryWindow === "any" && !!data.routeLeg;
+
+  // Extra ice-pack nudge only when the customer leaves their own box/bag out
+  // (people getting one of our cool boxes already get ice packs from us).
+  const iceReminder =
+    data.deliveryOption === "out_own_coolbag" || data.deliveryOption === "in_no_disturb"
+      ? "And please pop a couple of ice packs in too if you can - it helps keep everything fresh and cool until you're home. 💚"
+      : "";
+
+  // Build position phrase if we have route info. Doesn't restate morning/afternoon -
+  // the time window already says that; this just gives the rough place in the run.
+  let positionPhrase = "";
+  if (data.routeLeg && data.routePosition && data.legSize) {
+    const ratio = data.routePosition / data.legSize;
+    positionPhrase =
+      ratio <= 0.33
+        ? "You're towards the start of our run."
+        : ratio <= 0.66
+        ? "You're around the middle of our run."
+        : "You're towards the end of our run.";
+  }
 
   let subject: string;
   let body: string;
 
   if (data.status === "prepped") {
-    subject = `Your box is coming tomorrow${nm} 🥕`;
+    subject = `Confirming your delivery tomorrow${nm} 🥕`;
+    const openingLine = wasAny
+      ? `Hi ${name}, just confirming your delivery for tomorrow, <strong>${data.deliveryDay}</strong>. You'd said you didn't mind your time (thank you for that!), so now we've worked out the route${deliveryWindowText ? ` - you'll be on our ${runName} run, which is between <strong>${deliveryWindowText}</strong>` : ""}.`
+      : `Hi ${name}, just confirming your delivery is booked in for tomorrow, <strong>${data.deliveryDay}</strong>${deliveryWindowText ? `, between <strong>${deliveryWindowText}</strong>` : ""}.`;
     body = `
-        <h1 style="color: ${BRAND}; font-size: 21px; margin: 0 0 14px;">🥕 See you tomorrow${nm}</h1>
-        <p style="margin: 0 0 12px;">Hi ${name}, quick heads up - your box is packed and heading out tomorrow, <strong>${data.deliveryDay}</strong>${deliveryWindowText ? `, between <strong>${deliveryWindowText}</strong>` : ""}.</p>
+        <h1 style="color: ${BRAND}; font-size: 21px; margin: 0 0 14px;">Confirming your delivery${nm} 💚</h1>
+        <p style="margin: 0 0 12px;">${openingLine}</p>
+        ${positionPhrase ? `<p style="margin: 0 0 12px;">${positionPhrase}</p>` : ""}
         ${reminder ? `<p style="margin: 0 0 12px;">${reminder}</p>` : ""}
-        <p style="margin: 0 0 12px;">We'll also drop you an email when we're within an hour of your delivery, so you know we're on our way.</p>
-        <p style="margin: 12px 0 4px;">See you then,</p>
+        ${iceReminder ? `<p style="margin: 0 0 12px;">${iceReminder}</p>` : ""}
+        <p style="margin: 0 0 12px;">As usual, you'll receive an email when we're just a couple of stops away.</p>
+        <p style="margin: 12px 0 4px;">Our driver will see you tomorrow,</p>
         ${SIGNOFF}`;
   } else if (data.status === "next_hour") {
     subject = `We're on our way${nm} 🚚`;

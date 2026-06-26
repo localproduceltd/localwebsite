@@ -322,7 +322,7 @@ export async function getProducts(client: SupabaseClient = supabase): Promise<Pr
 export async function getApprovedProducts(): Promise<Product[]> {
   const { data, error } = await supabase
     .from("products_with_stats")
-    .select("*, suppliers!inner(name, active, status)")
+    .select("*, suppliers!inner(name, status)")
     .eq("status", "approved")
     .eq("suppliers.status", "launch_live")
     .is("archived_at", null)

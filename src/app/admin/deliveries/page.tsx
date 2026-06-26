@@ -384,10 +384,18 @@ export default function AdminDeliveriesPage() {
     
     setMarkingAllPrepped(deliveryDay);
     try {
-      for (const order of eligibleOrders) {
-        await updateStatus(order.id, "prepped");
+      const res = await fetch("/api/admin/prepped-emails", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ delivery_day: deliveryDay }),
+      });
+      const result = await res.json();
+      if (!res.ok) {
+        throw new Error(result.error || "Failed to mark all prepped");
       }
-      alert(`✅ Marked ${eligibleOrders.length} orders as prepped!`);
+      // Refresh so the new statuses show
+      setOrderList(await getOrders());
+      alert(`✅ Marked ${result.sent} order${result.sent === 1 ? "" : "s"} as prepped and emailed${result.skipped ? ` (${result.skipped} skipped)` : ""}.`);
     } catch (error) {
       alert(`Error: ${error instanceof Error ? error.message : "Unknown error"}`);
     } finally {

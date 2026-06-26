@@ -126,7 +126,7 @@ export default function AdminSuppliersPage() {
   };
 
   const handleStatusChange = async (supplier: Supplier, newStatus: SupplierStatus) => {
-    const updated = { ...supplier, status: newStatus, active: newStatus === "launch_live" };
+    const updated = { ...supplier, status: newStatus };
     await updateSupplier(updated);
     setSupplierList((prev) => prev.map((s) => (s.id === supplier.id ? updated : s)));
   };
