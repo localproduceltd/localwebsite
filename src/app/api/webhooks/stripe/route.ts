@@ -197,6 +197,7 @@ export async function POST(request: NextRequest) {
           city: metadata.city,
           postcode: metadata.postcode,
         } : undefined,
+        phone: metadata.phone || undefined,
         instructions: metadata.instructions || undefined,
         pinLat: metadata.pinLat ? parseFloat(metadata.pinLat) : undefined,
         pinLng: metadata.pinLng ? parseFloat(metadata.pinLng) : undefined,

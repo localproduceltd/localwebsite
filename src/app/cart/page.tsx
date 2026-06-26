@@ -42,6 +42,7 @@ export default function CartPage() {
     city: "",
     postcode: "",
   });
+  const [phone, setPhone] = useState("");
   const [checkingPostcode, setCheckingPostcode] = useState(false);
   const [postcodeError, setPostcodeError] = useState("");
   const [deliveryArea, setDeliveryArea] = useState<DeliveryArea | null>(null);
@@ -218,6 +219,7 @@ export default function CartPage() {
     // For top-up orders, we don't need delivery day/window/etc
     if (!topUpOrder) {
       if (!selectedDay || !deliveryWindow || !deliveryOption) return;
+      if (!phone.trim()) return;
       if (needsSafePlace && !safePlace.trim()) return;
       if (hasGlassBottles && hasOwnBottles === null) return;
     }
@@ -295,6 +297,7 @@ export default function CartPage() {
             bottleDepositQty: hasGlassBottles && hasOwnBottles === false ? bottleDepositQty : 0,
             total: finalTotal,
             address: addressForm,
+            phone: phone.trim(),
             instructions: deliveryInstructions.trim() || undefined,
             pinLat: pinLat ?? undefined,
             pinLng: pinLng ?? undefined,
@@ -576,7 +579,25 @@ export default function CartPage() {
               </button>
             </div>
           </div>
-          
+
+          {/* Contact phone number */}
+          <div>
+            <label className="block text-sm font-medium text-primary mb-1">
+              Contact number
+            </label>
+            <input
+              type="tel"
+              inputMode="tel"
+              placeholder="Mobile number"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              className="w-full rounded-lg border border-primary/20 bg-white px-4 py-2.5 text-base sm:text-sm outline-none transition focus:border-secondary"
+            />
+            <p className="mt-1 text-xs text-muted">
+              We&apos;ll only ever use this if we really can&apos;t find you on the day - never for marketing.
+            </p>
+          </div>
+
           {postcodeError && (
             <p className="text-sm text-red-600">{postcodeError}</p>
           )}
@@ -1096,12 +1117,12 @@ export default function CartPage() {
           disabled={
             topUpOrder 
               ? (belowMinimum || hasHolidayItems || !isSignedIn || placing)
-              : (belowMinimum || hasHolidayItems || !deliveryCheck?.inZone || !addressForm.addressLine1.trim() || !selectedDay || !deliveryWindow || !deliveryOption || (needsSafePlace && !safePlace.trim()) || (hasGlassBottles && hasOwnBottles === null) || !pinConfirmed || placing)
+              : (belowMinimum || hasHolidayItems || !deliveryCheck?.inZone || !addressForm.addressLine1.trim() || !phone.trim() || !selectedDay || !deliveryWindow || !deliveryOption || (needsSafePlace && !safePlace.trim()) || (hasGlassBottles && hasOwnBottles === null) || !pinConfirmed || placing)
           }
           onClick={handlePlaceOrder}
           className="mt-6 w-full rounded-lg bg-accent py-3 text-center font-semibold text-primary transition hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {placing ? "Redirecting to Checkout..." : hasHolidayItems ? "Remove Holiday Items" : belowMinimum ? `Minimum order £${MINIMUM_ORDER}` : topUpOrder ? "Add to Order & Pay" : !isSignedIn ? "Sign In to Continue" : !deliveryCheck?.inZone ? "Check Postcode First" : !addressForm.addressLine1.trim() ? "Enter Address" : !pinConfirmed ? "Confirm Pin Location Above" : !selectedDay ? "Select Delivery Day" : !deliveryWindow ? "Select Delivery Window" : !deliveryOption ? "Select Delivery Option" : (needsSafePlace && !safePlace.trim()) ? "Enter Safe Place" : (hasGlassBottles && hasOwnBottles === null) ? "Select Bottle Deposit Option" : "Continue to Checkout"}
+          {placing ? "Redirecting to Checkout..." : hasHolidayItems ? "Remove Holiday Items" : belowMinimum ? `Minimum order £${MINIMUM_ORDER}` : topUpOrder ? "Add to Order & Pay" : !isSignedIn ? "Sign In to Continue" : !deliveryCheck?.inZone ? "Check Postcode First" : !addressForm.addressLine1.trim() ? "Enter Address" : !phone.trim() ? "Enter Contact Number" : !pinConfirmed ? "Confirm Pin Location Above" : !selectedDay ? "Select Delivery Day" : !deliveryWindow ? "Select Delivery Window" : !deliveryOption ? "Select Delivery Option" : (needsSafePlace && !safePlace.trim()) ? "Enter Safe Place" : (hasGlassBottles && hasOwnBottles === null) ? "Select Bottle Deposit Option" : "Continue to Checkout"}
         </button>
         
         {!isSignedIn && (

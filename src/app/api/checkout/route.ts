@@ -27,6 +27,7 @@ interface CheckoutRequest {
   bottleDepositQty: number;
   total: number;
   address: OrderAddress;
+  phone?: string;
   instructions?: string;
   pinLat?: number;
   pinLng?: number;
@@ -40,7 +41,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body: CheckoutRequest = await request.json();
-    const { items, deliveryDay, deliveryWindow, willBeIn, deliveryOption, safePlace, customerEmail, boxDepositPaid, bottleDepositPaid, bottleDepositQty, total, address, instructions, pinLat, pinLng } = body;
+    const { items, deliveryDay, deliveryWindow, willBeIn, deliveryOption, safePlace, customerEmail, boxDepositPaid, bottleDepositPaid, bottleDepositQty, total, address, phone, instructions, pinLat, pinLng } = body;
 
     if (!items || items.length === 0) {
       return NextResponse.json({ error: "No items in cart" }, { status: 400 });
@@ -137,6 +138,7 @@ export async function POST(request: NextRequest) {
         addressLine2: address.addressLine2 || "",
         city: address.city || "",
         postcode: address.postcode || "",
+        phone: phone || "",
         instructions: instructions || "",
         pinLat: pinLat?.toString() || "",
         pinLng: pinLng?.toString() || "",
