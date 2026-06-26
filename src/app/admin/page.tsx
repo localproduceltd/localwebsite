@@ -224,7 +224,27 @@ export default async function AdminDashboard() {
           <p className="text-sm text-muted">No past delivery days yet</p>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            {/* Mobile card view */}
+            <div className="sm:hidden space-y-3">
+              {deliveryDayPerformance.map((day) => (
+                <div key={day.deliveryDay} className="rounded-xl border border-primary/10 bg-surface p-3 shadow-sm">
+                  <p className="font-bold text-primary">{formatDeliveryDate(day.deliveryDay)}</p>
+                  <div className="mt-2 space-y-1 text-sm">
+                    <div className="flex justify-between"><span className="text-muted">Orders</span><span className="font-medium text-primary">{day.orderCount}</span></div>
+                    <div className="flex justify-between"><span className="text-muted">Revenue</span><span className="font-semibold text-green-600">£{day.revenue.toFixed(2)}</span></div>
+                    <div className="flex justify-between"><span className="text-muted">Avg Basket</span><span className="text-primary">{day.orderCount > 0 ? `£${day.avgBasket.toFixed(2)}` : "—"}</span></div>
+                    <div className="flex justify-between"><span className="text-muted">Avg Items</span><span className="text-primary">{day.orderCount > 0 ? day.avgItemsPerBasket.toFixed(1) : "—"}</span></div>
+                    <div className="flex justify-between"><span className="text-muted">Customers</span><span className="text-primary">{day.uniqueCustomers}</span></div>
+                    <div className="flex justify-between"><span className="text-muted">New / Returning</span><span><span className="text-green-600">{day.newCount} new</span><span className="text-muted"> / </span><span className="text-blue-600">{day.returningCount} returning</span></span></div>
+                    <div className="flex justify-between"><span className="text-muted">Suppliers</span><span className="text-primary">{day.supplierCount}</span></div>
+                    <div className="flex justify-between"><span className="text-muted">AM / PM</span><span className="text-primary">{day.morningCount === 0 && day.afternoonCount === 0 && day.eitherCount === 0
+                      ? "—"
+                      : `${day.morningCount} AM / ${day.afternoonCount} PM${day.eitherCount > 0 ? ` / ${day.eitherCount} Either` : ""}`}</span></div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <table className="hidden sm:table w-full text-sm">
               <thead>
                 <tr className="border-b border-primary/10 text-left">
                   <th className="pb-3 pr-4 font-medium text-muted">Date</th>

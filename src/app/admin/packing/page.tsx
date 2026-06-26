@@ -3,11 +3,11 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { type Order, type OrderItem, type OrderItemRefund, DELIVERY_OPTION_LABELS, getOrders, getCustomerBoxStatuses, getRefundsForDeliveryDay } from "@/lib/data";
 import { Printer, RefreshCw, ChevronDown, ChevronRight, Package } from "lucide-react";
+import { ChilledTag, chilledRowClass } from "@/components/ChilledTag";
 
 // ─── Configurable thresholds ─────────────────────────────────────────────────
 const SIZE_THRESHOLDS = { mediumMin: 12, bigMin: 16 } as const;
 const COOL_THRESHOLDS = { bagMin: 1, boxMin: 5 } as const;
-const CHILLED_CATEGORIES = ['Meat & Poultry', 'Cheese', 'Dairy', 'Fish & Seafood'] as const;
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -70,7 +70,7 @@ interface PackingOrder extends Order {
 
 function derivePackingFields(
   order: Order,
-  productCategories: Map<string, string>,
+  productRefrigerated: Map<string, boolean>,
   hasOutstandingBox: boolean,
   orderRefunds: OrderItemRefund[]
 ): PackingOrder {
@@ -79,8 +79,7 @@ function derivePackingFields(
 
   for (const item of packableItems(order.items, orderRefunds)) {
     totalItems += item.quantity;
-    const category = productCategories.get(item.productId) || "";
-    if ((CHILLED_CATEGORIES as readonly string[]).includes(category)) {
+    if (productRefrigerated.get(item.productId)) {
       chilledItems += item.quantity;
     }
   }
@@ -128,7 +127,7 @@ function derivePackingFields(
 export default function AdminPackingPage() {
   const [orderList, setOrderList] = useState<Order[]>([]);
   const [boxStatuses, setBoxStatuses] = useState<Map<string, boolean>>(new Map());
-  const [productCategories, setProductCategories] = useState<Map<string, string>>(new Map());
+  const [productRefrigerated, setProductRefrigerated] = useState<Map<string, boolean>>(new Map());
   const [refunds, setRefunds] = useState<Map<string, OrderItemRefund[]>>(new Map());
   const [selectedDay, setSelectedDay] = useState<string>("");
   const [expandedOrders, setExpandedOrders] = useState<Set<string>>(new Set());
@@ -153,11 +152,11 @@ export default function AdminPackingPage() {
         const response = await fetch(`/api/products?ids=${productIds.join(",")}`);
         if (response.ok) {
           const products = await response.json();
-          const catMap = new Map<string, string>();
+          const refMap = new Map<string, boolean>();
           for (const p of products) {
-            catMap.set(p.id, p.category);
+            refMap.set(p.id, !!p.refrigerated);
           }
-          setProductCategories(catMap);
+          setProductRefrigerated(refMap);
         }
       }
     } catch (error) {
@@ -250,13 +249,13 @@ export default function AdminPackingPage() {
       o => o.deliveryDay === selectedDay && o.status !== "cancelled"
     );
 
-    const derived = dayOrders.map(order => 
-      derivePackingFields(order, productCategories, boxStatuses.get(order.userId) ?? false, refunds.get(order.id) || [])
+    const derived = dayOrders.map(order =>
+      derivePackingFields(order, productRefrigerated, boxStatuses.get(order.userId) ?? false, refunds.get(order.id) || [])
     );
 
     // Sort by order number
     return derived.sort((a, b) => a.orderNumber - b.orderNumber);
-  }, [selectedDay, orderList, productCategories, boxStatuses, refunds]);
+  }, [selectedDay, orderList, productRefrigerated, boxStatuses, refunds]);
 
   // Summary stats
   const summary = useMemo(() => {
@@ -287,7 +286,7 @@ export default function AdminPackingPage() {
             <h1 className="text-2xl sm:text-3xl font-bold text-primary">Packing List</h1>
             <p className="mt-1 text-muted">Friday morning packing view</p>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             <select
               value={selectedDay}
               onChange={(e) => setSelectedDay(e.target.value)}
@@ -339,7 +338,7 @@ export default function AdminPackingPage() {
 
       {/* Table */}
       <div className="rounded-xl bg-surface shadow-sm overflow-hidden print:shadow-none print:rounded-none">
-        <table className="w-full text-sm print:text-[10pt]">
+        <table className="hidden sm:table w-full text-sm print:text-[10pt]">
           <thead>
             <tr className="border-b border-primary/10 bg-primary/5 text-left text-xs uppercase text-muted print:bg-transparent">
               <th className="px-3 py-3 font-medium print:hidden">Done</th>
@@ -510,28 +509,50 @@ export default function AdminPackingPage() {
                   {isExpanded && (
                     <tr className="print:hidden">
                       <td colSpan={10} className="bg-primary/5 px-6 py-4">
-                        <div className="space-y-3">
-                          {groupItemsBySupplier(packableItems(order.items, refunds.get(order.id) || [])).map((supplierGroup) => (
-                            <div key={supplierGroup.supplierId} className="rounded-lg border border-primary/10 bg-surface overflow-hidden">
-                              <div className="px-3 py-2 border-b border-primary/10">
-                                <span className="font-medium text-sm text-primary">{supplierGroup.supplierName}</span>
-                              </div>
-                              <div className="divide-y divide-primary/5">
-                                {supplierGroup.items.map((item, i) => (
-                                  <div key={i} className="px-3 py-2 flex items-center justify-between gap-2">
-                                    <div className="min-w-0 flex-1">
-                                      <p className="text-sm text-primary break-words">{item.productName}</p>
-                                      {item.unit && <p className="text-xs text-muted">{item.unit}</p>}
+                        {(() => {
+                          const items = packableItems(order.items, refunds.get(order.id) || []);
+                          const ambient = items.filter((it) => !productRefrigerated.get(it.productId));
+                          const chilled = items.filter((it) => productRefrigerated.get(it.productId));
+                          const renderGroups = (list: OrderItem[]) =>
+                            groupItemsBySupplier(list).map((supplierGroup) => (
+                              <div key={supplierGroup.supplierId} className="rounded-lg border border-primary/10 bg-surface overflow-hidden">
+                                <div className="px-3 py-2 border-b border-primary/10">
+                                  <span className="font-medium text-sm text-primary">{supplierGroup.supplierName}</span>
+                                </div>
+                                <div className="divide-y divide-primary/5">
+                                  {supplierGroup.items.map((item, i) => (
+                                    <div key={i} className="px-3 py-2 flex items-center justify-between gap-2">
+                                      <div className="min-w-0 flex-1">
+                                        <p className="text-sm text-primary break-words">{item.productName}</p>
+                                        {item.unit && <p className="text-xs text-muted">{item.unit}</p>}
+                                      </div>
+                                      <span className="text-sm font-medium text-primary flex-shrink-0">
+                                        ×{item.quantity} = £{(item.quantity * item.price).toFixed(2)}
+                                      </span>
                                     </div>
-                                    <span className="text-sm font-medium text-primary flex-shrink-0">
-                                      ×{item.quantity} = £{(item.quantity * item.price).toFixed(2)}
-                                    </span>
-                                  </div>
-                                ))}
+                                  ))}
+                                </div>
                               </div>
+                            ));
+                          return (
+                            <div className="space-y-4">
+                              <div>
+                                <p className="mb-2 text-xs font-bold uppercase tracking-wide text-muted">Ambient - pack into the box</p>
+                                <div className="space-y-3">
+                                  {ambient.length ? renderGroups(ambient) : <p className="text-xs text-muted">None</p>}
+                                </div>
+                              </div>
+                              {chilled.length > 0 && (
+                                <div className={`rounded-lg border border-sky-200 p-2 ${chilledRowClass}`}>
+                                  <p className="mb-2 flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-sky-800">
+                                    <ChilledTag /> Refrigerated - add from the fridge
+                                  </p>
+                                  <div className="space-y-3">{renderGroups(chilled)}</div>
+                                </div>
+                              )}
                             </div>
-                          ))}
-                        </div>
+                          );
+                        })()}
                       </td>
                     </tr>
                   )}
@@ -539,6 +560,165 @@ export default function AdminPackingPage() {
             );
           })}
         </table>
+      </div>
+
+      {/* Mobile card view (below sm) */}
+      <div className="sm:hidden space-y-3 print:hidden">
+        {packingOrders.map((order) => {
+          const isExpanded = expandedOrders.has(order.id);
+          const isDone = doneOrders.has(order.id);
+
+          return (
+            <div
+              key={order.id}
+              className={`rounded-xl border border-primary/10 bg-surface p-3 shadow-sm ${isDone ? "opacity-50" : ""}`}
+            >
+              {/* Top: order # + name, tap to expand */}
+              <button
+                type="button"
+                onClick={() => toggleExpand(order.id)}
+                className="flex w-full items-start justify-between gap-2 text-left"
+              >
+                <div className="min-w-0">
+                  <p className="font-bold text-primary">
+                    #{order.orderNumber} &middot; {order.displayName}
+                  </p>
+                  <p className="text-sm text-muted">
+                    <span className={`font-semibold ${order.isIn ? "text-green-700" : "text-amber-700"}`}>
+                      {order.isIn ? "In" : "Out"}
+                    </span>{" "}
+                    &middot; {order.deliveryLabel}
+                  </p>
+                </div>
+                <div className="flex flex-shrink-0 items-center gap-1">
+                  {order.deliveryWindow === "morning" ? (
+                    <span className="inline-block rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-700">AM</span>
+                  ) : order.deliveryWindow === "afternoon" ? (
+                    <span className="inline-block rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700">PM</span>
+                  ) : order.deliveryWindow === "any" ? (
+                    <span className="inline-block rounded-full bg-sky-100 px-2 py-0.5 text-xs font-semibold text-sky-700">Any</span>
+                  ) : (
+                    <span className="inline-block rounded-full bg-gray-100 px-2 py-0.5 text-xs font-semibold text-gray-500">—</span>
+                  )}
+                  {isExpanded ? (
+                    <ChevronDown size={18} className="text-muted" />
+                  ) : (
+                    <ChevronRight size={18} className="text-muted" />
+                  )}
+                </div>
+              </button>
+
+              {/* Key info lines */}
+              <div className="mt-2 space-y-1 text-sm">
+                <p className="text-primary">
+                  <span className="text-muted">Items:</span>{" "}
+                  <span className="font-medium">{order.totalItems}</span>
+                </p>
+                <p>
+                  <span className="text-muted">Cool kit:</span>{" "}
+                  {order.coolKit === "Cool box" ? (
+                    <span className="inline-block rounded-full bg-blue-600 px-2 py-0.5 text-xs font-semibold text-white">
+                      Cool box ({order.chilledItems})
+                    </span>
+                  ) : order.coolKit === "Cool bag" ? (
+                    <span className="inline-block rounded-full bg-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-700">
+                      Cool bag ({order.chilledItems})
+                    </span>
+                  ) : (
+                    <span className="text-muted">none</span>
+                  )}
+                </p>
+                <p>
+                  <span className="text-muted">Ambient box:</span>{" "}
+                  {order.ambientBox === "Wooden crate" ? (
+                    <span className="inline-block rounded-full bg-amber-900 px-2 py-0.5 text-xs font-semibold text-white">
+                      Wooden crate
+                    </span>
+                  ) : order.boxSize === "Large" ? (
+                    <span className="inline-block rounded-full bg-yellow-500 px-2 py-0.5 text-xs font-semibold text-yellow-950">Cardboard - Large</span>
+                  ) : order.boxSize === "Medium" ? (
+                    <span className="inline-block rounded-full bg-yellow-300 px-2 py-0.5 text-xs font-semibold text-yellow-900">Cardboard - Medium</span>
+                  ) : (
+                    <span className="inline-block rounded-full bg-yellow-100 px-2 py-0.5 text-xs font-semibold text-yellow-800">Cardboard - Small</span>
+                  )}
+                </p>
+                <p>
+                  <span className="text-muted">Box swaps:</span>{" "}
+                  {order.boxAction === "New" ? (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-700">
+                      <Package size={10} />
+                      New
+                    </span>
+                  ) : order.boxAction === "Swap" ? (
+                    <span className="inline-flex items-center gap-1 rounded-full border border-blue-300 px-2 py-0.5 text-xs font-semibold text-blue-700">
+                      <Package size={10} />
+                      Swap
+                    </span>
+                  ) : (
+                    <span className="text-muted">—</span>
+                  )}
+                </p>
+              </div>
+
+              {/* Expanded items - ambient then refrigerated */}
+              {isExpanded && (() => {
+                const items = packableItems(order.items, refunds.get(order.id) || []);
+                const ambient = items.filter((it) => !productRefrigerated.get(it.productId));
+                const chilled = items.filter((it) => productRefrigerated.get(it.productId));
+                const renderGroups = (list: OrderItem[]) =>
+                  groupItemsBySupplier(list).map((supplierGroup) => (
+                    <div key={supplierGroup.supplierId} className="rounded-lg border border-primary/10 bg-surface overflow-hidden">
+                      <div className="px-3 py-2 border-b border-primary/10">
+                        <span className="font-medium text-sm text-primary">{supplierGroup.supplierName}</span>
+                      </div>
+                      <div className="divide-y divide-primary/5">
+                        {supplierGroup.items.map((item, i) => (
+                          <div key={i} className="px-3 py-2 flex items-center justify-between gap-2">
+                            <div className="min-w-0 flex-1">
+                              <p className="text-sm text-primary break-words">{item.productName}</p>
+                              {item.unit && <p className="text-xs text-muted">{item.unit}</p>}
+                            </div>
+                            <span className="text-sm font-medium text-primary flex-shrink-0">
+                              ×{item.quantity} = £{(item.quantity * item.price).toFixed(2)}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ));
+                return (
+                  <div className="mt-3 space-y-4 border-t border-primary/10 pt-3">
+                    <div>
+                      <p className="mb-2 text-xs font-bold uppercase tracking-wide text-muted">Ambient - pack into the box</p>
+                      <div className="space-y-3">
+                        {ambient.length ? renderGroups(ambient) : <p className="text-xs text-muted">None</p>}
+                      </div>
+                    </div>
+                    {chilled.length > 0 && (
+                      <div className={`rounded-lg border border-sky-200 p-2 ${chilledRowClass}`}>
+                        <p className="mb-2 flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-sky-800">
+                          <ChilledTag /> Refrigerated - add from the fridge
+                        </p>
+                        <div className="space-y-3">{renderGroups(chilled)}</div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
+              {/* Done toggle - large tap target */}
+              <label className="mt-3 flex w-full cursor-pointer items-center justify-center gap-2 rounded-lg border border-primary/20 py-2.5 text-sm font-semibold text-primary">
+                <input
+                  type="checkbox"
+                  checked={isDone}
+                  onChange={() => toggleDone(order.id)}
+                  className="h-5 w-5 rounded border-primary/30 text-green-600 focus:ring-green-500"
+                />
+                {isDone ? "Done" : "Mark done"}
+              </label>
+            </div>
+          );
+        })}
       </div>
 
       {/* Print footer */}

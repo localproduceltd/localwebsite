@@ -47,7 +47,6 @@ export default function AdminDriverPage() {
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
-  const [runStarted, setRunStarted] = useState(false);
   const [expandedStop, setExpandedStop] = useState<string | null>(null);
 
   // Load orders
@@ -71,15 +70,11 @@ export default function AdminDriverPage() {
       if (response.ok) {
         const data = await response.json();
         setRoute(data);
-        // Check if run has started (any order is next_hour or delivered)
-        const dayOrders = orders.filter(o => o.deliveryDay === day);
-        const hasStarted = dayOrders.some(o => o.status === "next_hour" || o.status === "delivered");
-        setRunStarted(hasStarted);
       }
     } catch (error) {
       console.error("Failed to load route:", error);
     }
-  }, [orders]);
+  }, []);
 
   useEffect(() => {
     loadOrders();
@@ -164,6 +159,24 @@ export default function AdminDriverPage() {
     return routeOrders.filter(o => o.status !== "delivered");
   }, [routeOrders]);
 
+  // Per-leg state - the morning and afternoon runs are started and finished
+  // separately, so the morning run never spills into the afternoon.
+  const legStats = useMemo(() => {
+    const morning = routeOrders.filter(o => o.leg === "morning");
+    const afternoon = routeOrders.filter(o => o.leg === "afternoon");
+    const undelivered = (arr: RouteOrder[]) => arr.filter(o => o.status !== "delivered");
+    const started = (arr: RouteOrder[]) => arr.some(o => o.status === "next_hour" || o.status === "delivered");
+    return {
+      hasMorning: morning.length > 0,
+      hasAfternoon: afternoon.length > 0,
+      morningStarted: started(morning),
+      afternoonStarted: started(afternoon),
+      morningRemaining: undelivered(morning).length,
+      afternoonRemaining: undelivered(afternoon).length,
+      morningComplete: morning.length > 0 && undelivered(morning).length === 0,
+    };
+  }, [routeOrders]);
+
   // Handle route upload
   const handleUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -202,50 +215,72 @@ export default function AdminDriverPage() {
     }
   };
 
-  // Start the run - mark first N as next_hour
-  const handleStartRun = async () => {
-    const toMark = nextUndelivered.slice(0, NEXT_BATCH_SIZE);
-    
-    for (const order of toMark) {
-      if (order.status !== "next_hour" && order.status !== "delivered") {
-        await updateOrderStatus(order.id, "next_hour");
-        // Send email
-        if (order.customerEmail) {
+  // Sort one leg's still-undelivered orders by their position in the route.
+  const legUndeliveredFrom = useCallback(
+    (sourceOrders: Order[], leg: string): RouteOrder[] => {
+      const routeMap = new Map(route.map(r => [r.order_id, r]));
+      return sourceOrders
+        .filter(o => o.deliveryDay === selectedDay && o.status !== "cancelled" && routeMap.has(o.id))
+        .map(o => ({ ...o, routePosition: routeMap.get(o.id)!.route_position, leg: routeMap.get(o.id)!.leg }))
+        .filter(o => o.leg === leg && o.status !== "delivered")
+        .sort((a, b) => a.routePosition - b.routePosition);
+    },
+    [route, selectedDay]
+  );
+
+  // Put the next batch of a leg "on the van": mark up to NEXT_BATCH_SIZE as
+  // next_hour, emailing only those newly added, with their place in the queue.
+  // Scoped to a single leg so the morning run never pulls in afternoon stops.
+  const notifyLeg = useCallback(
+    async (leg: string, sourceOrders: Order[]) => {
+      const undelivered = legUndeliveredFrom(sourceOrders, leg);
+      const toMark = undelivered.slice(0, NEXT_BATCH_SIZE);
+      for (let i = 0; i < toMark.length; i++) {
+        const o = toMark[i];
+        if (o.status === "next_hour") continue; // already told
+        await updateOrderStatus(o.id, "next_hour");
+        if (o.customerEmail) {
           fetch("/api/email", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               type: "order_status_update",
               data: {
-                customerEmail: order.customerEmail,
-                customerName: order.customerName || order.customerEmail.split("@")[0],
-                orderNumber: order.orderNumber,
+                customerEmail: o.customerEmail,
+                customerName: o.customerName || o.customerEmail.split("@")[0],
+                orderNumber: o.orderNumber,
                 status: "next_hour",
-                deliveryDay: order.deliveryDay
-                  ? new Date(order.deliveryDay + "T00:00:00").toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })
+                stopsAhead: i, // 0 = first in line, 1 = second, 2 = third
+                deliveryDay: o.deliveryDay
+                  ? new Date(o.deliveryDay + "T00:00:00").toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })
                   : "Not set",
-                deliveryWindow: order.deliveryWindow,
-                deliveryOption: order.deliveryOption,
-                safePlace: order.safePlace,
+                deliveryWindow: o.deliveryWindow,
+                routeLeg: leg,
+                deliveryOption: o.deliveryOption,
+                safePlace: o.safePlace,
               },
             }),
           }).catch(console.error);
         }
       }
-    }
+    },
+    [legUndeliveredFrom]
+  );
 
-    setRunStarted(true);
+  // Start a leg's run - put the first batch on the van
+  const handleStartRun = async (leg: string) => {
+    await notifyLeg(leg, orders);
     await loadOrders();
   };
 
-  // Mark order as delivered and queue next batch
+  // Mark an order delivered, then top up the SAME leg's queue so the next
+  // person in line gets their "on our way" email.
   const handleDelivered = async (orderId: string) => {
     const order = routeOrders.find(o => o.id === orderId);
     if (!order) return;
 
-    // Mark as delivered
     await updateOrderStatus(orderId, "delivered");
-    
+
     // Send delivered email
     if (order.customerEmail) {
       fetch("/api/email", {
@@ -267,56 +302,12 @@ export default function AdminDriverPage() {
       }).catch(console.error);
     }
 
-    // Reload orders to get updated statuses
+    // Use a fresh snapshot so the just-delivered order is excluded, then top up
+    // the queue within this leg only.
+    const fresh = await getOrders();
+    setOrders(fresh);
+    await notifyLeg(order.leg, fresh);
     await loadOrders();
-
-    // After reload, check if we need to mark more as next_hour
-    // We need to ensure next NEXT_BATCH_SIZE undelivered are marked
-    setTimeout(async () => {
-      const updatedOrders = await getOrders();
-      const dayOrders = updatedOrders.filter(o => o.deliveryDay === selectedDay && o.status !== "cancelled");
-      const routeMap = new Map(route.map(r => [r.order_id, r]));
-      
-      const sortedUndelivered = dayOrders
-        .filter(o => routeMap.has(o.id) && o.status !== "delivered")
-        .map(o => ({ ...o, routePosition: routeMap.get(o.id)!.route_position, leg: routeMap.get(o.id)!.leg }))
-        .sort((a, b) => {
-          if (a.leg !== b.leg) return a.leg === "morning" ? -1 : 1;
-          return a.routePosition - b.routePosition;
-        });
-
-      // Mark next batch as next_hour if not already
-      const toMark = sortedUndelivered.slice(0, NEXT_BATCH_SIZE);
-      for (const o of toMark) {
-        if (o.status !== "next_hour") {
-          await updateOrderStatus(o.id, "next_hour");
-          // Send email
-          if (o.customerEmail) {
-            fetch("/api/email", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                type: "order_status_update",
-                data: {
-                  customerEmail: o.customerEmail,
-                  customerName: o.customerName || o.customerEmail.split("@")[0],
-                  orderNumber: o.orderNumber,
-                  status: "next_hour",
-                  deliveryDay: o.deliveryDay
-                    ? new Date(o.deliveryDay + "T00:00:00").toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })
-                    : "Not set",
-                  deliveryWindow: o.deliveryWindow,
-                  deliveryOption: o.deliveryOption,
-                  safePlace: o.safePlace,
-                },
-              }),
-            }).catch(console.error);
-          }
-        }
-      }
-
-      await loadOrders();
-    }, 500);
   };
 
   // Open Google Maps for an address
@@ -416,19 +407,38 @@ export default function AdminDriverPage() {
             </div>
           </div>
 
-          {/* Start run button */}
-          {!runStarted && stats.remaining > 0 && (
+          {/* Start morning run */}
+          {legStats.hasMorning && !legStats.morningStarted && legStats.morningRemaining > 0 && (
             <button
-              onClick={handleStartRun}
+              onClick={() => handleStartRun("morning")}
               className="w-full rounded-xl bg-secondary py-4 text-lg font-bold text-white hover:bg-secondary/90 transition mb-4 flex items-center justify-center gap-2"
             >
               <Play size={24} />
-              Start Run
+              Start Morning Run
+            </button>
+          )}
+
+          {/* Morning complete - afternoon ready */}
+          {legStats.morningComplete && legStats.hasAfternoon && !legStats.afternoonStarted && (
+            <div className="rounded-xl bg-green-50 border border-green-200 p-3 text-center mb-4">
+              <p className="text-sm font-semibold text-green-800">Morning run complete 🎉</p>
+              <p className="text-xs text-green-700">Start the afternoon run when you're ready.</p>
+            </div>
+          )}
+
+          {/* Start afternoon run - only once the morning has finished */}
+          {legStats.hasAfternoon && !legStats.afternoonStarted && legStats.afternoonRemaining > 0 && (legStats.morningComplete || !legStats.hasMorning) && (
+            <button
+              onClick={() => handleStartRun("afternoon")}
+              className="w-full rounded-xl bg-secondary py-4 text-lg font-bold text-white hover:bg-secondary/90 transition mb-4 flex items-center justify-center gap-2"
+            >
+              <Play size={24} />
+              Start Afternoon Run
             </button>
           )}
 
           {/* Current leg indicator */}
-          {runStarted && stats.remaining > 0 && (
+          {((legStats.morningStarted && legStats.morningRemaining > 0) || (legStats.afternoonStarted && legStats.afternoonRemaining > 0)) && (
             <div className="flex items-center gap-2 mb-4 px-2">
               <Clock size={16} className="text-muted" />
               <span className="text-sm font-medium text-muted uppercase">

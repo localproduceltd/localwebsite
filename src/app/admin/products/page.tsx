@@ -34,7 +34,7 @@ export default function AdminProductsPage() {
   const [editing, setEditing] = useState<Product | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [statusFilter, setStatusFilter] = useState<ProductStatus | "all">("all");
-  const [supplierFilter, setSupplierFilter] = useState<string>("all");
+  const [supplierFilter, setSupplierFilter] = useState<string>("live_only");
   const [collapsedSuppliers, setCollapsedSuppliers] = useState<Set<string>>(new Set());
   const [rejectingProduct, setRejectingProduct] = useState<Product | null>(null);
   const [rejectionReason, setRejectionReason] = useState("");
@@ -245,7 +245,7 @@ export default function AdminProductsPage() {
     setPriceFilter("all");
     setJosiesPicksFilter("all");
     setStatusFilter("all");
-    setSupplierFilter("all");
+    setSupplierFilter("live_only");
     setSelectedProductIds(new Set());
   };
 
@@ -894,7 +894,8 @@ export default function AdminProductsPage() {
 
               {/* Products table */}
               {!isCollapsed && (
-                <table className="w-full text-sm">
+                <>
+                <table className="hidden sm:table w-full text-sm">
                   <thead>
                     <tr className="border-b border-primary/5 text-left text-xs text-muted">
                       <th className="w-10 px-4 py-2"></th>
@@ -1008,6 +1009,113 @@ export default function AdminProductsPage() {
                     ))}
                   </tbody>
                 </table>
+
+                {/* Mobile card layout */}
+                <div className="sm:hidden space-y-3 p-3">
+                  {products.map((product) => (
+                    <div
+                      key={product.id}
+                      className={`rounded-xl border border-primary/10 bg-surface p-3 shadow-sm ${selectedProductIds.has(product.id) ? "bg-secondary/5" : ""}`}
+                    >
+                      <div className="flex items-start gap-3">
+                        <input
+                          type="checkbox"
+                          checked={selectedProductIds.has(product.id)}
+                          onChange={() => toggleSelectProduct(product.id)}
+                          className="mt-1 h-5 w-5 rounded border-primary/30 text-secondary focus:ring-secondary cursor-pointer"
+                        />
+                        <div className="h-12 w-12 shrink-0 overflow-hidden rounded-lg bg-secondary/10">
+                          {product.image ? (
+                            <img src={product.image} alt="" className="h-full w-full object-cover" />
+                          ) : (
+                            <div className="h-full w-full flex items-center justify-center text-muted text-xs">?</div>
+                          )}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-start gap-2">
+                            <p className="font-bold text-primary break-words flex-1">
+                              {product.name}
+                              {product.tags?.includes("josies-pick") && (
+                                <span className="ml-2 inline-flex items-center gap-0.5 rounded-full bg-accent/20 px-1.5 py-0.5 text-[10px] font-bold text-accent">
+                                  <Star size={8} className="fill-accent" /> PICK
+                                </span>
+                              )}
+                            </p>
+                            <button
+                              onClick={() => toggleJosiesPick(product)}
+                              title={product.tags?.includes("josies-pick") ? "Remove from Josie's Picks" : "Add to Josie's Picks"}
+                              className={`shrink-0 rounded p-1 transition ${
+                                product.tags?.includes("josies-pick")
+                                  ? "text-accent"
+                                  : "text-gray-300 hover:text-accent/60"
+                              }`}
+                            >
+                              <Star size={18} className={product.tags?.includes("josies-pick") ? "fill-accent" : ""} />
+                            </button>
+                          </div>
+                          <p className="text-sm text-muted">{product.unit}</p>
+                        </div>
+                      </div>
+
+                      <div className="mt-3 space-y-1.5 text-sm">
+                        <div className="flex items-center gap-2">
+                          <span className="text-muted w-20 shrink-0">Category</span>
+                          <span className="rounded-full bg-secondary/20 px-2.5 py-0.5 text-xs font-medium text-primary">{product.category}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-muted w-20 shrink-0">Locality</span>
+                          <span className="rounded-full bg-accent/20 px-2.5 py-0.5 text-xs font-medium text-primary">{product.locality ?? "—"}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-muted w-20 shrink-0">Price</span>
+                          <span className="font-medium text-primary">£{product.price.toFixed(2)}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-muted w-20 shrink-0">Stock</span>
+                          <span className={`inline-block h-2.5 w-2.5 rounded-full ${product.inStock ? "bg-green-500" : "bg-red-400"}`} />
+                          <span className="text-xs text-muted">{product.inStock ? "In stock" : "Out"}</span>
+                        </div>
+                      </div>
+
+                      <div className="mt-3 flex items-center gap-2">
+                        <select
+                          value={product.status}
+                          onChange={(e) => {
+                            const newStatus = e.target.value as ProductStatus;
+                            if (newStatus === "rejected") {
+                              setRejectingProduct(product);
+                            } else {
+                              handleStatusChange(product.id, newStatus);
+                            }
+                          }}
+                          className={`flex-1 min-h-[44px] cursor-pointer rounded-lg px-3 text-sm font-bold border-0 outline-none ${
+                            product.status === "approved" ? "bg-green-100 text-green-700" :
+                            product.status === "pending" ? "bg-amber-100 text-amber-700" :
+                            "bg-red-100 text-red-600"
+                          }`}
+                        >
+                          <option value="approved">approved</option>
+                          <option value="pending">pending</option>
+                          <option value="rejected">rejected</option>
+                        </select>
+                        <button
+                          onClick={() => { setEditing(product); setShowForm(true); }}
+                          className="flex min-h-[44px] items-center justify-center rounded-lg border border-primary/15 px-3 text-muted transition hover:bg-secondary/20 hover:text-primary"
+                        >
+                          <Pencil size={18} />
+                        </button>
+                        <button
+                          onClick={() => setDeletingProduct(product)}
+                          title="Archive"
+                          className="flex min-h-[44px] items-center justify-center rounded-lg border border-primary/15 px-3 text-muted transition hover:bg-red-50 hover:text-red-600"
+                        >
+                          <Trash2 size={18} />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                </>
               )}
             </div>
           );
@@ -1111,6 +1219,7 @@ function ProductForm({
       image: "",
       category: "",
       inStock: true,
+      refrigerated: false,
       locality: "Local" as Locality,
       lat: null,
       lng: null,
@@ -1382,6 +1491,34 @@ function ProductForm({
                 }`}
               >
                 Out of Stock
+              </button>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-primary mb-2">Refrigeration</label>
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => setForm({ ...form, refrigerated: false })}
+                className={`flex-1 rounded-lg border-2 px-4 py-3 text-sm font-bold transition ${
+                  !form.refrigerated
+                    ? "border-primary bg-surface text-primary"
+                    : "border-primary/20 bg-surface text-muted hover:border-primary/40"
+                }`}
+              >
+                Ambient
+              </button>
+              <button
+                type="button"
+                onClick={() => setForm({ ...form, refrigerated: true })}
+                className={`flex-1 rounded-lg border-2 px-4 py-3 text-sm font-bold transition ${
+                  form.refrigerated
+                    ? "border-sky-500 bg-sky-50 text-sky-700"
+                    : "border-primary/20 bg-surface text-muted hover:border-primary/40"
+                }`}
+              >
+                ❄ Refrigerated
               </button>
             </div>
           </div>

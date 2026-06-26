@@ -13,6 +13,7 @@ import {
   getSupplierProductFlags,
 } from "@/lib/data";
 import { Loader2, Calendar, Package, ChefHat, Warehouse, Truck, XCircle, ChevronDown, ChevronRight, Gift, AlertTriangle } from "lucide-react";
+import { ChilledTag, chilledRowClass } from "@/components/ChilledTag";
 
 function formatCustomerName(name: string | null, email: string | null): string {
   if (name && name.trim()) {
@@ -306,7 +307,7 @@ export default function SupplierOrdersPage() {
   const demandGrid = useMemo(() => {
     const daySet = new Set<string>();
     // productName+unit → { name, unit, days: { dayKey → qty } }
-    const map = new Map<string, { name: string; unit: string; days: Map<string, number>; total: number }>();
+    const map = new Map<string, { name: string; unit: string; days: Map<string, number>; total: number; refrigerated: boolean }>();
     for (const item of orderItems) {
       if (item.supplierStatus === "delivered" || item.supplierStatus === "cancelled") continue;
       const day = item.deliveryDay || "unassigned";
@@ -316,10 +317,11 @@ export default function SupplierOrdersPage() {
       if (existing) {
         existing.days.set(day, (existing.days.get(day) ?? 0) + item.quantity);
         existing.total += item.quantity;
+        existing.refrigerated = existing.refrigerated || item.refrigerated;
       } else {
         const days = new Map<string, number>();
         days.set(day, item.quantity);
-        map.set(key, { name: item.productName, unit: item.unit, days, total: item.quantity });
+        map.set(key, { name: item.productName, unit: item.unit, days, total: item.quantity, refrigerated: item.refrigerated });
       }
     }
     const deliveryDays = Array.from(daySet).sort((a, b) => {
@@ -386,9 +388,10 @@ export default function SupplierOrdersPage() {
               </thead>
               <tbody>
                 {demandGrid.products.map((p) => (
-                  <tr key={`${p.name}|${p.unit}`} className="border-b border-primary/5 last:border-0">
+                  <tr key={`${p.name}|${p.unit}`} className={`border-b border-primary/5 last:border-0 ${p.refrigerated ? chilledRowClass : ""}`}>
                     <td className="px-4 py-2.5">
                       <span className="font-medium text-primary">{p.name}</span>
+                      {p.refrigerated && <ChilledTag className="ml-2 align-middle" />}
                       {p.unit && <span className="block text-xs text-muted">{p.unit}</span>}
                     </td>
                     {demandGrid.deliveryDays.map((day) => {
@@ -534,9 +537,10 @@ export default function SupplierOrdersPage() {
                       </thead>
                       <tbody>
                         {sub.items.map((item) => (
-                          <tr key={item.id} className="border-t border-primary/5">
+                          <tr key={item.id} className={`border-t border-primary/5 ${item.refrigerated ? chilledRowClass : ""}`}>
                             <td className="py-2">
                               <span className="text-primary">{item.productName}</span>
+                              {item.refrigerated && <ChilledTag className="ml-2 align-middle" />}
                               {item.unit && <span className="block text-xs text-muted">{item.unit}</span>}
                             </td>
                             <td className="py-2 text-center text-muted">{item.quantity}</td>
@@ -548,6 +552,11 @@ export default function SupplierOrdersPage() {
                         ))}
                       </tbody>
                     </table>
+                    {sub.items.some((item) => item.refrigerated) && (
+                      <p className="mt-3 flex items-center gap-1.5 rounded-lg bg-sky-50 px-3 py-2 text-xs text-sky-800">
+                        <ChilledTag /> items go into the central refrigerated box - not in their delivery bag. We add them when we pack.
+                      </p>
+                    )}
                   </div>
 
                   <div className="flex flex-wrap items-center justify-between gap-4 border-t border-primary/5 bg-primary/5 px-6 py-3">

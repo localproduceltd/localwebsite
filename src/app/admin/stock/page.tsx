@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { type Order, type OrderItem, type DeliveryStockTracking, type OrderItemRefund, type OrderItemCheckin, type RefundPaidBy, type RefundReasonType, type SupplierProductFlag, getOrders, getDeliveryStockTracking, upsertDeliveryStockTracking, getRefundsForDeliveryDay, getOrderItemCheckins, toggleOrderItemCheckin, getSupplierProductFlags, resolveSupplierProductFlag, createSupplierProductFlag, getCompletedCheckins, setCheckinComplete, reopenCheckin } from "@/lib/data";
 import { Package, Clock, CheckCircle, XCircle, Calendar, ChevronDown, ChevronRight, Truck, AlertTriangle, FileText, Mail, Download, Send, Users, Eye } from "lucide-react";
+import { ChilledTag, chilledRowClass } from "@/components/ChilledTag";
 
 const refundReasonConfig: Record<RefundReasonType, { label: string; itemArrived: boolean; defaultPaidBy: RefundPaidBy }> = {
   didnt_arrive: { label: "Didn't arrive", itemArrived: false, defaultPaidBy: "supplier" },
@@ -53,7 +54,7 @@ function formatItemLine(name: string, unit: string, qty: number) {
 interface SupplierOrderItems {
   orderId: string;
   orderNumber: number;
-  items: Array<{ productName: string; unit: string; quantity: number }>;
+  items: Array<{ productName: string; unit: string; quantity: number; refrigerated: boolean }>;
 }
 
 interface SupplierSummary {
@@ -61,11 +62,11 @@ interface SupplierSummary {
   supplierName: string;
   totalItems: number;
   totalPrice: number;
-  items: Array<{ productName: string; unit: string; quantity: number; price: number }>;
+  items: Array<{ productName: string; unit: string; quantity: number; price: number; refrigerated: boolean }>;
   orders: SupplierOrderItems[];
 }
 
-function getSupplierSummaries(orders: Order[]): SupplierSummary[] {
+function getSupplierSummaries(orders: Order[], productRefrigerated?: Map<string, boolean>): SupplierSummary[] {
   const map = new Map<string, SupplierSummary>();
   for (const order of orders) {
     if (order.status === "cancelled") continue;
@@ -78,19 +79,21 @@ function getSupplierSummaries(orders: Order[]): SupplierSummary[] {
       const summary = map.get(id)!;
       summary.totalItems += item.quantity;
       summary.totalPrice += item.quantity * item.price;
+      const refrigerated = productRefrigerated?.get(item.productId) ?? false;
       const itemKey = `${item.productName}|${item.unit || ""}`;
       const existing = summary.items.find(i => `${i.productName}|${i.unit || ""}` === itemKey);
       if (existing) {
         existing.quantity += item.quantity;
+        existing.refrigerated = existing.refrigerated || refrigerated;
       } else {
-        summary.items.push({ productName: item.productName, unit: item.unit, quantity: item.quantity, price: item.price });
+        summary.items.push({ productName: item.productName, unit: item.unit, quantity: item.quantity, price: item.price, refrigerated });
       }
       let orderEntry = summary.orders.find(o => o.orderId === order.id);
       if (!orderEntry) {
         orderEntry = { orderId: order.id, orderNumber: order.orderNumber, items: [] };
         summary.orders.push(orderEntry);
       }
-      orderEntry.items.push({ productName: item.productName, unit: item.unit, quantity: item.quantity });
+      orderEntry.items.push({ productName: item.productName, unit: item.unit, quantity: item.quantity, refrigerated });
     }
   }
   for (const summary of map.values()) {
@@ -101,6 +104,7 @@ function getSupplierSummaries(orders: Order[]): SupplierSummary[] {
 
 export default function AdminStockPage() {
   const [orderList, setOrderList] = useState<Order[]>([]);
+  const [productRefrigerated, setProductRefrigerated] = useState<Map<string, boolean>>(new Map());
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [expandedSuppliers, setExpandedSuppliers] = useState<Set<string>>(new Set());
   
@@ -220,6 +224,20 @@ export default function AdminStockPage() {
       setOrderList(orders);
       const deliveryDays = [...new Set(orders.map(o => o.deliveryDay).filter(Boolean))];
       await loadTrackingData(deliveryDays);
+      const productIds = [...new Set(orders.flatMap(o => o.items.map(i => i.productId)))].filter(Boolean);
+      if (productIds.length > 0) {
+        try {
+          const res = await fetch(`/api/products?ids=${productIds.join(",")}`);
+          if (res.ok) {
+            const products = await res.json();
+            const refMap = new Map<string, boolean>();
+            for (const p of products) refMap.set(p.id, !!p.refrigerated);
+            setProductRefrigerated(refMap);
+          }
+        } catch (e) {
+          console.error("Failed to load product refrigerated flags", e);
+        }
+      }
     }).catch(console.error);
   }, [loadTrackingData]);
 
@@ -593,7 +611,7 @@ export default function AdminStockPage() {
         const upcoming = isUpcoming(deliveryDay);
         const isOpen = !collapsed.has(deliveryDay);
         const total = orders.reduce((sum, o) => sum + o.total, 0);
-        const supplierSummaries = getSupplierSummaries(orders);
+        const supplierSummaries = getSupplierSummaries(orders, productRefrigerated);
 
         return (
           <div key={deliveryDay} className="mt-8">
@@ -760,15 +778,15 @@ export default function AdminStockPage() {
                             <div className="bg-primary/5 px-3 sm:px-6 py-4 space-y-4">
                               {/* STOCK ARRIVALS */}
                               <div className="rounded-lg border border-primary/10 bg-surface overflow-x-auto">
-                                <div className="px-3 py-2 border-b border-primary/10 flex items-center justify-between">
+                                <div className="px-3 py-2 border-b border-primary/10 flex flex-wrap items-center justify-between gap-2">
                                   <span className="text-xs font-semibold text-muted uppercase">Stock Arrivals</span>
-                                  <div className="flex items-center gap-3">
+                                  <div className="flex flex-wrap items-center gap-2 sm:gap-3">
                                     {isSupplierComplete(deliveryDay, supplier.supplierId) ? (
                                       <>
                                         <span className="text-xs font-semibold text-green-600">✓ Check-in complete</span>
                                         <button
                                           onClick={() => handleReopenCheckin(deliveryDay, supplier.supplierId)}
-                                          className="text-xs font-medium text-muted hover:text-primary transition"
+                                          className="rounded border border-primary/10 px-3 py-2 sm:border-0 sm:px-0 sm:py-0 text-xs font-medium text-muted hover:text-primary transition"
                                         >
                                           Reopen
                                         </button>
@@ -777,13 +795,13 @@ export default function AdminStockPage() {
                                       <>
                                         <button
                                           onClick={() => handleMarkAllArrived(deliveryDay, supplier.supplierId, supplier.items)}
-                                          className="text-xs font-medium text-secondary hover:text-secondary/80 transition"
+                                          className="rounded border border-primary/10 px-3 py-2 sm:border-0 sm:px-0 sm:py-0 text-xs font-medium text-secondary hover:text-secondary/80 transition"
                                         >
                                           Mark all arrived
                                         </button>
                                         <button
                                           onClick={() => handleDoneCheckin(deliveryDay, supplier)}
-                                          className="text-xs font-semibold text-green-600 hover:text-green-700 transition"
+                                          className="rounded border border-green-200 px-3 py-2 sm:border-0 sm:px-0 sm:py-0 text-xs font-semibold text-green-600 hover:text-green-700 transition"
                                         >
                                           Done checking in
                                         </button>
@@ -791,7 +809,105 @@ export default function AdminStockPage() {
                                     )}
                                   </div>
                                 </div>
-                                <table className="w-full text-sm">
+                                {/* Mobile card view */}
+                                <div className="sm:hidden space-y-3 p-3">
+                                  {supplier.items.map((item) => {
+                                    const trackingKey = `${deliveryDay}-${supplier.supplierId}-${item.productName}`;
+                                    const tracking = stockTracking.get(trackingKey);
+                                    const flag = productFlags.get(trackingKey);
+                                    const isFlagged = flag && !flag.resolved;
+                                    const arrived = tracking?.quantityArrived;
+                                    const hasOverride = tracking?.quantityArrivedOverride !== null && tracking?.quantityArrivedOverride !== undefined;
+                                    const computedDiffers = hasOverride && tracking?.quantityArrivedComputed !== tracking?.quantityArrivedOverride;
+                                    const supplierComplete = isSupplierComplete(deliveryDay, supplier.supplierId);
+                                    const isUnder = arrived !== null && arrived !== undefined && arrived < item.quantity;
+                                    const hasShortage = isUnder && supplierComplete;
+                                    const inProgress = isUnder && !supplierComplete;
+                                    const isComplete = arrived !== null && arrived !== undefined && arrived >= item.quantity && !isFlagged;
+
+                                    return (
+                                      <div key={`${item.productName}|${item.unit}`} className={`rounded-xl border border-primary/10 bg-surface p-3 shadow-sm ${isFlagged ? 'bg-red-50' : isComplete ? 'bg-green-50' : hasShortage ? 'bg-amber-50' : item.refrigerated ? chilledRowClass : ''}`}>
+                                        <div className="flex items-center gap-2 flex-wrap">
+                                          <span className="font-bold text-primary">{item.productName}</span>
+                                          {item.refrigerated && <ChilledTag />}
+                                          {isFlagged && (
+                                            <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-bold text-red-700 uppercase">
+                                              Won&apos;t arrive
+                                            </span>
+                                          )}
+                                        </div>
+                                        {item.unit && <span className="block text-xs text-muted">{item.unit}</span>}
+                                        <div className="mt-2 flex items-center justify-between text-sm">
+                                          <span className="text-muted">Ordered</span>
+                                          <span className="font-semibold text-primary">{item.quantity}</span>
+                                        </div>
+                                        <div className="mt-2 flex items-center justify-between text-sm">
+                                          <span className="text-muted">Arrived</span>
+                                          <div className="flex items-center gap-1">
+                                            <input
+                                              type="number"
+                                              min="0"
+                                              max={item.quantity * 2}
+                                              value={arrived ?? ""}
+                                              placeholder="—"
+                                              disabled={isFlagged}
+                                              onChange={(e) => {
+                                                const val = e.target.value === "" ? null : parseInt(e.target.value);
+                                                handleArrivalUpdate(deliveryDay, supplier.supplierId, item.productName, item.quantity, val, tracking?.arrivalNotes ?? null);
+                                              }}
+                                              className={`w-20 min-h-[44px] rounded border border-primary/20 px-2 py-1 text-center text-sm focus:border-secondary focus:outline-none ${isFlagged ? 'bg-gray-100 text-gray-400' : ''}`}
+                                            />
+                                            {computedDiffers && (
+                                              <span className="text-[10px] text-amber-600" title={`Computed from check-ins: ${tracking?.quantityArrivedComputed}`}>(override)</span>
+                                            )}
+                                          </div>
+                                        </div>
+                                        <div className="mt-2 text-sm">
+                                          {isFlagged ? (
+                                            <div>
+                                              <span className="inline-flex items-center gap-1 text-xs font-semibold text-red-700">
+                                                <XCircle size={12} />
+                                                Flagged by supplier
+                                              </span>
+                                              <p className="text-[10px] text-red-600 mt-0.5">
+                                                Affects: {supplier.orders
+                                                  .filter(o => o.items.some(i => i.productName === item.productName))
+                                                  .map(o => `#${o.orderNumber}`)
+                                                  .join(", ")}
+                                              </p>
+                                            </div>
+                                          ) : arrived === null || arrived === undefined ? (
+                                            <span className="text-xs text-muted">Not checked</span>
+                                          ) : inProgress ? (
+                                            <span className="inline-flex items-center gap-1 text-xs font-medium text-muted">
+                                              <Clock size={12} />
+                                              Checking in ({arrived}/{item.quantity})
+                                            </span>
+                                          ) : hasShortage ? (
+                                            <div>
+                                              <span className="inline-flex items-center gap-1 text-xs font-semibold text-amber-700">
+                                                <AlertTriangle size={12} />
+                                                Short by {item.quantity - arrived}
+                                              </span>
+                                              <p className="text-[10px] text-amber-600 mt-0.5">
+                                                Affects: {supplier.orders
+                                                  .filter(o => o.items.some(i => i.productName === item.productName))
+                                                  .map(o => `#${o.orderNumber}`)
+                                                  .join(", ")}
+                                              </p>
+                                            </div>
+                                          ) : (
+                                            <span className="inline-flex items-center gap-1 text-xs font-semibold text-green-700">
+                                              <CheckCircle size={12} />
+                                              Complete
+                                            </span>
+                                          )}
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                                <table className="hidden sm:table w-full text-sm">
                                   <thead>
                                     <tr className="text-left text-xs text-muted border-b border-primary/5">
                                       <th className="px-3 py-2 font-medium">Product</th>
@@ -817,10 +933,11 @@ export default function AdminStockPage() {
                                       const isComplete = arrived !== null && arrived !== undefined && arrived >= item.quantity && !isFlagged;
 
                                       return (
-                                        <tr key={`${item.productName}|${item.unit}`} className={`border-t border-primary/5 ${isFlagged ? 'bg-red-50' : isComplete ? 'bg-green-50' : hasShortage ? 'bg-amber-50' : ''}`}>
+                                        <tr key={`${item.productName}|${item.unit}`} className={`border-t border-primary/5 ${isFlagged ? 'bg-red-50' : isComplete ? 'bg-green-50' : hasShortage ? 'bg-amber-50' : item.refrigerated ? chilledRowClass : ''}`}>
                                           <td className="px-3 py-2">
                                             <div className="flex items-center gap-2">
                                               <span className="text-primary">{item.productName}</span>
+                                              {item.refrigerated && <ChilledTag />}
                                               {isFlagged && (
                                                 <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-bold text-red-700 uppercase">
                                                   Won&apos;t arrive
@@ -926,11 +1043,12 @@ export default function AdminStockPage() {
                                                   type="checkbox"
                                                   checked={isItemChecked}
                                                   onChange={() => handleOrderCheckIn(deliveryDay, supplier.supplierId, orderEntry.orderId, item.productName, item.quantity)}
-                                                  className="w-3.5 h-3.5 rounded border-primary/30 text-green-600 focus:ring-green-500"
+                                                  className="h-5 w-5 rounded border-primary/30 text-green-600 focus:ring-green-500"
                                                 />
                                                 <span className={`text-sm ${isItemChecked ? 'text-green-600 line-through' : 'text-muted'}`}>
                                                   {formatItemLine(item.productName, item.unit, item.quantity)}
                                                 </span>
+                                                {item.refrigerated && <ChilledTag />}
                                               </label>
                                             );
                                           })}
@@ -1023,6 +1141,36 @@ export default function AdminStockPage() {
                           Payout: £{supplier.payout.toFixed(2)}
                         </span>
                       </div>
+                      {/* Mobile card view */}
+                      <div className="sm:hidden space-y-3 p-3">
+                        {supplier.tracking.map((item) => {
+                          const arrived = item.arrived ?? 0;
+                          const value = arrived * item.price;
+                          const isShort = item.arrived !== null && arrived < item.ordered;
+                          return (
+                            <div key={item.productName} className={`rounded-xl border border-primary/10 bg-surface p-3 shadow-sm ${isShort ? 'bg-amber-50' : ''}`}>
+                              <p className="font-bold text-primary">{item.productName}</p>
+                              <div className="mt-2 space-y-1 text-sm">
+                                <div className="flex justify-between"><span className="text-muted">Ordered</span><span className="text-primary">{item.ordered}</span></div>
+                                <div className="flex justify-between"><span className="text-muted">Arrived</span><span className={`font-medium ${isShort ? 'text-amber-600' : 'text-green-600'}`}>{item.arrived ?? '—'}</span></div>
+                                <div className="flex justify-between"><span className="text-muted">Unit Price</span><span className="text-muted">£{item.price.toFixed(2)}</span></div>
+                                <div className="flex justify-between"><span className="text-muted">Value</span><span className="font-medium text-primary">£{value.toFixed(2)}</span></div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                        <div className="rounded-xl border border-primary/10 bg-primary/5 p-3 text-sm space-y-1">
+                          <div className="flex justify-between"><span className="text-muted">Ordered Total</span><span className="text-muted">£{supplier.orderedTotal.toFixed(2)}</span></div>
+                          <div className="flex justify-between"><span className="text-muted">Arrived at Depot</span><span className="font-semibold text-primary">£{supplier.arrivedTotal.toFixed(2)}</span></div>
+                          {supplier.supplierRefundDeduction > 0 && (
+                            <div className="flex justify-between"><span className="text-red-600">Refunded by Supplier</span><span className="font-semibold text-red-600">-£{supplier.supplierRefundDeduction.toFixed(2)}</span></div>
+                          )}
+                          <div className="flex justify-between"><span className="text-muted">Total Before Commission</span><span className="font-semibold text-primary">£{(supplier.arrivedTotal - supplier.supplierRefundDeduction).toFixed(2)}</span></div>
+                          <div className="flex justify-between"><span className="text-muted">Commission (20%)</span><span className="text-muted">-£{((supplier.arrivedTotal - supplier.supplierRefundDeduction) * 0.2).toFixed(2)}</span></div>
+                          <div className="flex justify-between"><span className="font-bold text-primary">Payout</span><span className="font-bold text-green-600">£{supplier.payout.toFixed(2)}</span></div>
+                        </div>
+                      </div>
+                      <div className="hidden sm:block overflow-x-auto">
                       <table className="w-full text-sm">
                         <thead>
                           <tr className="text-left text-xs text-muted border-b border-primary/5">
@@ -1082,6 +1230,7 @@ export default function AdminStockPage() {
                           </tr>
                         </tfoot>
                       </table>
+                      </div>
                       {supplier.supplierRefunds.filter(r => r.paidBy !== "local" && r.itemArrived).length > 0 && (
                         <div className="px-4 py-2 bg-red-50 border-t border-red-200">
                           <p className="text-xs font-semibold text-red-700 mb-1">Refunds deducted from payout:</p>
@@ -1104,12 +1253,12 @@ export default function AdminStockPage() {
                   ))}
                 </div>
               </div>
-              <div className="px-6 py-4 border-t border-primary/10 flex items-center justify-between bg-primary/5">
+              <div className="px-6 py-4 border-t border-primary/10 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-primary/5">
                 <div className="flex items-center gap-4">
                   <span className="font-bold text-primary">Total Payouts:</span>
                   <span className="text-xl font-bold text-green-600">£{totalPayout.toFixed(2)}</span>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <button
                     disabled={sendingPayouts}
                     onClick={async () => {

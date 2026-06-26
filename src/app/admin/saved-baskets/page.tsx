@@ -65,7 +65,7 @@ export default function SavedBasketsPage() {
       </div>
 
       {/* Filter tabs */}
-      <div className="flex gap-2 mb-6">
+      <div className="flex flex-wrap gap-2 mb-6">
         <button
           onClick={() => setFilter("pending")}
           className={`px-4 py-2 rounded-lg text-sm font-medium transition ${
@@ -147,9 +147,9 @@ export default function SavedBasketsPage() {
                   {/* Products */}
                   <div className="mt-3 space-y-1">
                     {basket.products.map((product, idx) => (
-                      <div key={idx} className="flex items-center gap-2 text-sm">
+                      <div key={idx} className="flex flex-wrap items-center gap-2 text-sm">
                         <span className="text-muted">{product.quantity}×</span>
-                        <span className="text-primary">{product.productName}</span>
+                        <span className="text-primary min-w-0 flex-1">{product.productName}</span>
                         <span className="text-muted">({product.supplierName})</span>
                         <span className="text-secondary font-medium">
                           £{(product.price * product.quantity).toFixed(2)}
@@ -159,7 +159,7 @@ export default function SavedBasketsPage() {
                   </div>
 
                   {/* Total and timestamps */}
-                  <div className="mt-3 flex items-center gap-4 text-sm">
+                  <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
                     <span className="font-semibold text-primary">
                       Total: £{basket.total.toFixed(2)}
                     </span>
@@ -178,7 +178,7 @@ export default function SavedBasketsPage() {
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => handleDelete(basket.id)}
-                    className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition"
+                    className="p-2.5 text-red-500 hover:bg-red-50 rounded-lg transition"
                     title="Delete"
                   >
                     <Trash2 size={18} />

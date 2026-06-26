@@ -79,8 +79,13 @@ export default function SupplierProductsPage() {
   const handleSave = async (product: Product) => {
     if (!supplier) return;
     if (editing) {
-      // Editing an existing product → set back to pending
-      await updateProduct({ ...product, status: "pending" });
+      // Editing an existing product. Only require re-approval if the name or
+      // price changed - other edits (stock, description, allergens, ingredients,
+      // photo, tags, locality) go live without admin approval. If the product
+      // wasn't already approved (pending/rejected), keep it in the queue.
+      const nameOrPriceChanged = editing.name !== product.name || editing.price !== product.price;
+      const needsApproval = nameOrPriceChanged || editing.status !== "approved";
+      await updateProduct({ ...product, status: needsApproval ? "pending" : "approved" });
     } else {
       // New product → pending
       await createProduct({ ...product, supplierId: supplier.id, status: "pending" });
@@ -423,7 +428,7 @@ export default function SupplierProductsPage() {
       </div>
 
       <p className="mt-4 text-xs text-muted">
-        New products and edits require admin approval before they appear on the site.
+        New products, and changes to a product&apos;s name or price, require admin approval before they go live. Other edits - stock, description, allergens, ingredients, photo and tags - update straight away.
       </p>
 
       {/* Reviews Modal */}
@@ -500,6 +505,7 @@ function SupplierProductForm({
       image: "",
       category: "",
       inStock: true,
+      refrigerated: false,
       locality: "Local" as Locality,
       lat: null,
       lng: null,
@@ -522,8 +528,8 @@ function SupplierProductForm({
             <X size={20} />
           </button>
         </div>
-        {product && (
-          <p className="mt-1 text-xs text-amber-600">Editing will set this product back to pending approval.</p>
+        {product && (product.name !== form.name || product.price !== form.price) && (
+          <p className="mt-1 text-xs text-amber-600">Changing the name or price will set this product back to pending approval.</p>
         )}
         <div className="mt-4 space-y-3 overflow-y-auto flex-1">
           <input
@@ -667,6 +673,34 @@ function SupplierProductForm({
               </button>
             </div>
           </div>
+          <div>
+            <label className="block text-sm font-medium text-primary mb-2">Refrigeration</label>
+            <p className="text-xs text-muted mb-2">Does this product need to be kept in the fridge? (Used by us for packing - not shown to customers.)</p>
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => setForm({ ...form, refrigerated: false })}
+                className={`flex-1 rounded-lg border-2 px-4 py-3 text-sm font-bold transition ${
+                  !form.refrigerated
+                    ? "border-primary bg-surface text-primary"
+                    : "border-primary/20 bg-surface text-muted hover:border-primary/40"
+                }`}
+              >
+                Ambient
+              </button>
+              <button
+                type="button"
+                onClick={() => setForm({ ...form, refrigerated: true })}
+                className={`flex-1 rounded-lg border-2 px-4 py-3 text-sm font-bold transition ${
+                  form.refrigerated
+                    ? "border-sky-500 bg-sky-50 text-sky-700"
+                    : "border-primary/20 bg-surface text-muted hover:border-primary/40"
+                }`}
+              >
+                ❄ Refrigerated
+              </button>
+            </div>
+          </div>
 
           {/* Tags */}
           <div>
@@ -747,7 +781,11 @@ function SupplierProductForm({
             disabled={!form.variableLocation && (!form.lat || !form.lng)}
             className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {product ? "Save & Submit for Approval" : "Add Product"}
+            {!product
+              ? "Add Product"
+              : (product.name !== form.name || product.price !== form.price)
+                ? "Save & Submit for Approval"
+                : "Save Changes"}
           </button>
         </div>
         {!form.variableLocation && (!form.lat || !form.lng) && (

@@ -452,6 +452,9 @@ interface OrderStatusUpdateData {
   routeLeg?: "morning" | "afternoon";
   routePosition?: number;
   legSize?: number;
+  // For "on our way" emails: how many stops are ahead of this one when notified
+  // (0 = you're next, 1 = one stop before you, 2 = two stops before you)
+  stopsAhead?: number;
 }
 
 export async function sendOrderStatusUpdate(data: OrderStatusUpdateData) {
@@ -506,9 +509,22 @@ export async function sendOrderStatusUpdate(data: OrderStatusUpdateData) {
         ${SIGNOFF}`;
   } else if (data.status === "next_hour") {
     subject = `We're on our way${nm} 🚚`;
+    const stops = data.stopsAhead;
+    let positionLine: string;
+    if (stops === 0) {
+      positionLine = "You're first in line - you're our first stop.";
+    } else if (stops === 1) {
+      positionLine = "You're second in line - we've just one more stop before yours, so it should be roughly 15 to 30 minutes.";
+    } else if (stops === 2) {
+      positionLine = "You're third in line - we've two more stops before yours, so roughly half an hour to an hour.";
+    } else if (typeof stops === "number" && stops > 2) {
+      positionLine = `You're number ${stops + 1} in line - we've ${stops} stops to make before yours, so it'll be a little while yet.`;
+    } else {
+      positionLine = "Your box is on the van and should be with you within the hour.";
+    }
     body = `
-        <h1 style="color: ${BRAND}; font-size: 21px; margin: 0 0 14px;">🚚 Nearly with you</h1>
-        <p style="margin: 0 0 12px;">Hi ${name}, your box is on the van and should be with you within the hour.</p>
+        <h1 style="color: ${BRAND}; font-size: 21px; margin: 0 0 14px;">🚚 We're on our way</h1>
+        <p style="margin: 0 0 12px;">Hi ${name}, your box is on the van and we're out on the road. ${positionLine}</p>
         ${reminder ? `<p style="margin: 0 0 12px;">${reminder}</p>` : ""}
         ${SIGNOFF}`;
   } else if (data.status === "delivered") {

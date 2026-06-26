@@ -164,7 +164,7 @@ export default function AdminCustomersPage() {
             className="w-full rounded-lg border border-primary/20 bg-surface py-2 pl-10 pr-4 text-sm outline-none focus:border-secondary"
           />
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <button
             onClick={() => setFilterBox("all")}
             className={`rounded-lg px-3 py-2 text-sm font-medium transition ${
@@ -199,8 +199,82 @@ export default function AdminCustomersPage() {
         </div>
       </div>
 
+      {/* Customer List - mobile card view (below sm) */}
+      <div className="sm:hidden space-y-3">
+        {filteredCustomers.length === 0 ? (
+          <div className="rounded-xl border border-primary/10 bg-surface p-4 text-center text-sm text-muted shadow-sm">
+            No customers found
+          </div>
+        ) : (
+          filteredCustomers.map((customer) => (
+            <div
+              key={customer.clerkUserId}
+              className="rounded-xl border border-primary/10 bg-surface p-3 shadow-sm"
+            >
+              <div className="flex items-center gap-2">
+                <Mail size={14} className="flex-shrink-0 text-muted" />
+                <span className="break-all font-bold text-primary">
+                  {customer.email || "No email"}
+                </span>
+              </div>
+
+              <div className="mt-2 space-y-1 text-sm">
+                <p className="text-muted">
+                  Postcode: <span className="text-primary">{customer.postcode || "—"}</span>
+                </p>
+                <p className="text-muted">
+                  Orders: <span className="font-semibold text-primary">{customer.totalOrders}</span>
+                </p>
+                <p className="text-muted">
+                  Total spent:{" "}
+                  <span className="font-semibold text-green-600">£{customer.totalSpent.toFixed(2)}</span>
+                </p>
+                <p className="text-muted">
+                  Last order:{" "}
+                  <span className="text-primary">
+                    {customer.lastOrderDate
+                      ? new Date(customer.lastOrderDate).toLocaleDateString("en-GB", {
+                          day: "numeric",
+                          month: "short",
+                          year: "2-digit",
+                        })
+                      : "—"}
+                  </span>
+                </p>
+                <p className="flex items-center gap-2 text-muted">
+                  Box status:{" "}
+                  {customer.hasOutstandingBox ? (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-1 text-xs font-semibold text-amber-700">
+                      <Package size={12} />
+                      Outstanding
+                    </span>
+                  ) : customer.boxDepositOrders > 0 ? (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-green-100 px-2 py-1 text-xs font-semibold text-green-700">
+                      <CheckCircle size={12} />
+                      Returned
+                    </span>
+                  ) : (
+                    <span className="text-xs text-muted">—</span>
+                  )}
+                </p>
+              </div>
+
+              {customer.hasOutstandingBox && (
+                <button
+                  onClick={() => handleMarkReturned(customer.clerkUserId)}
+                  className="mt-3 flex w-full items-center justify-center gap-1 rounded-lg bg-green-100 py-2.5 text-sm font-semibold text-green-700 transition hover:bg-green-200"
+                >
+                  <CheckCircle size={14} />
+                  Mark Returned
+                </button>
+              )}
+            </div>
+          ))
+        )}
+      </div>
+
       {/* Customer List */}
-      <div className="rounded-xl bg-surface shadow-sm overflow-hidden">
+      <div className="hidden sm:block rounded-xl bg-surface shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead>

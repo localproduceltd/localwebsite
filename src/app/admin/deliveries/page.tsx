@@ -716,7 +716,7 @@ export default function AdminDeliveriesPage() {
                           {/* Main row - larger for mobile */}
                           <div
                             onClick={() => toggleExpand(key)}
-                            className="flex items-center gap-2 sm:gap-4 px-3 sm:px-6 py-4 cursor-pointer hover:bg-primary/5 transition"
+                            className="flex flex-wrap sm:flex-nowrap items-center gap-2 sm:gap-4 px-3 sm:px-6 py-4 cursor-pointer hover:bg-primary/5 transition"
                           >
                             {/* Order # */}
                             <div className="w-12 sm:w-16 flex-shrink-0">
@@ -733,7 +733,7 @@ export default function AdminDeliveriesPage() {
                             </div>
                             
                             {/* Window pill */}
-                            <div className="hidden sm:flex flex-col items-center gap-1 w-16 flex-shrink-0">
+                            <div className="flex flex-col items-center gap-1 w-16 flex-shrink-0">
                               {order.deliveryWindow && (
                                 <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${order.deliveryWindow === "morning" ? "bg-amber-100 text-amber-700" : order.deliveryWindow === "afternoon" ? "bg-purple-100 text-purple-700" : "bg-sky-100 text-sky-700"}`}>
                                   {order.deliveryWindow === "morning" ? "9–1" : order.deliveryWindow === "afternoon" ? "1–5" : "Any"}
@@ -757,7 +757,7 @@ export default function AdminDeliveriesPage() {
                             </div>
                             
                             {/* Box pill */}
-                            <div className="hidden md:block w-16 flex-shrink-0 text-center">
+                            <div className="block w-16 flex-shrink-0 text-center">
                               {order.boxDepositPaid && !hasBox ? (
                                 <span className="inline-flex items-center gap-1 rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-semibold text-green-700">
                                   <Package size={10} />
@@ -774,11 +774,11 @@ export default function AdminDeliveriesPage() {
                             </div>
                             
                             {/* Status dropdown */}
-                            <div className="w-24 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+                            <div className="w-full sm:w-24 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
                               <select
                                 value={order.status}
                                 onChange={(e) => updateStatus(order.id, e.target.value as Order["status"])}
-                                className={`w-full appearance-none cursor-pointer rounded-full px-2 py-1 text-xs font-semibold border-0 outline-none ${status.color}`}
+                                className={`w-full appearance-none cursor-pointer rounded-full min-h-[44px] sm:min-h-0 px-3 sm:px-2 py-1 text-sm sm:text-xs font-semibold border-0 outline-none ${status.color}`}
                               >
                                 {statusOptions.map((s) => (
                                   <option key={s} value={s}>
@@ -789,25 +789,33 @@ export default function AdminDeliveriesPage() {
                             </div>
                             
                             {/* Action button */}
-                            <div className="flex items-center gap-1 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+                            <div className="flex w-full sm:w-auto items-center gap-2 sm:gap-1 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
                               {nextStatus ? (
                                 <button
                                   onClick={() => advanceStatus(order.id)}
-                                  className="inline-flex items-center gap-1 rounded-lg bg-secondary px-3 py-2 text-sm font-semibold text-white hover:bg-secondary/90 transition"
+                                  className="inline-flex flex-1 sm:flex-none items-center justify-center gap-1 rounded-lg bg-secondary px-3 py-2.5 sm:py-2 text-sm font-semibold text-white hover:bg-secondary/90 transition"
                                   title={`Advance to ${statusConfig[nextStatus].label}`}
                                 >
                                   <Play size={14} />
-                                  <span className="hidden sm:inline">{statusConfig[nextStatus].label}</span>
+                                  <span className="sm:inline">{statusConfig[nextStatus].label}</span>
                                 </button>
                               ) : (
-                                <span className="inline-flex items-center gap-1 rounded-lg bg-gray-100 px-3 py-2 text-sm font-semibold text-gray-400">
+                                <span className="inline-flex flex-1 sm:flex-none items-center justify-center gap-1 rounded-lg bg-gray-100 px-3 py-2.5 sm:py-2 text-sm font-semibold text-gray-400">
                                   <CheckCircle size={14} />
-                                  <span className="hidden sm:inline">Done</span>
+                                  <span className="sm:inline">Done</span>
                                 </span>
                               )}
-                              
-                              {/* More menu for cancel */}
-                              <div className="relative">
+
+                              {/* Cancel button - visible on mobile */}
+                              <button
+                                onClick={() => updateStatus(order.id, "cancelled")}
+                                className="sm:hidden inline-flex items-center justify-center rounded-lg border border-red-200 px-3 py-2.5 text-sm font-semibold text-red-600 hover:bg-red-50 transition"
+                              >
+                                Cancel
+                              </button>
+
+                              {/* More menu for cancel (sm+) */}
+                              <div className="relative hidden sm:block">
                                 <button
                                   onClick={() => setActionMenuOpen(actionMenuOpen === order.id ? null : order.id)}
                                   className="p-2 text-muted hover:text-primary transition"
@@ -974,7 +982,7 @@ export default function AdminDeliveriesPage() {
 
       {/* Refund Modal */}
       {refundModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setRefundModal(null)}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setRefundModal(null)}>
           <div className="bg-surface rounded-xl shadow-xl p-6 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-lg font-bold text-primary mb-4">Issue Refund</h3>
             <div className="space-y-4">

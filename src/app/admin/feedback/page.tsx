@@ -235,7 +235,7 @@ export default function AdminFeedbackPage() {
                       <button
                         onClick={() => handleTogglePin("product_review", review.id, review.featured)}
                         title={review.featured ? "Pinned to homepage" : "Pin to homepage"}
-                        className={`rounded p-1 transition ${review.featured ? "text-accent" : "text-muted hover:text-accent"}`}
+                        className={`rounded p-2 transition ${review.featured ? "text-accent" : "text-muted hover:text-accent"}`}
                       >
                         <Pin size={14} className={review.featured ? "fill-accent" : ""} />
                       </button>
@@ -296,7 +296,7 @@ export default function AdminFeedbackPage() {
                         <button
                           onClick={() => handleTogglePin("order_review", fb.id, fb.featured)}
                           title={fb.featured ? "Pinned to homepage" : "Pin to homepage"}
-                          className={`rounded p-1 transition ${fb.featured ? "text-accent" : "text-muted hover:text-accent"}`}
+                          className={`rounded p-2 transition ${fb.featured ? "text-accent" : "text-muted hover:text-accent"}`}
                         >
                           <Pin size={14} className={fb.featured ? "fill-accent" : ""} />
                         </button>

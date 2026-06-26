@@ -467,7 +467,7 @@ function SupplierForm({
             className="w-full rounded-lg border border-primary/20 bg-surface px-3 py-2 text-sm outline-none focus:border-secondary"
             rows={3}
           />
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <input
               placeholder="Location"
               value={form.location}
@@ -615,7 +615,7 @@ function SupplierCard({
         <button
           onClick={onToggleFeatured}
           title={supplier.featured ? "Remove from homepage" : "Feature on homepage"}
-          className={`absolute top-2 left-2 flex h-7 w-7 items-center justify-center rounded-full shadow-sm transition ${
+          className={`absolute top-2 left-2 flex h-9 w-9 items-center justify-center rounded-full shadow-sm transition ${
             supplier.featured
               ? "bg-accent text-white"
               : "bg-white/80 text-gray-400 hover:text-accent"
@@ -666,7 +666,7 @@ function SupplierCard({
           <select
             value={supplier.status}
             onChange={(e) => onStatusChange(e.target.value as SupplierStatus)}
-            className="w-full rounded-lg border border-primary/20 bg-white px-3 py-1.5 text-xs font-medium outline-none focus:border-secondary"
+            className="w-full min-h-[40px] rounded-lg border border-primary/20 bg-white px-3 py-2 text-sm font-medium outline-none focus:border-secondary"
           >
             <option value="launch_live">Live</option>
             <option value="launch_not_live">Not Live</option>
@@ -694,13 +694,13 @@ function SupplierCard({
         <div className="mt-3 flex gap-2 border-t border-primary/5 pt-3">
           <button
             onClick={onEdit}
-            className="flex-1 inline-flex items-center justify-center gap-1 rounded-lg bg-secondary/20 py-1.5 text-xs font-medium text-primary transition hover:bg-secondary/30"
+            className="flex-1 inline-flex items-center justify-center gap-1 rounded-lg bg-secondary/20 py-2 text-xs font-medium text-primary transition hover:bg-secondary/30"
           >
             <Pencil size={12} /> Edit
           </button>
           <button
             onClick={onDelete}
-            className="flex-1 inline-flex items-center justify-center gap-1 rounded-lg bg-red-50 py-1.5 text-xs font-medium text-red-600 transition hover:bg-red-100"
+            className="flex-1 inline-flex items-center justify-center gap-1 rounded-lg bg-red-50 py-2 text-xs font-medium text-red-600 transition hover:bg-red-100"
           >
             <Trash2 size={12} /> Delete
           </button>

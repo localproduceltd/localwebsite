@@ -164,18 +164,18 @@ export default function AdminDeliveryDaysPage() {
           <div className="mt-3 space-y-3">
             {upcoming.map((day) => (
               <div key={day.id} className="rounded-xl bg-surface p-5 shadow-sm ring-2 ring-secondary/20">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <p className="font-semibold text-primary">{formatDate(day.deliveryDate)}</p>
                     <p className="text-xs text-muted">
                       Order by {formatDate(day.cutoffDate)} at {day.cutoffTime}
                     </p>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <button
                       onClick={() => handleSendToSuppliers(day.deliveryDate)}
                       disabled={sendingTo === day.deliveryDate}
-                      className="inline-flex items-center gap-2 rounded-lg bg-secondary/20 px-3 py-1.5 text-xs font-semibold text-secondary transition hover:bg-secondary/30 disabled:opacity-50"
+                      className="inline-flex items-center gap-2 rounded-lg bg-secondary/20 px-3 py-2 text-xs font-semibold text-secondary transition hover:bg-secondary/30 disabled:opacity-50"
                     >
                       {sendingTo === day.deliveryDate ? (
                         <>
@@ -191,13 +191,13 @@ export default function AdminDeliveryDaysPage() {
                     </button>
                     <button
                       onClick={() => openEdit(day)}
-                      className="rounded-lg border border-primary/20 px-3 py-1.5 text-xs font-medium text-primary hover:bg-secondary/10"
+                      className="rounded-lg border border-primary/20 px-3 py-2 text-xs font-medium text-primary hover:bg-secondary/10"
                     >
                       Edit
                     </button>
                     <button
                       onClick={() => handleDelete(day.id)}
-                      className="rounded p-1.5 text-muted transition hover:bg-red-50 hover:text-red-600"
+                      className="rounded p-2 text-muted transition hover:bg-red-50 hover:text-red-600"
                     >
                       <Trash2 size={14} />
                     </button>
@@ -226,18 +226,18 @@ export default function AdminDeliveryDaysPage() {
           <div className="mt-3 space-y-3">
             {past.map((day) => (
               <div key={day.id} className="rounded-xl bg-surface p-5 shadow-sm">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <p className="font-semibold text-primary">{formatDate(day.deliveryDate)}</p>
                     <p className="text-xs text-muted">
                       Cutoff was {formatDate(day.cutoffDate)} at {day.cutoffTime}
                     </p>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <button
                       onClick={() => handleSendToSuppliers(day.deliveryDate)}
                       disabled={sendingTo === day.deliveryDate}
-                      className="inline-flex items-center gap-2 rounded-lg bg-secondary px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-secondary/90 disabled:opacity-50"
+                      className="inline-flex items-center gap-2 rounded-lg bg-secondary px-3 py-2 text-xs font-semibold text-white transition hover:bg-secondary/90 disabled:opacity-50"
                     >
                       {sendingTo === day.deliveryDate ? (
                         <>
@@ -253,7 +253,7 @@ export default function AdminDeliveryDaysPage() {
                     </button>
                     <button
                       onClick={() => handleDelete(day.id)}
-                      className="rounded p-1.5 text-muted transition hover:bg-red-50 hover:text-red-600"
+                      className="rounded p-2 text-muted transition hover:bg-red-50 hover:text-red-600"
                     >
                       <Trash2 size={14} />
                     </button>
@@ -261,7 +261,7 @@ export default function AdminDeliveryDaysPage() {
                 </div>
                 {sendResult && sendResult.date === day.deliveryDate && (
                   <div className={`mt-3 rounded-lg px-3 py-2 text-sm ${
-                    sendResult.success 
+                    sendResult.success
                       ? "bg-green-50 text-green-700 border border-green-200" 
                       : "bg-red-50 text-red-700 border border-red-200"
                   }`}>

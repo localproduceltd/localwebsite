@@ -25,7 +25,7 @@ export async function GET(request: NextRequest) {
   try {
     const { data, error } = await supabase
       .from("products")
-      .select("id, category")
+      .select("id, category, refrigerated")
       .in("id", ids);
 
     if (error) throw error;

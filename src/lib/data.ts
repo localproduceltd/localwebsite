@@ -65,6 +65,7 @@ export interface Product {
   image: string;
   category: string;
   inStock: boolean;
+  refrigerated: boolean;
   locality: Locality;
   lat: number | null;
   lng: number | null;
@@ -304,6 +305,7 @@ export async function getProducts(client: SupabaseClient = supabase): Promise<Pr
     image: p.image,
     category: p.category,
     inStock: p.in_stock,
+    refrigerated: p.refrigerated ?? false,
     locality: (p.locality as Locality) ?? "Local",
     lat: p.lat ?? null,
     lng: p.lng ?? null,
@@ -339,6 +341,7 @@ export async function getApprovedProducts(): Promise<Product[]> {
     image: p.image,
     category: p.category,
     inStock: p.in_stock,
+    refrigerated: p.refrigerated ?? false,
     locality: (p.locality as Locality) ?? "Local",
     lat: p.lat ?? null,
     lng: p.lng ?? null,
@@ -372,6 +375,7 @@ export async function getProductsBySupplier(supplierId: string, client: Supabase
     image: p.image,
     category: p.category,
     inStock: p.in_stock,
+    refrigerated: p.refrigerated ?? false,
     locality: (p.locality as Locality) ?? "Local",
     lat: p.lat ?? null,
     lng: p.lng ?? null,
@@ -407,6 +411,7 @@ export async function getProduct(id: string, client: SupabaseClient = supabase):
     image: data.image,
     category: data.category,
     inStock: data.in_stock,
+    refrigerated: data.refrigerated ?? false,
     locality: (data.locality as Locality) ?? "Local",
     lat: data.lat ?? null,
     lng: data.lng ?? null,
@@ -438,6 +443,7 @@ export async function getArchivedProducts(client: SupabaseClient = supabase): Pr
     image: p.image,
     category: p.category,
     inStock: p.in_stock,
+    refrigerated: p.refrigerated ?? false,
     locality: (p.locality as Locality) ?? "Local",
     lat: p.lat ?? null,
     lng: p.lng ?? null,
@@ -582,6 +588,7 @@ export async function createProduct(product: Omit<Product, "id" | "supplierName"
     image: product.image,
     category: product.category,
     in_stock: product.inStock,
+    refrigerated: product.refrigerated ?? false,
     supplier_id: product.supplierId,
     locality: product.locality,
     lat: product.lat,
@@ -604,6 +611,7 @@ export async function createProduct(product: Omit<Product, "id" | "supplierName"
     image: data.image,
     category: data.category,
     inStock: data.in_stock,
+    refrigerated: data.refrigerated ?? false,
     locality: (data.locality as Locality) ?? "Local",
     lat: data.lat ?? null,
     lng: data.lng ?? null,
@@ -626,6 +634,7 @@ export async function updateProduct(product: Product, client: SupabaseClient = s
     image: product.image,
     category: product.category,
     in_stock: product.inStock,
+    refrigerated: product.refrigerated ?? false,
     supplier_id: product.supplierId,
     locality: product.locality,
     lat: product.lat,
@@ -1274,6 +1283,7 @@ export interface SupplierOrderItem {
   orderNumber: number;
   productId: string;
   productName: string;
+  refrigerated: boolean;
   unit: string;
   quantity: number;
   price: number;
@@ -1289,18 +1299,20 @@ export interface SupplierOrderItem {
 export async function getSupplierOrders(supplierId: string): Promise<SupplierOrderItem[]> {
   const { data, error } = await supabase
     .from("order_items")
-    .select("*, orders(delivery_day, created_at, status, order_number, user_id, customer_name, customer_email)")
+    .select("*, orders(delivery_day, created_at, status, order_number, user_id, customer_name, customer_email), products(refrigerated)")
     .eq("supplier_id", supplierId)
     .order("created_at", { ascending: false, referencedTable: "orders" });
   if (error) throw error;
   return data.map((item) => {
     const order = item.orders as { delivery_day: string; created_at: string; status: string; order_number: number; user_id: string; customer_name: string | null; customer_email: string | null };
+    const product = item.products as { refrigerated: boolean } | null;
     return {
       id: item.id,
       orderId: item.order_id,
       orderNumber: order?.order_number ?? 0,
       productId: item.product_id,
       productName: item.product_name,
+      refrigerated: product?.refrigerated ?? false,
       unit: item.unit ?? "",
       quantity: item.quantity,
       price: Number(item.price),
