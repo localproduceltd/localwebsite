@@ -1,7 +1,8 @@
 "use client";
 
 import { createContext, useContext, useState, useEffect, useCallback, useRef, type ReactNode } from "react";
-import { type Product, getApprovedProducts } from "@/lib/data";
+import { useUser } from "@clerk/nextjs";
+import { type Product, getApprovedProducts, saveBasket, getSavedBasketByEmail } from "@/lib/data";
 
 const CART_STORAGE_KEY = "local-produce-cart";
 const TOPUP_STORAGE_KEY = "local-produce-topup";
@@ -57,10 +58,16 @@ function fireAddToCartEvent(product: Product, quantity: number) {
 const CartContext = createContext<CartContextType | null>(null);
 
 export function CartProvider({ children }: { children: ReactNode }) {
+  const { isSignedIn, user } = useUser();
   const [items, setItems] = useState<CartItem[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [topUpOrder, setTopUpOrder] = useState<TopUpOrder | null>(null);
   const initialized = useRef(false);
+  // Server-sync (cross-device saved basket) bookkeeping.
+  // restoredEmail = the email whose saved basket has already been loaded into this
+  // session. Set only in async callbacks so we never trigger cascading renders.
+  const [restoredEmail, setRestoredEmail] = useState<string | null>(null);
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Load cart from localStorage on mount
   useEffect(() => {
@@ -183,6 +190,59 @@ export function CartProvider({ children }: { children: ReactNode }) {
     const product = products.find((p) => p.id === i.productId);
     return sum + (product ? product.price * i.quantity : 0);
   }, 0);
+
+  // Cross-device saved basket: when a customer signs in, load their saved basket
+  // from the server (keyed on email) and merge it with anything already in this
+  // browser. Runs once per signed-in email; setRestoredEmail fires only after the
+  // async load settles, so the save effect below won't run with stale items.
+  useEffect(() => {
+    if (!isSignedIn || !user) return;
+    const email = user.primaryEmailAddress?.emailAddress ?? null;
+    if (!email || restoredEmail === email) return;
+
+    let cancelled = false;
+    getSavedBasketByEmail(email)
+      .then((saved) => {
+        if (cancelled || !saved || saved.items.length === 0) return;
+        setItems((prev) => {
+          // Server basket is the base; append any product added in this browser
+          // that isn't already saved. Quantities never double up.
+          const merged = [...saved.items];
+          for (const local of prev) {
+            if (!merged.some((m) => m.productId === local.productId)) {
+              merged.push(local);
+            }
+          }
+          return merged;
+        });
+      })
+      .catch(console.error)
+      .finally(() => {
+        if (!cancelled) setRestoredEmail(email);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isSignedIn, user, restoredEmail]);
+
+  // Persist the basket to the server on every change (debounced), once signed in
+  // and this email's restore has completed. This makes removals stick and keeps the
+  // admin Saved Baskets view current without the customer sitting on the cart page.
+  useEffect(() => {
+    if (!initialized.current || !isSignedIn || !user) return;
+    const email = user.primaryEmailAddress?.emailAddress ?? null;
+    if (!email || restoredEmail !== email) return;
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => {
+      saveBasket(user.id, email, items, totalPrice).catch((e) =>
+        console.error("Saved basket sync failed:", e)
+      );
+    }, 1500);
+    return () => {
+      if (saveTimer.current) clearTimeout(saveTimer.current);
+    };
+  }, [items, isSignedIn, user, restoredEmail, totalPrice]);
 
   const getProduct = useCallback(
     (productId: string) => products.find((p) => p.id === productId),

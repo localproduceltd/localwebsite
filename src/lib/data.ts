@@ -2494,19 +2494,25 @@ export async function saveBasket(
   items: Array<{ productId: string; quantity: number }>,
   total: number
 ): Promise<void> {
-  // Upsert - update if exists, insert if not
+  // Keyed on EMAIL (not the Clerk user id) so a customer's single saved basket
+  // survives Clerk id changes (e.g. the dev->prod instance migration) and follows
+  // them across devices. We still record the current user_id for reference.
+  if (!customerEmail) return;
+
   const { data: existing } = await supabase
     .from("saved_baskets")
     .select("id")
-    .eq("user_id", userId)
+    .eq("customer_email", customerEmail)
     .is("converted_at", null)
-    .single();
+    .maybeSingle();
 
   if (existing) {
+    // Update in place - including emptying it when the customer clears their cart,
+    // so removed items don't reappear on their next visit.
     const { error } = await supabase
       .from("saved_baskets")
       .update({
-        customer_email: customerEmail,
+        user_id: userId,
         items,
         total,
         updated_at: new Date().toISOString(),
@@ -2514,6 +2520,8 @@ export async function saveBasket(
       .eq("id", existing.id);
     if (error) throw error;
   } else {
+    // Never create an empty pending basket (e.g. right after a cart is cleared).
+    if (items.length === 0) return;
     const { error } = await supabase
       .from("saved_baskets")
       .insert({
@@ -2526,11 +2534,12 @@ export async function saveBasket(
   }
 }
 
-export async function markBasketConverted(userId: string): Promise<void> {
+export async function markBasketConverted(customerEmail: string): Promise<void> {
+  if (!customerEmail) return;
   const { error } = await supabase
     .from("saved_baskets")
     .update({ converted_at: new Date().toISOString() })
-    .eq("user_id", userId)
+    .eq("customer_email", customerEmail)
     .is("converted_at", null);
   if (error) throw error;
 }
@@ -2593,14 +2602,15 @@ export async function getSavedBaskets(): Promise<SavedBasketWithProducts[]> {
   }));
 }
 
-export async function getUserSavedBasket(userId: string): Promise<SavedBasket | null> {
+export async function getSavedBasketByEmail(customerEmail: string): Promise<SavedBasket | null> {
+  if (!customerEmail) return null;
   const { data, error } = await supabase
     .from("saved_baskets")
     .select("*")
-    .eq("user_id", userId)
+    .eq("customer_email", customerEmail)
     .is("converted_at", null)
-    .single();
-  if (error) return null;
+    .maybeSingle();
+  if (error || !data) return null;
   return {
     id: data.id,
     userId: data.user_id,

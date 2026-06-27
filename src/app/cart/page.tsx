@@ -93,23 +93,9 @@ export default function CartPage() {
     }
   }, [user]);
 
-  // Auto-save basket every 2 minutes if logged in and cart has items
-  useEffect(() => {
-    if (!isSignedIn || !user || items.length === 0) return;
-    
-    const autoSave = async () => {
-      try {
-        const email = user.primaryEmailAddress?.emailAddress ?? null;
-        await saveBasket(user.id, email, items, totalPrice);
-        setLastSavedAt(new Date());
-      } catch (error) {
-        console.error("Auto-save basket failed:", error);
-      }
-    };
-
-    const interval = setInterval(autoSave, 2 * 60 * 1000); // 2 minutes
-    return () => clearInterval(interval);
-  }, [isSignedIn, user, items, totalPrice]);
+  // Note: the basket now auto-saves on every change (debounced) via CartProvider
+  // for any signed-in customer, anywhere on the site - not just on this page.
+  // The button below is an optional "save now" reassurance.
 
   const handleSaveBasket = async () => {
     if (!user) {
@@ -383,40 +369,55 @@ export default function CartPage() {
         </div>
       )}
 
-      {/* Save Basket Banner - only show for new orders, not top-ups */}
+      {/* Saved basket reassurance - only show for new orders, not top-ups */}
       {!topUpOrder && items.length > 0 && (
         <div className="mt-4 rounded-lg bg-amber-50 border border-amber-200 px-4 py-3">
-          <div className="flex items-center justify-between gap-4">
-            <p className="text-sm text-amber-800">
-              <strong>Not ready to check out?</strong> Save your basket and come back later.
-            </p>
-            <button
-              onClick={handleSaveBasket}
-              disabled={savingBasket}
-              className={`flex-shrink-0 inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium transition ${
-                basketSaved
-                  ? "bg-green-600 text-white"
-                  : "bg-amber-600 text-white hover:bg-amber-700"
-              }`}
-            >
-              {savingBasket ? (
-                <>
-                  <Loader2 size={14} className="animate-spin" />
-                  Saving...
-                </>
-              ) : basketSaved ? (
-                <>
-                  <CheckCircle size={14} />
-                  Basket Saved
-                </>
-              ) : (
-                <>
-                  <Bookmark size={14} />
-                  {isSignedIn ? "Save Basket" : "Log in to Save"}
-                </>
-              )}
-            </button>
-          </div>
+          {isSignedIn ? (
+            <div className="flex items-center justify-between gap-4">
+              <p className="text-sm text-amber-800">
+                💚 <strong>Your basket is saved.</strong> It saves automatically as you shop - log in on any device and it&apos;ll be waiting for you.
+              </p>
+              <button
+                onClick={handleSaveBasket}
+                disabled={savingBasket}
+                className={`flex-shrink-0 inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium transition ${
+                  basketSaved
+                    ? "bg-green-600 text-white"
+                    : "bg-amber-600 text-white hover:bg-amber-700"
+                }`}
+              >
+                {savingBasket ? (
+                  <>
+                    <Loader2 size={14} className="animate-spin" />
+                    Saving...
+                  </>
+                ) : basketSaved ? (
+                  <>
+                    <CheckCircle size={14} />
+                    Saved
+                  </>
+                ) : (
+                  <>
+                    <Bookmark size={14} />
+                    Save now
+                  </>
+                )}
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center justify-between gap-4">
+              <p className="text-sm text-amber-800">
+                <strong>Log in to save your basket.</strong> Sign in and your basket follows you to any device.
+              </p>
+              <button
+                onClick={() => router.push("/sign-in?redirect_url=/cart")}
+                className="flex-shrink-0 inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium bg-amber-600 text-white hover:bg-amber-700 transition"
+              >
+                <Bookmark size={14} />
+                Log in to Save
+              </button>
+            </div>
+          )}
         </div>
       )}
 

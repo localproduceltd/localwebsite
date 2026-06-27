@@ -205,10 +205,10 @@ export async function POST(request: NextRequest) {
 
       console.log(`Order ${order.orderNumber} created via webhook for session ${sessionId}`);
 
-      // Mark any saved basket as converted
-      if (metadata.userId) {
+      // Mark any saved basket as converted (keyed on email, matching saveBasket)
+      if (session.customer_email) {
         try {
-          await markBasketConverted(metadata.userId);
+          await markBasketConverted(session.customer_email);
         } catch (e) {
           console.error("Failed to mark basket converted:", e);
         }
