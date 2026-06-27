@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { stripe } from "@/lib/stripe";
-import { createOrder, getOrderByStripeSession, parseItemsFromMetadata, type DeliveryWindow, type DeliveryOption, type OrderItem, setCustomerOutstandingBox, getActiveDeliveryDays } from "@/lib/data";
+import { createOrder, getOrderByStripeSession, parseItemsFromMetadata, type DeliveryWindow, type DeliveryOption, type OrderItem, setCustomerOutstandingBox, getActiveDeliveryDays, markBasketConverted } from "@/lib/data";
 import { sendOrderConfirmation } from "@/lib/email";
 import { auth, clerkClient } from "@clerk/nextjs/server";
 import { DELIVERY_FEE } from "@/lib/constants";
@@ -85,6 +85,16 @@ export async function POST(request: NextRequest) {
 
     // Note: has_outstanding_box is set when order is marked delivered, not at checkout
     // This ensures the flag reflects physical possession of a box
+
+    // Mark the saved basket as converted (keyed on email) before the cart clears,
+    // so it moves to the Converted tab rather than being deleted as an empty cart.
+    if (session.customer_email) {
+      try {
+        await markBasketConverted(session.customer_email);
+      } catch (e) {
+        console.error("Failed to mark basket converted:", e);
+      }
+    }
 
     // Send emails - await them to ensure delivery
     const customerEmail = session.customer_email;

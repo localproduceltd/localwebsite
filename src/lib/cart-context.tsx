@@ -68,6 +68,9 @@ export function CartProvider({ children }: { children: ReactNode }) {
   // session. Set only in async callbacks so we never trigger cascading renders.
   const [restoredEmail, setRestoredEmail] = useState<string | null>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // True once the cart has actually held items in this signed-in session. Guards
+  // against an empty/failed restore wiping a saved basket (see save effect below).
+  const hadItemsRef = useRef(false);
 
   // Load cart from localStorage on mount
   useEffect(() => {
@@ -200,6 +203,9 @@ export function CartProvider({ children }: { children: ReactNode }) {
     const email = user.primaryEmailAddress?.emailAddress ?? null;
     if (!email || restoredEmail === email) return;
 
+    // New email/session: assume the cart hasn't been populated until proven so.
+    hadItemsRef.current = false;
+
     let cancelled = false;
     getSavedBasketByEmail(email)
       .then((saved) => {
@@ -233,6 +239,11 @@ export function CartProvider({ children }: { children: ReactNode }) {
     if (!initialized.current || !isSignedIn || !user) return;
     const email = user.primaryEmailAddress?.emailAddress ?? null;
     if (!email || restoredEmail !== email) return;
+    if (items.length > 0) hadItemsRef.current = true;
+    // Only let an empty cart reach the server (which deletes the saved basket) if
+    // the cart genuinely held items this session. A fresh/empty browser or a failed
+    // restore must never wipe an existing saved basket.
+    if (items.length === 0 && !hadItemsRef.current) return;
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => {
       saveBasket(user.id, email, items, totalPrice).catch((e) =>

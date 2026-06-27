@@ -2506,9 +2506,21 @@ export async function saveBasket(
     .is("converted_at", null)
     .maybeSingle();
 
+  if (items.length === 0) {
+    // Cart emptied: delete the pending basket rather than leaving a £0 row in the
+    // admin list. Safe from the "removed items come back" problem - the server now
+    // holds nothing, so nothing is restored on the next visit.
+    if (existing) {
+      const { error } = await supabase
+        .from("saved_baskets")
+        .delete()
+        .eq("id", existing.id);
+      if (error) throw error;
+    }
+    return;
+  }
+
   if (existing) {
-    // Update in place - including emptying it when the customer clears their cart,
-    // so removed items don't reappear on their next visit.
     const { error } = await supabase
       .from("saved_baskets")
       .update({
@@ -2520,8 +2532,6 @@ export async function saveBasket(
       .eq("id", existing.id);
     if (error) throw error;
   } else {
-    // Never create an empty pending basket (e.g. right after a cart is cleared).
-    if (items.length === 0) return;
     const { error } = await supabase
       .from("saved_baskets")
       .insert({
