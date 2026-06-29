@@ -77,8 +77,10 @@ export default function YourPageView() {
   const handleSave = async () => {
     if (!form) return;
     setSaving(true);
-    // If supplier was launch_live, set to launch_not_live (requires admin re-approval)
-    const updatedForm = form.status === "launch_live" 
+    // Only require admin re-approval if a live supplier changes their NAME.
+    // All other profile edits (photo, blurb, contact, etc.) go live immediately.
+    const nameChanged = !!supplier && supplier.name !== form.name;
+    const updatedForm = form.status === "launch_live" && nameChanged
       ? { ...form, status: "launch_not_live" as const }
       : form;
     await updateSupplier(updatedForm);
