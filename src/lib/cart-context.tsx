@@ -63,14 +63,11 @@ export function CartProvider({ children }: { children: ReactNode }) {
   const [products, setProducts] = useState<Product[]>([]);
   const [topUpOrder, setTopUpOrder] = useState<TopUpOrder | null>(null);
   const initialized = useRef(false);
-  // Server-sync (cross-device saved basket) bookkeeping.
-  // restoredEmail = the email whose saved basket has already been loaded into this
-  // session. Set only in async callbacks so we never trigger cascading renders.
+  // Server-sync bookkeeping. For signed-in users, the server is the single source
+  // of truth. restoredEmail tracks which email's basket we've already loaded this
+  // session to avoid re-fetching on every render.
   const [restoredEmail, setRestoredEmail] = useState<string | null>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // True once the cart has actually held items in this signed-in session. Guards
-  // against an empty/failed restore wiping a saved basket (see save effect below).
-  const hadItemsRef = useRef(false);
 
   // Load cart from localStorage on mount
   useEffect(() => {
@@ -194,56 +191,69 @@ export function CartProvider({ children }: { children: ReactNode }) {
     return sum + (product ? product.price * i.quantity : 0);
   }, 0);
 
-  // Cross-device saved basket: when a customer signs in, load their saved basket
-  // from the server (keyed on email) and merge it with anything already in this
-  // browser. Runs once per signed-in email; setRestoredEmail fires only after the
-  // async load settles, so the save effect below won't run with stale items.
+  // Server-first basket: when a customer signs in, the server becomes the single
+  // source of truth. If they had guest items in localStorage, upload them first,
+  // then replace local state with whatever the server holds. This ensures:
+  // - Deletes from admin or other browsers stick (no local copy to resurrect)
+  // - Cross-device sync works (everyone reads from the same server row)
+  // - Guest → sign-in preserves their shopping (uploaded once, then server rules)
   useEffect(() => {
     if (!isSignedIn || !user) return;
     const email = user.primaryEmailAddress?.emailAddress ?? null;
     if (!email || restoredEmail === email) return;
 
-    // New email/session: assume the cart hasn't been populated until proven so.
-    hadItemsRef.current = false;
-
     let cancelled = false;
-    getSavedBasketByEmail(email)
-      .then((saved) => {
-        if (cancelled || !saved || saved.items.length === 0) return;
-        setItems((prev) => {
-          // Server basket is the base; append any product added in this browser
-          // that isn't already saved. Quantities never double up.
-          const merged = [...saved.items];
-          for (const local of prev) {
-            if (!merged.some((m) => m.productId === local.productId)) {
-              merged.push(local);
-            }
-          }
-          return merged;
-        });
-      })
-      .catch(console.error)
-      .finally(() => {
-        if (!cancelled) setRestoredEmail(email);
-      });
+
+    (async () => {
+      try {
+        // Step 1: Check if this browser has guest items to upload
+        const localItems = items;
+        
+        // Step 2: Fetch the server basket
+        const saved = await getSavedBasketByEmail(email);
+        if (cancelled) return;
+
+        // Step 3: If guest had items but server is empty, upload guest items first
+        if (localItems.length > 0 && (!saved || saved.items.length === 0)) {
+          const localTotal = localItems.reduce((sum, i) => {
+            const product = products.find((p) => p.id === i.productId);
+            return sum + (product ? product.price * i.quantity : 0);
+          }, 0);
+          await saveBasket(user.id, email, localItems, localTotal);
+          // Guest items are now on server; they become the server state
+          // No need to re-fetch, localItems IS the server state now
+          setRestoredEmail(email);
+          return;
+        }
+
+        // Step 4: Server is authoritative - REPLACE local state with server data
+        // If server is empty/deleted, local becomes empty too (no resurrection)
+        if (saved && saved.items.length > 0) {
+          setItems(saved.items);
+        } else {
+          // Server has no basket (empty or deleted) - clear local to match
+          setItems([]);
+        }
+        setRestoredEmail(email);
+      } catch (e) {
+        console.error("Failed to sync basket with server:", e);
+        if (!cancelled) setRestoredEmail(email); // Mark as restored to avoid retry loop
+      }
+    })();
 
     return () => {
       cancelled = true;
     };
-  }, [isSignedIn, user, restoredEmail]);
+  }, [isSignedIn, user, restoredEmail, items, products]);
 
   // Persist the basket to the server on every change (debounced), once signed in
-  // and this email's restore has completed. This makes removals stick and keeps the
-  // admin Saved Baskets view current without the customer sitting on the cart page.
+  // and this email's restore has completed. Server is authoritative, so all changes
+  // (including removals and clearing) write through immediately.
   useEffect(() => {
     if (!initialized.current || !isSignedIn || !user) return;
     const email = user.primaryEmailAddress?.emailAddress ?? null;
     if (!email || restoredEmail !== email) return;
-    if (items.length > 0) hadItemsRef.current = true;
-    // Only let an empty cart reach the server (which deletes the saved basket) if
-    // the cart genuinely held items this session. A fresh/empty browser or a failed
-    // restore must never wipe an existing saved basket.
-    if (items.length === 0 && !hadItemsRef.current) return;
+    
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => {
       saveBasket(user.id, email, items, totalPrice).catch((e) =>
