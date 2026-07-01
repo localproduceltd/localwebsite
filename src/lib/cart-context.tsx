@@ -68,6 +68,13 @@ export function CartProvider({ children }: { children: ReactNode }) {
   // session to avoid re-fetching on every render.
   const [restoredEmail, setRestoredEmail] = useState<string | null>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // True once the user has ACTIVELY added to their basket this session (as a
+  // guest or signed in). This separates FRESH items the user is curating from a
+  // STALE localStorage cache that was merely auto-loaded on page open. On
+  // sign-in we only upload local items to an empty server if they're fresh - so
+  // a basket deleted on another device can't resurrect from a stale cache (the
+  // "it keeps coming back" bug), while genuinely-added items are never lost.
+  const userAddedThisSession = useRef(false);
 
   // Load cart from localStorage on mount
   useEffect(() => {
@@ -126,6 +133,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
   const clearTopUpOrder = useCallback(() => setTopUpOrder(null), []);
 
   const addItem = useCallback((productId: string, product?: Product) => {
+    userAddedThisSession.current = true;
     // Fire GA4 add_to_cart event
     const prod = product || products.find((p) => p.id === productId);
     if (prod) {
@@ -144,6 +152,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
   }, [products]);
 
   const addItems = useCallback((newItems: Array<{ productId: string; quantity: number }>) => {
+    userAddedThisSession.current = true;
     setItems((prev) => {
       const updated = [...prev];
       for (const newItem of newItems) {
@@ -165,6 +174,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
   const updateQuantity = useCallback((productId: string, delta: number, product?: Product) => {
     // Fire GA4 add_to_cart event when increasing quantity
     if (delta > 0) {
+      userAddedThisSession.current = true;
       const prod = product || products.find((p) => p.id === productId);
       if (prod) {
         fireAddToCartEvent(prod, delta);
@@ -206,32 +216,30 @@ export function CartProvider({ children }: { children: ReactNode }) {
 
     (async () => {
       try {
-        // Step 1: Check if this browser has guest items to upload
         const localItems = items;
-        
-        // Step 2: Fetch the server basket
+
+        // Fetch the server basket - it's the source of truth for signed-in users.
         const saved = await getSavedBasketByEmail(email);
         if (cancelled) return;
 
-        // Step 3: If guest had items but server is empty, upload guest items first
-        if (localItems.length > 0 && (!saved || saved.items.length === 0)) {
+        if (saved && saved.items.length > 0) {
+          // Server has a basket - adopt it.
+          setItems(saved.items);
+        } else if (localItems.length > 0 && userAddedThisSession.current) {
+          // Server is empty but the user actively added these items this session
+          // (as a guest, or just now while signed in) - preserve them by
+          // uploading. They become the server state.
           const localTotal = localItems.reduce((sum, i) => {
             const product = products.find((p) => p.id === i.productId);
             return sum + (product ? product.price * i.quantity : 0);
           }, 0);
           await saveBasket(user.id, email, localItems, localTotal);
-          // Guest items are now on server; they become the server state
-          // No need to re-fetch, localItems IS the server state now
-          setRestoredEmail(email);
-          return;
-        }
-
-        // Step 4: Server is authoritative - REPLACE local state with server data
-        // If server is empty/deleted, local becomes empty too (no resurrection)
-        if (saved && saved.items.length > 0) {
-          setItems(saved.items);
+          if (cancelled) return;
         } else {
-          // Server has no basket (empty or deleted) - clear local to match
+          // Server is empty/deleted and the user hasn't actively added anything
+          // this session - the local items are just a stale localStorage cache.
+          // Clear to match the server so a basket deleted elsewhere can't
+          // resurrect. (Freshly-added items hit the branch above, never here.)
           setItems([]);
         }
         setRestoredEmail(email);
