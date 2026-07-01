@@ -199,6 +199,76 @@ export async function sendOrderConfirmation(data: OrderConfirmationData) {
   await sendAdminOrderNotification(data);
 }
 
+// ─── Saved basket reminder ───────────────────────────────────────────────────
+
+interface SavedBasketReminderData {
+  customerEmail: string;
+  items: Array<{ productName: string; quantity: number; price: number; supplierName?: string }>;
+  total: number;
+}
+
+// A gentle "you left a basket, come check out" nudge, sent in a batch from the
+// admin Saved Baskets page. Saved baskets only store an email (no name), so the
+// greeting is always "Hi there". The cut-off line assumes it's sent on cut-off
+// day (Wednesday) - see the admin page note.
+export async function sendSavedBasketReminder(data: SavedBasketReminderData) {
+  const subject = "Your Local basket is still waiting 💚";
+
+  // Group items by producer, same as the order confirmation.
+  const groups = new Map<string, typeof data.items>();
+  for (const item of data.items) {
+    const key = (item.supplierName && item.supplierName.trim()) || "Your producers";
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key)!.push(item);
+  }
+  const producerBlocks = Array.from(groups.entries()).map(([producer, items]) => `
+        <div style="margin: 10px 0;">
+          <p style="margin: 0 0 4px; font-weight: bold; color: ${GREEN};">${producer}</p>
+          ${items.map((item) => `
+            <div style="display: flex; justify-content: space-between; margin: 3px 0 3px 14px; font-size: 14px;">
+              <span>${item.productName} × ${item.quantity}</span>
+              <span>£${(item.price * item.quantity).toFixed(2)}</span>
+            </div>
+          `).join("")}
+        </div>
+      `).join("");
+
+  const { error } = await resend.emails.send({
+    from: FROM_EMAIL,
+    to: data.customerEmail,
+    subject,
+    html: shell(`
+        <h1 style="color: ${BRAND}; font-size: 21px; margin: 0 0 14px;">Your basket's still here</h1>
+        <p style="margin: 0 0 12px;">Hi there,</p>
+        <p style="margin: 0 0 12px;">You saved a basket with Local but haven't checked out yet - it's still here, and it looks delicious:</p>
+
+        <div style="background: #fbf3f6; border-radius: 8px; padding: 6px 16px 12px; margin: 16px 0;">
+          ${producerBlocks}
+          <div style="border-top: 1px solid #f0dbe5; margin: 8px 0 0; padding-top: 10px; display: flex; justify-content: space-between; font-weight: bold; font-size: 17px;"><span>Total</span><span>£${data.total.toFixed(2)}</span></div>
+        </div>
+
+        <p style="margin: 0 0 16px;">Nothing's lost - just tap below to check out and I'll get it packed for Friday.</p>
+
+        <div style="text-align: center; margin: 22px 0;">
+          <a href="https://www.localproduce.ltd/cart" style="display: inline-block; background: ${BRAND}; color: #ffffff; text-decoration: none; font-weight: bold; font-size: 15px; padding: 12px 30px; border-radius: 8px;">Check out now</a>
+        </div>
+
+        <p style="margin: 0 0 12px;">Fancy adding anything? Have a browse of all the suppliers <a href="https://www.localproduce.ltd/products" style="color: ${BRAND}; font-weight: bold;">here</a>.</p>
+
+        <p style="margin: 14px 0; font-size: 14px; background: #f4f9fd; border-radius: 8px; padding: 12px 16px; color: #0369a1;">⏰ Order cut-off is <strong>7pm tonight</strong> for Friday delivery.</p>
+
+        ${SIGNOFF}
+
+        <p style="margin: 16px 0 0; font-size: 13px; color: #999;">PS - reply "unsubscribe" and I'll take you off these reminders.</p>
+    `),
+  });
+
+  if (error) {
+    console.error("Failed to send saved basket reminder email:", error);
+    throw error;
+  }
+}
+
 // ─── Admin Emails ─────────────────────────────────────────────────────────────
 
 const ADMIN_EMAIL = "orders@localproduce.ltd";

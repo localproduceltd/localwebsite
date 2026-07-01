@@ -2,12 +2,13 @@
 
 import { useState, useEffect } from "react";
 import { getSavedBaskets, deleteSavedBasket, type SavedBasketWithProducts } from "@/lib/data";
-import { ShoppingCart, Trash2, Mail, Clock, CheckCircle, X } from "lucide-react";
+import { ShoppingCart, Trash2, Mail, Clock, CheckCircle, X, Send, Loader2 } from "lucide-react";
 
 export default function SavedBasketsPage() {
   const [baskets, setBaskets] = useState<SavedBasketWithProducts[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<"all" | "pending" | "converted">("pending");
+  const [sending, setSending] = useState(false);
 
   useEffect(() => {
     getSavedBaskets()
@@ -24,6 +25,31 @@ export default function SavedBasketsPage() {
     } catch (error) {
       console.error("Failed to delete basket:", error);
       alert("Failed to delete basket");
+    }
+  };
+
+  const pendingWithEmail = baskets.filter((b) => !b.convertedAt && b.customerEmail);
+
+  const handleSendReminders = async () => {
+    if (
+      !confirm(
+        `Send a checkout reminder to all ${pendingWithEmail.length} pending basket${
+          pendingWithEmail.length === 1 ? "" : "s"
+        }?`
+      )
+    )
+      return;
+    setSending(true);
+    try {
+      const res = await fetch("/api/admin/saved-baskets/remind", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error?.message || data?.error || "Failed to send");
+      alert(data.message);
+    } catch (error) {
+      console.error("Failed to send reminders:", error);
+      alert(error instanceof Error ? error.message : "Failed to send reminders");
+    } finally {
+      setSending(false);
     }
   };
 
@@ -190,11 +216,37 @@ export default function SavedBasketsPage() {
         </div>
       )}
 
-      {/* Email list for pending baskets */}
+      {/* Send reminders + email list for pending baskets */}
       {filter === "pending" && pendingCount > 0 && (
-        <div className="mt-8 p-4 bg-blue-50 rounded-xl border border-blue-200">
+        <div className="mt-8 space-y-4">
+          <div className="p-4 bg-primary/5 rounded-xl border border-primary/20">
+            <h3 className="font-semibold text-primary mb-1">
+              💚 Send checkout reminders
+            </h3>
+            <p className="text-sm text-muted mb-3">
+              Emails everyone with a pending basket a &quot;your basket is waiting&quot; nudge with their
+              items and a checkout link. Best sent on cut-off day (the email says &quot;7pm tonight&quot;).
+            </p>
+            <button
+              onClick={handleSendReminders}
+              disabled={sending || pendingWithEmail.length === 0}
+              className="inline-flex items-center gap-2 px-4 py-2 bg-primary text-white rounded-lg text-sm font-semibold hover:bg-secondary transition disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              {sending ? (
+                <>
+                  <Loader2 size={16} className="animate-spin" /> Sending...
+                </>
+              ) : (
+                <>
+                  <Send size={16} /> Send reminder to {pendingWithEmail.length} pending
+                </>
+              )}
+            </button>
+          </div>
+
+          <div className="p-4 bg-blue-50 rounded-xl border border-blue-200">
           <h3 className="font-semibold text-blue-800 mb-2">
-            📧 Email addresses for reminder
+            📧 Or copy the addresses to send manually
           </h3>
           <p className="text-sm text-blue-700 mb-3">
             Copy these to send checkout reminders:
@@ -218,6 +270,7 @@ export default function SavedBasketsPage() {
           >
             Copy All Emails
           </button>
+          </div>
         </div>
       )}
     </div>
