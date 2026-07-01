@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
+import FadeInImage from "@/components/FadeInImage";
 import { ArrowRight, Star, Loader2, CheckCircle } from "lucide-react";
 import { getApprovedProducts, getActiveSuppliers, getAverageRatings, getActiveDeliveryDays, submitEmailSignup, getAllReviews, isOnHoliday } from "@/lib/data";
 import type { Product, Supplier, DeliveryDay } from "@/lib/data";
@@ -128,13 +129,12 @@ export default function Home() {
                     </div>
                   )}
                   <div className={`relative aspect-[3/2] overflow-hidden ${onHoliday ? "opacity-80" : ""}`}>
-                    <Image
+                    <FadeInImage
                       src={supplier.image}
                       alt={supplier.name}
                       fill
                       sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
-                      className="object-cover transition-transform group-hover:scale-105"
-                      unoptimized
+                      className="object-cover group-hover:scale-105"
                     />
                   </div>
                   <div className="p-4">

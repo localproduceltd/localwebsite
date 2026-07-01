@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import Image from "next/image";
+import FadeInImage from "@/components/FadeInImage";
 import { getLiveSuppliers, isOnHoliday, getSupplierOrderCounts } from "@/lib/data";
 import type { Supplier } from "@/lib/data";
 import { MapPin } from "lucide-react";
@@ -43,13 +43,12 @@ function SupplierCard({ supplier }: { supplier: Supplier }) {
         </div>
       )}
       <div className={`relative aspect-[3/2] overflow-hidden ${!isLive && !onHoliday ? "grayscale-[30%] opacity-70" : ""} ${onHoliday ? "opacity-80" : ""}`}>
-        <Image
+        <FadeInImage
           src={supplier.image || "/images/Holding Image - Supplier.webp"}
           alt={supplier.name}
           fill
           sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
-          className={`object-cover ${isLive ? "transition-transform group-hover:scale-105" : ""}`}
-          unoptimized
+          className={`object-cover ${isLive ? "group-hover:scale-105" : ""}`}
         />
       </div>
       <div className={`p-4 ${!isLive && !onHoliday ? "opacity-80" : ""}`}>

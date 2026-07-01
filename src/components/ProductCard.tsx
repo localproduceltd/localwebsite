@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import Image from "next/image";
+import FadeInImage from "./FadeInImage";
 import { Check, Plus, Minus } from "lucide-react";
 import { useCart } from "@/lib/cart-context";
 import type { Product } from "@/lib/data";
@@ -24,13 +24,12 @@ export default function ProductCard({ product }: { product: Product }) {
     <div className="group flex h-full flex-col overflow-hidden rounded-xl bg-surface shadow-sm transition hover:shadow-md">
       <div className="relative aspect-[4/3] overflow-hidden bg-secondary/10">
         {product.image ? (
-          <Image
+          <FadeInImage
             src={product.image}
             alt={product.name}
             fill
             sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
-            className="object-cover transition-transform group-hover:scale-105"
-            unoptimized
+            className="object-cover group-hover:scale-105"
           />
         ) : (
           <div className="flex h-full w-full items-center justify-center text-muted text-sm">No image</div>

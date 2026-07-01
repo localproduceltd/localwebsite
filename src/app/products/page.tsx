@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import Image from "next/image";
+import FadeInImage from "@/components/FadeInImage";
 import Link from "next/link";
 import { Search, Check, Plus, Minus, Star, HelpCircle, X, Heart, ChevronDown } from "lucide-react";
 import { useUser } from "@clerk/nextjs";
@@ -359,13 +359,12 @@ export default function ProductsPage() {
                   onClick={() => setSelectedProduct(product)}
                 >
                   {product.image ? (
-                    <Image
+                    <FadeInImage
                       src={product.image}
                       alt={product.name}
                       fill
                       sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
-                      className="object-cover transition-transform group-hover:scale-105"
-                      unoptimized
+                      className="object-cover group-hover:scale-105"
                     />
                   ) : (
                     <div className="flex h-full w-full items-center justify-center text-muted text-sm">No image</div>
