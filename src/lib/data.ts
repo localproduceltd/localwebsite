@@ -814,6 +814,39 @@ export async function updateOrderStatus(orderId: string, status: Order["status"]
   // Delivered/cancelled cascade is handled by a DB trigger (cascade_order_status)
 }
 
+// Atomically move an order to "next_hour", but only from a pre-delivery state.
+// Returns true only if THIS call actually performed the transition. The
+// `.not("status", "in", ...)` clause makes the update a no-op when the order is
+// already on its way (or delivered/cancelled), and Postgres re-checks it under a
+// row lock - so if the driver taps "Start Run" several times, exactly one call
+// changes the row and the "on our way" email is sent exactly once. Idempotent by
+// construction, so it no longer relies on the client's in-memory snapshot.
+export async function markOrderOnWay(orderId: string, client: SupabaseClient = supabase): Promise<boolean> {
+  const { data, error } = await client
+    .from("orders")
+    .update({ status: "next_hour" })
+    .eq("id", orderId)
+    .not("status", "in", "(next_hour,delivered,cancelled)")
+    .select("id");
+  if (error) throw error;
+  return (data?.length ?? 0) > 0;
+}
+
+// Atomically mark an order delivered, only from a not-yet-delivered state.
+// Returns true only if THIS call performed the transition, so the "delivered"
+// email fires exactly once even if the button is pressed twice.
+export async function markOrderDelivered(orderId: string, client: SupabaseClient = supabase): Promise<boolean> {
+  const { data, error } = await client
+    .from("orders")
+    .update({ status: "delivered" })
+    .eq("id", orderId)
+    .not("status", "in", "(delivered,cancelled)")
+    .select("id");
+  if (error) throw error;
+  // Delivered/cancelled cascade is handled by a DB trigger (cascade_order_status)
+  return (data?.length ?? 0) > 0;
+}
+
 export async function createDeliveryDay(day: Omit<DeliveryDay, "id">, client: SupabaseClient = supabase): Promise<DeliveryDay> {
   const { data, error } = await client.from("delivery_days").insert({
     delivery_date: day.deliveryDate,

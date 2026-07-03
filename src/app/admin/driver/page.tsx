@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { type Order, type DeliveryOption, DELIVERY_OPTION_LABELS, getOrders, updateOrderStatus } from "@/lib/data";
+import { type Order, type DeliveryOption, DELIVERY_OPTION_LABELS, getOrders, markOrderOnWay, markOrderDelivered } from "@/lib/data";
 import { Truck, CheckCircle, MapPin, Home, Package, Upload, Play, RefreshCw, Navigation, Clock, ChevronDown, ChevronRight } from "lucide-react";
 
 interface RouteStop {
@@ -48,6 +48,10 @@ export default function AdminDriverPage() {
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [expandedStop, setExpandedStop] = useState<string | null>(null);
+  // Locks the run/deliver actions while one is in flight, so a slow tap can't be
+  // fired again and re-trigger the "on our way" batch. The DB-level idempotency
+  // in markOrderOnWay is the real guarantee; this just stops the UI inviting it.
+  const [busy, setBusy] = useState(false);
 
   // Load orders
   const loadOrders = useCallback(async () => {
@@ -237,8 +241,12 @@ export default function AdminDriverPage() {
       const toMark = undelivered.slice(0, NEXT_BATCH_SIZE);
       for (let i = 0; i < toMark.length; i++) {
         const o = toMark[i];
-        if (o.status === "next_hour") continue; // already told
-        await updateOrderStatus(o.id, "next_hour");
+        // Atomically move this order to next_hour. Returns false if it was
+        // already on its way (or delivered) - in which case we must NOT email,
+        // because someone/something already told this customer. This is what
+        // makes repeat/overlapping taps safe, regardless of the stale snapshot.
+        const justNotified = await markOrderOnWay(o.id);
+        if (!justNotified) continue;
         if (o.customerEmail) {
           fetch("/api/email", {
             method: "POST",
@@ -267,19 +275,35 @@ export default function AdminDriverPage() {
     [legUndeliveredFrom]
   );
 
-  // Start a leg's run - put the first batch on the van
+  // Start a leg's run - put the first batch on the van. Re-fetch orders first so
+  // the batch is built from current statuses (not a stale render snapshot), and
+  // guard with `busy` so a second tap while this is in flight does nothing.
   const handleStartRun = async (leg: string) => {
-    await notifyLeg(leg, orders);
-    await loadOrders();
+    if (busy) return;
+    setBusy(true);
+    try {
+      const fresh = await getOrders();
+      setOrders(fresh);
+      await notifyLeg(leg, fresh);
+      await loadOrders();
+    } finally {
+      setBusy(false);
+    }
   };
 
   // Mark an order delivered, then top up the SAME leg's queue so the next
   // person in line gets their "on our way" email.
   const handleDelivered = async (orderId: string) => {
+    if (busy) return;
     const order = routeOrders.find(o => o.id === orderId);
     if (!order) return;
 
-    await updateOrderStatus(orderId, "delivered");
+    setBusy(true);
+    try {
+    // Atomically mark delivered; returns false if it was already delivered, in
+    // which case we skip the email so a double-tap can't send two.
+    const justDelivered = await markOrderDelivered(orderId);
+    if (!justDelivered) return;
 
     // Send delivered email
     if (order.customerEmail) {
@@ -308,6 +332,9 @@ export default function AdminDriverPage() {
     setOrders(fresh);
     await notifyLeg(order.leg, fresh);
     await loadOrders();
+    } finally {
+      setBusy(false);
+    }
   };
 
   // Open Google Maps for an address
@@ -411,10 +438,11 @@ export default function AdminDriverPage() {
           {legStats.hasMorning && !legStats.morningStarted && legStats.morningRemaining > 0 && (
             <button
               onClick={() => handleStartRun("morning")}
-              className="w-full rounded-xl bg-secondary py-4 text-lg font-bold text-white hover:bg-secondary/90 transition mb-4 flex items-center justify-center gap-2"
+              disabled={busy}
+              className="w-full rounded-xl bg-secondary py-4 text-lg font-bold text-white hover:bg-secondary/90 transition mb-4 flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
             >
-              <Play size={24} />
-              Start Morning Run
+              {busy ? <RefreshCw size={24} className="animate-spin" /> : <Play size={24} />}
+              {busy ? "Working..." : "Start Morning Run"}
             </button>
           )}
 
@@ -430,10 +458,11 @@ export default function AdminDriverPage() {
           {legStats.hasAfternoon && !legStats.afternoonStarted && legStats.afternoonRemaining > 0 && (legStats.morningComplete || !legStats.hasMorning) && (
             <button
               onClick={() => handleStartRun("afternoon")}
-              className="w-full rounded-xl bg-secondary py-4 text-lg font-bold text-white hover:bg-secondary/90 transition mb-4 flex items-center justify-center gap-2"
+              disabled={busy}
+              className="w-full rounded-xl bg-secondary py-4 text-lg font-bold text-white hover:bg-secondary/90 transition mb-4 flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
             >
-              <Play size={24} />
-              Start Afternoon Run
+              {busy ? <RefreshCw size={24} className="animate-spin" /> : <Play size={24} />}
+              {busy ? "Working..." : "Start Afternoon Run"}
             </button>
           )}
 
@@ -582,10 +611,11 @@ export default function AdminDriverPage() {
                           {!isDelivered && (
                             <button
                               onClick={(e) => { e.stopPropagation(); handleDelivered(order.id); }}
-                              className="flex-1 rounded-lg bg-green-600 py-3 text-sm font-bold text-white hover:bg-green-700 transition flex items-center justify-center gap-2"
+                              disabled={busy}
+                              className="flex-1 rounded-lg bg-green-600 py-3 text-sm font-bold text-white hover:bg-green-700 transition flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
                             >
                               <CheckCircle size={18} />
-                              Delivered
+                              {busy ? "Saving..." : "Delivered"}
                             </button>
                           )}
                         </div>
