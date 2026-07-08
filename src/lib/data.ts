@@ -2509,6 +2509,7 @@ export interface SavedBasket {
   createdAt: string;
   updatedAt: string;
   convertedAt: string | null;
+  reminderSentAt: string | null;
 }
 
 export interface SavedBasketWithProducts extends SavedBasket {
@@ -2632,6 +2633,7 @@ export async function getSavedBaskets(): Promise<SavedBasketWithProducts[]> {
     createdAt: b.created_at,
     updatedAt: b.updated_at,
     convertedAt: b.converted_at,
+    reminderSentAt: b.reminder_sent_at ?? null,
     products: ((b.items as Array<{ productId: string; quantity: number }>) ?? []).map((item) => {
       const product = productMap.get(item.productId);
       return {
@@ -2663,6 +2665,7 @@ export async function getSavedBasketByEmail(customerEmail: string): Promise<Save
     createdAt: data.created_at,
     updatedAt: data.updated_at,
     convertedAt: data.converted_at,
+    reminderSentAt: data.reminder_sent_at ?? null,
   };
 }
 

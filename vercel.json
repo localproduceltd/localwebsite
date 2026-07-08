@@ -1,0 +1,12 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/basket-reminder",
+      "schedule": "0 15 * * 3"
+    },
+    {
+      "path": "/api/cron/basket-reminder",
+      "schedule": "0 16 * * 3"
+    }
+  ]
+}

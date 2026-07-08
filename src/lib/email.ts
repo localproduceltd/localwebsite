@@ -203,16 +203,18 @@ export async function sendOrderConfirmation(data: OrderConfirmationData) {
 
 interface SavedBasketReminderData {
   customerEmail: string;
+  // Full name from their most recent order (baskets themselves only store an
+  // email) - the greeting falls back to "there" when we don't have one.
+  customerName?: string | null;
   items: Array<{ productName: string; quantity: number; price: number; supplierName?: string }>;
   total: number;
 }
 
-// A gentle "you left a basket, come check out" nudge, sent in a batch from the
-// admin Saved Baskets page. Saved baskets only store an email (no name), so the
-// greeting is always "Hi there". The cut-off line assumes it's sent on cut-off
-// day (Wednesday) - see the admin page note.
+// A gentle "you left a basket, come check out" nudge, sent by the Wednesday
+// basket-reminder cron and the admin Saved Baskets page. The cut-off line
+// assumes it's sent on cut-off day (Wednesday).
 export async function sendSavedBasketReminder(data: SavedBasketReminderData) {
-  const subject = "Your Local basket is still waiting 💚";
+  const subject = "Your basket's waiting 💚";
 
   // Group items by producer, same as the order confirmation.
   const groups = new Map<string, typeof data.items>();
@@ -239,7 +241,7 @@ export async function sendSavedBasketReminder(data: SavedBasketReminderData) {
     subject,
     html: shell(`
         <h1 style="color: ${BRAND}; font-size: 21px; margin: 0 0 14px;">Your basket's still here</h1>
-        <p style="margin: 0 0 12px;">Hi there,</p>
+        <p style="margin: 0 0 12px;">Hi ${firstName(data.customerName)},</p>
         <p style="margin: 0 0 12px;">You saved a basket with Local but haven't checked out yet - it's still here, and it looks delicious:</p>
 
         <div style="background: #fbf3f6; border-radius: 8px; padding: 6px 16px 12px; margin: 16px 0;">
@@ -247,7 +249,7 @@ export async function sendSavedBasketReminder(data: SavedBasketReminderData) {
           <div style="border-top: 1px solid #f0dbe5; margin: 8px 0 0; padding-top: 10px; display: flex; justify-content: space-between; font-weight: bold; font-size: 17px;"><span>Total</span><span>£${data.total.toFixed(2)}</span></div>
         </div>
 
-        <p style="margin: 0 0 16px;">Nothing's lost - just tap below to check out and I'll get it packed for Friday.</p>
+        <p style="margin: 0 0 16px;">Click the link below to check out and the Local team will get it packed for Friday.</p>
 
         <div style="text-align: center; margin: 22px 0;">
           <a href="https://www.localproduce.ltd/cart" style="display: inline-block; background: ${BRAND}; color: #ffffff; text-decoration: none; font-weight: bold; font-size: 15px; padding: 12px 30px; border-radius: 8px;">Check out now</a>
