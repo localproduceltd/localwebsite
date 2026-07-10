@@ -288,13 +288,32 @@ export function isSupplierOnHoliday(info: SupplierHolidayInfo): boolean {
   return info.holidayUntil >= today;
 }
 
+// Supabase caps a single select at 1,000 rows; fetch in batches until one comes back short.
+// Queries passed in must have a fully deterministic order (tie-break on id) so rows
+// can't shuffle between batches and get duplicated or skipped.
+const FETCH_BATCH_SIZE = 1000;
+async function fetchAllRows<Row>(
+  buildQuery: (from: number, to: number) => PromiseLike<{ data: Row[] | null; error: unknown }>
+): Promise<Row[]> {
+  const rows: Row[] = [];
+  for (let from = 0; ; from += FETCH_BATCH_SIZE) {
+    const { data, error } = await buildQuery(from, from + FETCH_BATCH_SIZE - 1);
+    if (error) throw error;
+    rows.push(...(data ?? []));
+    if (!data || data.length < FETCH_BATCH_SIZE) return rows;
+  }
+}
+
 export async function getProducts(client: SupabaseClient = supabase): Promise<Product[]> {
-  const { data, error } = await client
-    .from("products")
-    .select("*, suppliers(name)")
-    .is("archived_at", null)
-    .order("name");
-  if (error) throw error;
+  const data = await fetchAllRows((from, to) =>
+    client
+      .from("products")
+      .select("*, suppliers(name)")
+      .is("archived_at", null)
+      .order("name")
+      .order("id")
+      .range(from, to)
+  );
   return data.map((p) => ({
     id: p.id,
     supplierId: p.supplier_id,
@@ -323,14 +342,17 @@ export async function getProducts(client: SupabaseClient = supabase): Promise<Pr
 // Get approved products from launch_live suppliers only (for launch mode)
 // Uses products_with_stats view for pre-computed ratings and order counts
 export async function getApprovedProducts(): Promise<Product[]> {
-  const { data, error } = await supabase
-    .from("products_with_stats")
-    .select("*, suppliers!inner(name, status)")
-    .eq("status", "approved")
-    .eq("suppliers.status", "launch_live")
-    .is("archived_at", null)
-    .order("name");
-  if (error) throw error;
+  const data = await fetchAllRows((from, to) =>
+    supabase
+      .from("products_with_stats")
+      .select("*, suppliers!inner(name, status)")
+      .eq("status", "approved")
+      .eq("suppliers.status", "launch_live")
+      .is("archived_at", null)
+      .order("name")
+      .order("id")
+      .range(from, to)
+  );
   return data.map((p) => ({
     id: p.id,
     supplierId: p.supplier_id,
@@ -427,12 +449,15 @@ export async function getProduct(id: string, client: SupabaseClient = supabase):
 }
 
 export async function getArchivedProducts(client: SupabaseClient = supabase): Promise<Product[]> {
-  const { data, error } = await client
-    .from("products")
-    .select("*, suppliers(name)")
-    .not("archived_at", "is", null)
-    .order("archived_at", { ascending: false });
-  if (error) throw error;
+  const data = await fetchAllRows((from, to) =>
+    client
+      .from("products")
+      .select("*, suppliers(name)")
+      .not("archived_at", "is", null)
+      .order("archived_at", { ascending: false })
+      .order("id")
+      .range(from, to)
+  );
   return data.map((p) => ({
     id: p.id,
     supplierId: p.supplier_id,
