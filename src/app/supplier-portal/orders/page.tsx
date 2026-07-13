@@ -67,6 +67,7 @@ function formatDeliveryDate(dateStr: string) {
 interface SupplierSubOrder {
   orderId: string;
   orderNumber: number;
+  boxNumber: number | null;
   items: SupplierOrderItem[];
   total: number;
   supplierStatus: SupplierOrderStatus;
@@ -216,6 +217,7 @@ export default function SupplierOrdersPage() {
         orderMap.set(item.orderId, {
           orderId: item.orderId,
           orderNumber: item.orderNumber,
+          boxNumber: item.boxNumber,
           items: [],
           total: 0,
           supplierStatus: item.supplierStatus,
@@ -501,7 +503,10 @@ export default function SupplierOrdersPage() {
                   <div className="flex flex-wrap items-center justify-between gap-4 border-b border-primary/5 px-6 py-4">
                     <div>
                       <div className="flex flex-wrap items-center gap-2">
-                        <p className="text-sm font-semibold text-primary">Order #{sub.orderNumber}</p>
+                        <p className="text-sm font-semibold text-primary">
+                          {sub.boxNumber != null ? `Box ${sub.boxNumber}` : `Order #${sub.orderNumber}`}
+                          <span className="ml-1.5 text-xs font-normal text-muted">#{sub.orderNumber}</span>
+                        </p>
                         {(() => {
                           const pos = positionByOrderId.get(sub.orderId);
                           const milestone = pos ? getMilestone(pos) : null;
@@ -640,7 +645,10 @@ export default function SupplierOrdersPage() {
                           <div className="flex flex-wrap items-center justify-between gap-4 border-b border-primary/5 px-4 py-3">
                             <div>
                               <div className="flex flex-wrap items-center gap-2">
-                                <p className="text-sm font-semibold text-muted">Order #{sub.orderNumber}</p>
+                                <p className="text-sm font-semibold text-muted">
+                                  {sub.boxNumber != null ? `Box ${sub.boxNumber}` : `Order #${sub.orderNumber}`}
+                                  <span className="ml-1.5 text-xs font-normal">#{sub.orderNumber}</span>
+                                </p>
                                 {(() => {
                                   const pos = positionByOrderId.get(sub.orderId);
                                   const milestone = pos ? getMilestone(pos) : null;

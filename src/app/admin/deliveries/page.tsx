@@ -116,12 +116,12 @@ function exportDeliveryPDF(
     doc.setFontSize(6);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(60, 60, 60);
-    doc.text("Order", colX.order + 0.5, y + 4);
+    doc.text("Box", colX.order + 0.5, y + 4);
     doc.text("Customer", colX.name + 0.5, y + 4);
     doc.text("Address", colX.address + 0.5, y + 4);
     doc.text("In/Out", colX.inOut + 0.5, y + 4);
     doc.text("Safe Place", colX.safe + 0.5, y + 4);
-    doc.text("Box", colX.box + 0.5, y + 4);
+    doc.text("Box swap", colX.box + 0.5, y + 4);
     y += 6;
   };
 
@@ -193,9 +193,13 @@ function exportDeliveryPDF(
       doc.line(margin, y + rowHeight, pageWidth - margin, y + rowHeight);
 
       doc.setFontSize(6);
-      // Order #
+      // Box number (weekly), order # underneath
       doc.setFont("helvetica", "bold");
-      doc.text(`#${order.orderNumber}`, colX.order + 0.5, y + 3.5);
+      doc.text(String(order.boxNumber ?? "?"), colX.order + 0.5, y + 3.5);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(120, 120, 120);
+      doc.text(`#${order.orderNumber}`, colX.order + 0.5, y + 7);
+      doc.setTextColor(30, 30, 30);
       
       // Customer name
       doc.setFont("helvetica", "normal");
@@ -535,7 +539,8 @@ export default function AdminDeliveriesPage() {
       o.customerName?.toLowerCase().includes(q) ||
       o.customerEmail?.toLowerCase().includes(q) ||
       o.address?.postcode?.toLowerCase().includes(q) ||
-      o.orderNumber.toString().includes(q)
+      o.orderNumber.toString().includes(q) ||
+      o.boxNumber?.toString() === q
     );
   };
 
@@ -546,7 +551,7 @@ export default function AdminDeliveriesPage() {
       const aWindow = a.deliveryWindow ? windowOrder[a.deliveryWindow] ?? 3 : 3;
       const bWindow = b.deliveryWindow ? windowOrder[b.deliveryWindow] ?? 3 : 3;
       if (aWindow !== bWindow) return aWindow - bWindow;
-      return a.orderNumber - b.orderNumber;
+      return (a.boxNumber ?? a.orderNumber) - (b.boxNumber ?? b.orderNumber);
     });
   };
 
@@ -718,9 +723,10 @@ export default function AdminDeliveriesPage() {
                             onClick={() => toggleExpand(key)}
                             className="flex flex-wrap sm:flex-nowrap items-center gap-2 sm:gap-4 px-3 sm:px-6 py-4 cursor-pointer hover:bg-primary/5 transition"
                           >
-                            {/* Order # */}
+                            {/* Box number (weekly), order # small underneath */}
                             <div className="w-12 sm:w-16 flex-shrink-0">
-                              <span className="font-bold text-primary text-lg">#{order.orderNumber}</span>
+                              <span className="font-bold text-primary text-lg">{order.boxNumber ?? "?"}</span>
+                              <span className="block text-[10px] text-muted">#{order.orderNumber}</span>
                               {totalRefunded > 0 && (
                                 <span className="block text-[10px] text-red-600 font-medium">-£{totalRefunded.toFixed(2)}</span>
                               )}

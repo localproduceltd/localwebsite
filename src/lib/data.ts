@@ -108,6 +108,7 @@ export const DELIVERY_OPTION_LABELS: Record<DeliveryOption, string> = {
 export interface Order {
   id: string;
   orderNumber: number;
+  boxNumber: number | null;
   userId: string;
   customerEmail: string | null;
   customerName: string | null;
@@ -494,6 +495,7 @@ export async function getOrders(userId?: string): Promise<Order[]> {
   return data.map((o) => ({
     id: o.id,
     orderNumber: o.order_number,
+    boxNumber: o.box_number ?? null,
     userId: o.user_id,
     customerEmail: o.customer_email ?? null,
     customerName: o.customer_name ?? null,
@@ -912,6 +914,7 @@ export async function getOrdersByDeliveryDay(deliveryDate: string): Promise<Orde
   return data.map((o) => ({
     id: o.id,
     orderNumber: o.order_number,
+    boxNumber: o.box_number ?? null,
     userId: o.user_id,
     customerEmail: o.customer_email ?? null,
     customerName: o.customer_name ?? null,
@@ -996,6 +999,7 @@ export async function getOrderByStripeSession(sessionId: string): Promise<Order 
   return {
     id: data.id,
     orderNumber: data.order_number,
+    boxNumber: data.box_number ?? null,
     userId: data.user_id,
     customerEmail: data.customer_email ?? null,
     customerName: data.customer_name ?? null,
@@ -1092,6 +1096,7 @@ export async function createOrder(options: CreateOrderOptions): Promise<Order> {
   return {
     id: order.id,
     orderNumber: order.order_number,
+    boxNumber: order.box_number ?? null,
     userId: order.user_id,
     customerEmail: order.customer_email ?? null,
     customerName: order.customer_name ?? null,
@@ -1206,6 +1211,7 @@ export async function getOrder(orderId: string, client: SupabaseClient = supabas
   return {
     id: data.id,
     orderNumber: data.order_number,
+    boxNumber: data.box_number ?? null,
     userId: data.user_id,
     customerEmail: data.customer_email ?? null,
     customerName: data.customer_name ?? null,
@@ -1347,6 +1353,7 @@ export interface SupplierOrderItem {
   id: string;
   orderId: string;
   orderNumber: number;
+  boxNumber: number | null;
   productId: string;
   productName: string;
   refrigerated: boolean;
@@ -1365,17 +1372,18 @@ export interface SupplierOrderItem {
 export async function getSupplierOrders(supplierId: string): Promise<SupplierOrderItem[]> {
   const { data, error } = await supabase
     .from("order_items")
-    .select("*, orders(delivery_day, created_at, status, order_number, user_id, customer_name, customer_email), products(refrigerated)")
+    .select("*, orders(delivery_day, created_at, status, order_number, box_number, user_id, customer_name, customer_email), products(refrigerated)")
     .eq("supplier_id", supplierId)
     .order("created_at", { ascending: false, referencedTable: "orders" });
   if (error) throw error;
   return data.map((item) => {
-    const order = item.orders as { delivery_day: string; created_at: string; status: string; order_number: number; user_id: string; customer_name: string | null; customer_email: string | null };
+    const order = item.orders as { delivery_day: string; created_at: string; status: string; order_number: number; box_number: number | null; user_id: string; customer_name: string | null; customer_email: string | null };
     const product = item.products as { refrigerated: boolean } | null;
     return {
       id: item.id,
       orderId: item.order_id,
       orderNumber: order?.order_number ?? 0,
+      boxNumber: order?.box_number ?? null,
       productId: item.product_id,
       productName: item.product_name,
       refrigerated: product?.refrigerated ?? false,

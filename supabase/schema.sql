@@ -100,6 +100,7 @@ CREATE TABLE IF NOT EXISTS customer_profiles (
 CREATE TABLE IF NOT EXISTS orders (
   id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   order_number      integer DEFAULT nextval('order_number_seq'),
+  box_number        integer, -- per-delivery-day packing number (1..N per Friday); assigned by the orders_assign_box_number trigger, see migrations/20260710_box_numbers.sql
   user_id           text NOT NULL,
   customer_email    text,
   total             numeric NOT NULL DEFAULT 0,

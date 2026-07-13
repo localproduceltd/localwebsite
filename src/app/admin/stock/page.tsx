@@ -54,6 +54,7 @@ function formatItemLine(name: string, unit: string, qty: number) {
 interface SupplierOrderItems {
   orderId: string;
   orderNumber: number;
+  boxNumber: number | null;
   items: Array<{ productName: string; unit: string; quantity: number; refrigerated: boolean }>;
 }
 
@@ -90,14 +91,14 @@ function getSupplierSummaries(orders: Order[], productRefrigerated?: Map<string,
       }
       let orderEntry = summary.orders.find(o => o.orderId === order.id);
       if (!orderEntry) {
-        orderEntry = { orderId: order.id, orderNumber: order.orderNumber, items: [] };
+        orderEntry = { orderId: order.id, orderNumber: order.orderNumber, boxNumber: order.boxNumber, items: [] };
         summary.orders.push(orderEntry);
       }
       orderEntry.items.push({ productName: item.productName, unit: item.unit, quantity: item.quantity, refrigerated });
     }
   }
   for (const summary of map.values()) {
-    summary.orders.sort((a, b) => a.orderNumber - b.orderNumber);
+    summary.orders.sort((a, b) => (a.boxNumber ?? a.orderNumber) - (b.boxNumber ?? b.orderNumber));
   }
   return Array.from(map.values()).sort((a, b) => a.supplierName.localeCompare(b.supplierName));
 }
@@ -872,7 +873,7 @@ export default function AdminStockPage() {
                                               <p className="text-[10px] text-red-600 mt-0.5">
                                                 Affects: {supplier.orders
                                                   .filter(o => o.items.some(i => i.productName === item.productName))
-                                                  .map(o => `#${o.orderNumber}`)
+                                                  .map(o => o.boxNumber != null ? `Box ${o.boxNumber}` : `#${o.orderNumber}`)
                                                   .join(", ")}
                                               </p>
                                             </div>
@@ -892,7 +893,7 @@ export default function AdminStockPage() {
                                               <p className="text-[10px] text-amber-600 mt-0.5">
                                                 Affects: {supplier.orders
                                                   .filter(o => o.items.some(i => i.productName === item.productName))
-                                                  .map(o => `#${o.orderNumber}`)
+                                                  .map(o => o.boxNumber != null ? `Box ${o.boxNumber}` : `#${o.orderNumber}`)
                                                   .join(", ")}
                                               </p>
                                             </div>
@@ -977,7 +978,7 @@ export default function AdminStockPage() {
                                                 <p className="text-[10px] text-red-600 mt-0.5">
                                                   Affects: {supplier.orders
                                                     .filter(o => o.items.some(i => i.productName === item.productName))
-                                                    .map(o => `#${o.orderNumber}`)
+                                                    .map(o => o.boxNumber != null ? `Box ${o.boxNumber}` : `#${o.orderNumber}`)
                                                     .join(", ")}
                                                 </p>
                                               </div>
@@ -997,7 +998,7 @@ export default function AdminStockPage() {
                                                 <p className="text-[10px] text-amber-600 mt-0.5">
                                                   Affects: {supplier.orders
                                                     .filter(o => o.items.some(i => i.productName === item.productName))
-                                                    .map(o => `#${o.orderNumber}`)
+                                                    .map(o => o.boxNumber != null ? `Box ${o.boxNumber}` : `#${o.orderNumber}`)
                                                     .join(", ")}
                                                 </p>
                                               </div>
@@ -1031,7 +1032,10 @@ export default function AdminStockPage() {
                                     return (
                                       <div key={orderEntry.orderId} className={`${allItemsChecked ? 'bg-green-50' : ''}`}>
                                         <div className="px-3 py-2 flex items-center justify-between">
-                                          <span className={`font-medium ${allItemsChecked ? 'text-green-700' : 'text-primary'}`}>Order #{orderEntry.orderNumber}</span>
+                                          <span className={`font-medium ${allItemsChecked ? 'text-green-700' : 'text-primary'}`}>
+                                            {orderEntry.boxNumber != null ? `Box ${orderEntry.boxNumber}` : `Order #${orderEntry.orderNumber}`}
+                                            <span className="ml-1 text-xs font-normal text-muted">#{orderEntry.orderNumber}</span>
+                                          </span>
                                           {allItemsChecked && <span className="text-xs text-green-600">✓</span>}
                                         </div>
                                         <div className="px-3 pb-2 space-y-1">

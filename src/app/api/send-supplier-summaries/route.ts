@@ -27,7 +27,7 @@ export async function POST(request: NextRequest) {
     // Group order items by supplier
     const supplierOrders: Map<string, {
       supplier: { id: string; name: string; email: string | null };
-      orders: Map<number, { orderNumber: number; orderId: string; items: Array<{ productName: string; unit: string; quantity: number; price: number }> }>;
+      orders: Map<number, { orderNumber: number; boxNumber: number | null; orderId: string; items: Array<{ productName: string; unit: string; quantity: number; price: number }> }>;
       stockTotals: Map<string, { productName: string; unit: string; totalQuantity: number }>;
     }> = new Map();
 
@@ -52,6 +52,7 @@ export async function POST(request: NextRequest) {
         if (!supplierData.orders.has(order.orderNumber)) {
           supplierData.orders.set(order.orderNumber, {
             orderNumber: order.orderNumber,
+            boxNumber: order.boxNumber,
             orderId: order.id,
             items: [],
           });
@@ -92,6 +93,7 @@ export async function POST(request: NextRequest) {
 
       const ordersArray = Array.from(data.orders.values()).map((order) => ({
         orderNumber: order.orderNumber,
+        boxNumber: order.boxNumber,
         items: order.items,
         subtotal: order.items.reduce((sum, item) => sum + item.price * item.quantity, 0),
         hasTopUp: toppedUpOrderIds.has(order.orderId),

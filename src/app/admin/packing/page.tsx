@@ -253,8 +253,8 @@ export default function AdminPackingPage() {
       derivePackingFields(order, productRefrigerated, boxStatuses.get(order.userId) ?? false, refunds.get(order.id) || [])
     );
 
-    // Sort by order number
-    return derived.sort((a, b) => a.orderNumber - b.orderNumber);
+    // Sort by box number (falls back to order number for any unnumbered order)
+    return derived.sort((a, b) => (a.boxNumber ?? a.orderNumber) - (b.boxNumber ?? b.orderNumber));
   }, [selectedDay, orderList, productRefrigerated, boxStatuses, refunds]);
 
   // Summary stats
@@ -342,7 +342,7 @@ export default function AdminPackingPage() {
           <thead>
             <tr className="border-b border-primary/10 bg-primary/5 text-left text-xs uppercase text-muted print:bg-transparent">
               <th className="px-3 py-3 font-medium print:hidden">Done</th>
-              <th className="px-3 py-3 font-medium w-16">#</th>
+              <th className="px-3 py-3 font-medium w-16">Box</th>
               <th className="px-3 py-3 font-medium">Name</th>
               <th className="px-3 py-3 font-medium">Delivery</th>
               <th className="px-3 py-3 font-medium text-center">Window</th>
@@ -373,9 +373,10 @@ export default function AdminPackingPage() {
                       />
                     </td>
 
-                    {/* Order number */}
+                    {/* Box number (weekly), order number small underneath */}
                     <td className="px-3 py-3 font-bold text-primary">
-                      #{order.orderNumber}
+                      {order.boxNumber ?? "-"}
+                      <span className="block text-xs font-normal text-muted">#{order.orderNumber}</span>
                     </td>
 
                     {/* Name */}
@@ -581,9 +582,10 @@ export default function AdminPackingPage() {
               >
                 <div className="min-w-0">
                   <p className="font-bold text-primary">
-                    #{order.orderNumber} &middot; {order.displayName}
+                    Box {order.boxNumber ?? "?"} &middot; {order.displayName}
                   </p>
                   <p className="text-sm text-muted">
+                    #{order.orderNumber} &middot;{" "}
                     <span className={`font-semibold ${order.isIn ? "text-green-700" : "text-amber-700"}`}>
                       {order.isIn ? "In" : "Out"}
                     </span>{" "}

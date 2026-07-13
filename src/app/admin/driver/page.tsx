@@ -528,7 +528,7 @@ export default function AdminDriverPage() {
                       {/* Info */}
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
-                          <span className="font-bold text-primary">#{order.orderNumber}</span>
+                          <span className="font-bold text-primary">Box {order.boxNumber ?? `#${order.orderNumber}`}</span>
                           <span className="font-semibold text-primary truncate">
                             {order.customerName || order.customerEmail?.split("@")[0]}
                           </span>

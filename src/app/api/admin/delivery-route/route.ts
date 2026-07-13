@@ -51,7 +51,7 @@ export async function POST(request: NextRequest) {
     const orderNumbers = route.map((r: { order_number: number }) => r.order_number);
     const { data: orders, error: ordersError } = await supabaseAdmin
       .from("orders")
-      .select("id, order_number")
+      .select("id, order_number, box_number")
       .eq("delivery_day", delivery_day)
       .in("order_number", orderNumbers);
 
@@ -67,8 +67,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Create a map of order_number -> order_id
+    // Create maps of order_number -> order_id / box_number
     const orderMap = new Map(orders.map((o) => [o.order_number, o.id]));
+    const boxMap = new Map(orders.map((o) => [o.order_number, o.box_number]));
 
     // Delete existing route for this day
     const { error: deleteError } = await supabaseAdmin
@@ -88,6 +89,7 @@ export async function POST(request: NextRequest) {
         delivery_day,
         order_id: orderMap.get(r.order_number),
         order_number: r.order_number,
+        box_number: boxMap.get(r.order_number) ?? null,
         route_position: r.position,
         leg: r.leg || "morning",
       }));

@@ -643,6 +643,7 @@ interface SupplierOrderSummaryData {
   stockTotals: Array<{ productName: string; unit: string; totalQuantity: number }>;
   orders: Array<{
     orderNumber: number;
+    boxNumber?: number | null;
     items: Array<{ productName: string; unit: string; quantity: number; price: number }>;
     subtotal: number;
     hasTopUp?: boolean;
@@ -670,7 +671,7 @@ export async function sendSupplierOrderSummary(data: SupplierOrderSummaryData) {
   const ordersHtml = data.orders
     .map((order) => `
       <div style="background: #fff; border: 1px solid ${order.hasTopUp ? '#f59e0b' : '#e5e5e5'}; border-radius: 8px; padding: 16px; margin-bottom: 12px;${order.hasTopUp ? ' border-width: 2px;' : ''}">
-        <h4 style="margin: 0 0 12px 0; color: #A30E4E;">Order #${order.orderNumber}</h4>
+        <h4 style="margin: 0 0 12px 0; color: #A30E4E;">${order.boxNumber != null ? `Box ${order.boxNumber} <span style="font-weight: normal; font-size: 13px; color: #888;">(Order #${order.orderNumber})</span>` : `Order #${order.orderNumber}`}</h4>
         ${order.hasTopUp ? `
         <div style="background: #fef3c7; border-left: 4px solid #f59e0b; padding: 8px 12px; margin-bottom: 12px; font-size: 13px; color: #92400e;">
           <strong>⚠️ NOTE:</strong> This order has been added to since it was first placed. Please check the details carefully.
