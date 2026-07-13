@@ -24,8 +24,8 @@ export default function ImageUpload({ currentImage, onImageChange, label = "Prod
       return;
     }
 
-    if (file.size > 5 * 1024 * 1024) {
-      alert("Image must be less than 5MB");
+    if (file.size > 20 * 1024 * 1024) {
+      alert("Image must be less than 20MB");
       return;
     }
 
@@ -95,7 +95,7 @@ export default function ImageUpload({ currentImage, onImageChange, label = "Prod
               <ImageIcon className="h-12 w-12 text-primary/30" />
               <div className="text-center">
                 <p className="text-sm font-medium text-primary">Click to upload image</p>
-                <p className="text-xs text-muted">JPEG, PNG, or WebP (max 5MB)</p>
+                <p className="text-xs text-muted">JPEG, PNG, or WebP (max 20MB)</p>
               </div>
             </>
           )}
