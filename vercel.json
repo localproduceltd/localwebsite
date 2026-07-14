@@ -2,11 +2,11 @@
   "crons": [
     {
       "path": "/api/cron/basket-reminder",
-      "schedule": "0 15 * * 3"
+      "schedule": "0 10 * * 2"
     },
     {
       "path": "/api/cron/basket-reminder",
-      "schedule": "0 16 * * 3"
+      "schedule": "0 11 * * 2"
     }
   ]
 }

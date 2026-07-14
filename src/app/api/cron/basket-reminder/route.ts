@@ -7,11 +7,12 @@ export const maxDuration = 60;
 /**
  * GET /api/cron/basket-reminder
  *
- * Weekly abandoned-basket reminder, targeting 4pm UK on Wednesdays (order
- * cut-off day). Vercel cron only speaks UTC, so vercel.json fires this at
- * both 15:00 and 16:00 UTC every Wednesday; the Europe/London hour check
- * below lets exactly one of those through year-round (15:00 UTC = 4pm BST
- * in summer, 16:00 UTC = 4pm GMT in winter).
+ * Weekly abandoned-basket reminder, targeting 11am UK on Tuesdays (the day
+ * before Wednesday's order cut-off). Vercel cron only speaks UTC, so
+ * vercel.json fires this at both 10:00 and 11:00 UTC every Tuesday; the
+ * Europe/London hour check below lets exactly one of those through
+ * year-round (10:00 UTC = 11am BST in summer, 11:00 UTC = 11am GMT in
+ * winter).
  *
  * Auth: Vercel sends `Authorization: Bearer ${CRON_SECRET}` automatically
  * once the CRON_SECRET env var is set in the project. Fails closed if the
@@ -33,11 +34,11 @@ export async function GET(request: NextRequest) {
       hour12: false,
     }).format(new Date())
   );
-  if (londonHour !== 16) {
+  if (londonHour !== 11) {
     return NextResponse.json({
       sent: 0,
       skipped: true,
-      reason: `It's ${londonHour}:00 in London, not 16:00 - this is the off-season cron slot.`,
+      reason: `It's ${londonHour}:00 in London, not 11:00 - this is the off-season cron slot.`,
     });
   }
 

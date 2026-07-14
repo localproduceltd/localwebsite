@@ -210,11 +210,11 @@ interface SavedBasketReminderData {
   total: number;
 }
 
-// A gentle "you left a basket, come check out" nudge, sent by the Wednesday
+// A gentle "you left a basket, come check out" nudge, sent by the Tuesday
 // basket-reminder cron and the admin Saved Baskets page. The cut-off line
-// assumes it's sent on cut-off day (Wednesday).
+// names Wednesday explicitly so it reads correctly whichever day it's sent.
 export async function sendSavedBasketReminder(data: SavedBasketReminderData) {
-  const subject = "Your basket's waiting 💚";
+  const subject = "Your basket's waiting - check out by Wednesday 7pm 💚";
 
   // Group items by producer, same as the order confirmation.
   const groups = new Map<string, typeof data.items>();
@@ -242,14 +242,14 @@ export async function sendSavedBasketReminder(data: SavedBasketReminderData) {
     html: shell(`
         <h1 style="color: ${BRAND}; font-size: 21px; margin: 0 0 14px;">Your basket's still here</h1>
         <p style="margin: 0 0 12px;">Hi ${firstName(data.customerName)},</p>
-        <p style="margin: 0 0 12px;">You saved a basket with Local but haven't checked out yet - it's still here, and it looks delicious:</p>
+        <p style="margin: 0 0 12px;">You saved a basket with Local but haven't checked out yet 🛒</p>
 
         <div style="background: #fbf3f6; border-radius: 8px; padding: 6px 16px 12px; margin: 16px 0;">
           ${producerBlocks}
           <div style="border-top: 1px solid #f0dbe5; margin: 8px 0 0; padding-top: 10px; display: flex; justify-content: space-between; font-weight: bold; font-size: 17px;"><span>Total</span><span>£${data.total.toFixed(2)}</span></div>
         </div>
 
-        <p style="margin: 0 0 16px;">Click the link below to check out and the Local team will get it packed for Friday.</p>
+        <p style="margin: 0 0 16px;">Click the link below to check out, and the Local team will get it packed and delivered on Friday.</p>
 
         <div style="text-align: center; margin: 22px 0;">
           <a href="https://www.localproduce.ltd/cart" style="display: inline-block; background: ${BRAND}; color: #ffffff; text-decoration: none; font-weight: bold; font-size: 15px; padding: 12px 30px; border-radius: 8px;">Check out now</a>
@@ -257,11 +257,11 @@ export async function sendSavedBasketReminder(data: SavedBasketReminderData) {
 
         <p style="margin: 0 0 12px;">Fancy adding anything? Have a browse of all the suppliers <a href="https://www.localproduce.ltd/products" style="color: ${BRAND}; font-weight: bold;">here</a>.</p>
 
-        <p style="margin: 14px 0; font-size: 14px; background: #f4f9fd; border-radius: 8px; padding: 12px 16px; color: #0369a1;">⏰ Order cut-off is <strong>7pm tonight</strong> for Friday delivery.</p>
+        <p style="margin: 14px 0; font-size: 14px; background: #f4f9fd; border-radius: 8px; padding: 12px 16px; color: #0369a1;">⏰ Order cut-off is <strong>7pm on Wednesday</strong> for Friday delivery.</p>
 
         ${SIGNOFF}
 
-        <p style="margin: 16px 0 0; font-size: 13px; color: #999;">PS - reply "unsubscribe" and I'll take you off these reminders.</p>
+        <p style="margin: 16px 0 0; font-size: 13px; color: #777;">PS - if anything would put you off checking out, would you mind filling out our quick <a href="https://form.jotform.com/261642255276055" style="color: ${BRAND}; font-weight: bold;">anonymous survey</a>? Whether it's delivery days, prices, anything at all - it'll really help us continue to shape Local 💚</p>
     `),
   });
 

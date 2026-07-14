@@ -5,7 +5,7 @@ import { sendSavedBasketReminder } from "./email";
 
 /**
  * Shared engine for the "your basket's waiting" reminder, used by both the
- * Wednesday cron (/api/cron/basket-reminder) and the manual button on the
+ * Tuesday cron (/api/cron/basket-reminder) and the manual button on the
  * admin Saved Baskets page.
  *
  * Sends one email per customer: pending baskets (items, not converted, has an
