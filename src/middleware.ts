@@ -10,10 +10,17 @@ const isProtectedRoute = createRouteMatcher([
 
 const isAdminRoute = createRouteMatcher(["/admin(.*)"]);
 
+// Admin pages a "driver" role is allowed to use
+const isDriverAllowedRoute = createRouteMatcher([
+  "/admin/driver(.*)",
+  "/admin/customers(.*)",
+]);
+
 export default clerkMiddleware(async (auth, req) => {
   const { sessionClaims } = await auth();
   const role = (sessionClaims?.metadata as { role?: string })?.role;
   const isAdmin = role === "admin";
+  const isDriver = role === "driver";
 
   // Redirect root to /home
   if (req.nextUrl.pathname === "/") {
@@ -24,8 +31,12 @@ export default clerkMiddleware(async (auth, req) => {
     await auth.protect();
   }
 
-  if (isAdminRoute(req)) {
-    if (!isAdmin) {
+  if (isAdminRoute(req) && !isAdmin) {
+    if (isDriver) {
+      if (!isDriverAllowedRoute(req)) {
+        return NextResponse.redirect(new URL("/admin/driver", req.url));
+      }
+    } else {
       return NextResponse.redirect(new URL("/home", req.url));
     }
   }

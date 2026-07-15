@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { requireAdminOrDriver } from "@/lib/admin-auth";
 
 // GET: Fetch the route for a specific delivery day
 export async function GET(request: NextRequest) {
+  const gate = await requireAdminOrDriver();
+  if (gate instanceof NextResponse) return gate;
+
   const { searchParams } = new URL(request.url);
   const deliveryDay = searchParams.get("deliveryDay");
 
@@ -26,6 +30,9 @@ export async function GET(request: NextRequest) {
 
 // POST: Upload/replace a route for a delivery day
 export async function POST(request: NextRequest) {
+  const gate = await requireAdminOrDriver();
+  if (gate instanceof NextResponse) return gate;
+
   try {
     const body = await request.json();
     const { delivery_day, route } = body;

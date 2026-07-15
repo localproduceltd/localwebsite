@@ -4,8 +4,12 @@ import { supabase } from "@/lib/supabase";
 import { setCustomerOutstandingBox } from "@/lib/data";
 import { sendBoxDepositRefund } from "@/lib/email";
 import { BOX_DEPOSIT_PENCE, BOX_DEPOSIT } from "@/lib/constants";
+import { requireAdminOrDriver } from "@/lib/admin-auth";
 
 export async function POST(request: NextRequest) {
+  const gate = await requireAdminOrDriver();
+  if (gate instanceof NextResponse) return gate;
+
   try {
     const { clerkUserId } = await request.json();
 

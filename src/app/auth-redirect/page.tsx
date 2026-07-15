@@ -25,6 +25,12 @@ export default function AuthRedirectPage() {
         return;
       }
 
+      // Driver goes straight to the driver run
+      if (role === "driver") {
+        router.replace("/admin/driver");
+        return;
+      }
+
       // Check if supplier
       const supplierUser = await getSupplierUser(user.id);
       if (supplierUser) {

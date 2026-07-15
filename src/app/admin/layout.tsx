@@ -4,8 +4,11 @@ import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { LayoutDashboard, Package, Users, Calendar, MessageCircleHeart, MapPin, UserCircle, Menu, X, Truck, Navigation, ShoppingCart } from "lucide-react";
-import { SignedIn } from "@clerk/nextjs";
+import { SignedIn, useUser } from "@clerk/nextjs";
 import UserAvatar from "@/components/UserAvatar";
+
+// Tabs the "driver" role can see; middleware blocks the rest of /admin for drivers
+const driverLinkHrefs = ["/admin/driver", "/admin/customers"];
 
 const adminLinks = [
   { href: "/admin", label: "Dashboard", icon: LayoutDashboard },
@@ -24,8 +27,14 @@ const adminLinks = [
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  
-  const currentPage = adminLinks.find(link => link.href === pathname) || adminLinks[0];
+  const { user } = useUser();
+
+  const role = user?.publicMetadata?.role as string | undefined;
+  const links = role === "driver"
+    ? adminLinks.filter((link) => driverLinkHrefs.includes(link.href))
+    : adminLinks;
+
+  const currentPage = links.find(link => link.href === pathname) || links[0];
   const CurrentIcon = currentPage.icon;
 
   return (
@@ -57,7 +66,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         {mobileMenuOpen && (
           <div className="lg:hidden bg-secondary border-t border-white/10">
             <nav className="px-4 py-2 space-y-1">
-              {adminLinks.map((link) => {
+              {links.map((link) => {
                 const Icon = link.icon;
                 const isActive = pathname === link.href;
                 return (
@@ -89,7 +98,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           <p className="text-xs text-muted">Manage your marketplace</p>
         </div>
         <nav className="space-y-1">
-          {adminLinks.map((link) => {
+          {links.map((link) => {
             const Icon = link.icon;
             const isActive = pathname === link.href;
             return (

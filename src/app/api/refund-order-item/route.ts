@@ -3,8 +3,12 @@ import { stripe } from "@/lib/stripe";
 import { supabase } from "@/lib/supabase";
 import { createOrderItemRefund, type RefundPaidBy, type RefundReasonType } from "@/lib/data";
 import { sendOrderItemRefund } from "@/lib/email";
+import { requireAdmin } from "@/lib/admin-auth";
 
 export async function POST(request: NextRequest) {
+  const gate = await requireAdmin();
+  if (gate instanceof NextResponse) return gate;
+
   try {
     const { 
       orderId, 
