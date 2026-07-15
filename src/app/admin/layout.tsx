@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Package, Users, Calendar, MessageCircleHeart, MapPin, UserCircle, Menu, X, Truck, Navigation, ShoppingCart } from "lucide-react";
+import { LayoutDashboard, Package, Users, Calendar, MessageCircleHeart, MapPin, UserCircle, Menu, X, Truck, Navigation, ShoppingCart, Store } from "lucide-react";
 import { SignedIn, useUser } from "@clerk/nextjs";
 import UserAvatar from "@/components/UserAvatar";
 
@@ -85,6 +85,14 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                   </Link>
                 );
               })}
+              <Link
+                href="/home"
+                onClick={() => setMobileMenuOpen(false)}
+                className="mt-1 flex items-center gap-3 rounded-lg border-t border-white/10 px-3 py-2.5 pt-3.5 text-sm font-medium text-white/70 transition hover:bg-white/10 hover:text-white"
+              >
+                <Store size={18} />
+                Back to Shop
+              </Link>
             </nav>
           </div>
         )}
@@ -117,6 +125,15 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             );
           })}
         </nav>
+        <div className="mt-6 border-t border-primary/10 pt-4">
+          <Link
+            href="/home"
+            className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-muted transition hover:bg-secondary/10 hover:text-primary"
+          >
+            <Store size={18} />
+            Back to Shop
+          </Link>
+        </div>
       </aside>
 
       {/* Main content */}

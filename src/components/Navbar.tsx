@@ -3,9 +3,9 @@
 import Link from "next/link";
 import { useState } from "react";
 import { usePathname } from "next/navigation";
-import { Menu, X, ShoppingCart, Home, Store, Package, MapPinned, User } from "lucide-react";
+import { Menu, X, ShoppingCart, Home, Store, Package, MapPinned, User, LayoutDashboard, Navigation } from "lucide-react";
 import { useCart } from "@/lib/cart-context";
-import { SignedIn, SignedOut } from "@clerk/nextjs";
+import { SignedIn, SignedOut, useUser } from "@clerk/nextjs";
 import UserAvatar from "@/components/UserAvatar";
 import CarrieFeedback from "@/components/CarrieFeedback";
 
@@ -21,6 +21,16 @@ export default function Navbar() {
   const { totalItems, totalPrice } = useCart();
   const pathname = usePathname();
   const isHoldingPage = pathname === "/holding";
+  const { user } = useUser();
+
+  const role = user?.publicMetadata?.role as string | undefined;
+  const staffLink =
+    role === "admin"
+      ? { href: "/admin", label: "Admin", icon: LayoutDashboard }
+      : role === "driver"
+        ? { href: "/admin/driver", label: "Driver Run", icon: Navigation }
+        : null;
+  const StaffIcon = staffLink?.icon;
 
   if (pathname.startsWith("/admin") || pathname.startsWith("/supplier-portal") || pathname.startsWith("/sign-in") || pathname.startsWith("/sign-up")) return null;
 
@@ -65,6 +75,14 @@ export default function Navbar() {
                 </div>
               )}
             </div>
+            {staffLink && StaffIcon && (
+              <Link
+                href={staffLink.href}
+                className="flex items-center gap-1.5 text-base font-medium text-surface transition-colors hover:text-surface/80"
+              >
+                <StaffIcon size={16} /> {staffLink.label}
+              </Link>
+            )}
           </SignedIn>
         </nav>
 
@@ -129,6 +147,15 @@ export default function Navbar() {
             >
               <User size={16} /> My Account
             </Link>
+            {staffLink && StaffIcon && (
+              <Link
+                href={staffLink.href}
+                className="flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-surface transition-colors hover:bg-surface/10 hover:text-surface/80"
+                onClick={() => setMobileOpen(false)}
+              >
+                <StaffIcon size={16} /> {staffLink.label}
+              </Link>
+            )}
           </SignedIn>
           <SignedOut>
             <Link
