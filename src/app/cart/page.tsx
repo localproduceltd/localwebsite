@@ -62,12 +62,15 @@ export default function CartPage() {
 
   // Saved delivery details (customer profile) - prefilled once when both the
   // profile and delivery area have loaded, then never re-applied so the
-  // customer's edits stick.
+  // customer's edits stick. Returning customers see a compact summary instead
+  // of the form; any edit always saves back to their account.
   const [savedProfile, setSavedProfile] = useState<CustomerProfile | null>(null);
   const [prefillDone, setPrefillDone] = useState(false);
   const [usingSavedDetails, setUsingSavedDetails] = useState(false);
-  // Untick = "this order only": details go on the order but not back to the profile
-  const [rememberDetails, setRememberDetails] = useState(true);
+  const [showEditDetails, setShowEditDetails] = useState(false);
+  // True once the customer has run the postcode check themselves this visit -
+  // gates the "Great news, we deliver!" banner so regulars aren't re-told.
+  const [manualZoneCheck, setManualZoneCheck] = useState(false);
 
   // Holiday suppliers state
   const [holidaySuppliers, setHolidaySuppliers] = useState<SupplierHolidayInfo[]>([]);
@@ -127,6 +130,9 @@ export default function CartPage() {
       setGeocodedLng(p.pinLng);
       setPinLat(p.pinLat);
       setPinLng(p.pinLng);
+      // The saved pin was confirmed when it was saved - no re-confirm nag.
+      // Any change to it (map picker, postcode re-check) resets this.
+      setPinConfirmed(true);
       const geom = deliveryArea.polygonGeojson.type === "Feature"
         ? deliveryArea.polygonGeojson
         : { type: "Feature", geometry: deliveryArea.polygonGeojson, properties: {} };
@@ -165,6 +171,7 @@ export default function CartPage() {
     setCheckingPostcode(true);
     setPostcodeError("");
     setDeliveryCheck(null);
+    setManualZoneCheck(true);
 
     const result = await lookupPostcode(addressForm.postcode);
     if (!result) {
@@ -329,7 +336,6 @@ export default function CartPage() {
             instructions: deliveryInstructions.trim() || undefined,
             pinLat: pinLat ?? undefined,
             pinLng: pinLng ?? undefined,
-            saveProfile: usingSavedDetails ? rememberDetails : true,
           }),
         });
 
@@ -573,28 +579,40 @@ export default function CartPage() {
             <MapPin size={20} className="text-secondary" />
             <h2 className="text-lg font-semibold text-primary">Delivery Address</h2>
           </div>
-          <p className="mt-1 text-sm text-muted">Enter your delivery address to check if we deliver to your area</p>
+          {!usingSavedDetails && (
+            <p className="mt-1 text-sm text-muted">Fill out your details here and we&apos;ll save them to your account for future deliveries</p>
+          )}
 
-          {usingSavedDetails && (
+          {/* Returning customer: saved details as a simple summary; the form
+              only appears if something's different this week. Any edit saves
+              back to their account automatically. */}
+          {usingSavedDetails && !showEditDetails && (
             <div className="mt-4 rounded-lg bg-green-50 border border-green-200 p-4">
-              <p className="text-sm font-semibold text-green-800">💚 We&apos;ve filled in your saved delivery details</p>
-              <p className="mt-1 text-xs text-green-700">
-                Edit anything below if this week&apos;s different. To change them for good, use{" "}
-                <Link href="/account" className="underline font-medium">your account page</Link>.
-              </p>
-              <label className="mt-2 flex items-center gap-2 cursor-pointer text-green-800">
-                <input
-                  type="checkbox"
-                  checked={rememberDetails}
-                  onChange={(e) => setRememberDetails(e.target.checked)}
-                  className="w-4 h-4 rounded border-2 border-current accent-green-600"
-                />
-                <span className="text-xs font-medium">Remember any changes for next time (untick for this order only)</span>
-              </label>
+              <p className="text-sm font-semibold text-green-800">💚 We&apos;ve filled in your saved details</p>
+              <div className="mt-2 text-sm text-green-900 space-y-0.5">
+                <p className="font-medium">
+                  {addressForm.addressLine1}
+                  {addressForm.addressLine2 ? `, ${addressForm.addressLine2}` : ""}, {addressForm.city}, {addressForm.postcode}
+                </p>
+                {phone && <p>📞 {phone}</p>}
+                {deliveryInstructions && <p>ℹ️ {deliveryInstructions}</p>}
+              </div>
+              <button
+                onClick={() => setShowEditDetails(true)}
+                className="mt-3 rounded-lg border border-green-600 px-3 py-1.5 text-xs font-semibold text-green-800 transition hover:bg-green-100"
+              >
+                Click to edit anything that&apos;s different
+              </button>
             </div>
           )}
 
-        <div className="mt-4 space-y-3">
+          {usingSavedDetails && showEditDetails && (
+            <p className="mt-2 text-xs text-muted">
+              Anything you change here is saved to your account for next time.
+            </p>
+          )}
+
+        <div className={`mt-4 space-y-3 ${usingSavedDetails && !showEditDetails ? "hidden" : ""}`}>
           <div>
             <input
               type="text"
@@ -665,8 +683,9 @@ export default function CartPage() {
             <p className="text-sm text-red-600">{postcodeError}</p>
           )}
           
-          {/* Delivery zone result */}
-          {deliveryCheck?.inZone && (
+          {/* Delivery zone result - only after the customer ran the check
+              themselves; regulars with a saved pin don't need re-telling */}
+          {deliveryCheck?.inZone && manualZoneCheck && (
             <div className="rounded-lg bg-green-50 border border-green-200 p-4">
               <div className="flex items-center gap-2">
                 <CheckCircle size={18} className="text-green-600" />
