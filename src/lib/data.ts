@@ -1730,6 +1730,8 @@ export interface CustomerSummary {
   city: string | null;
   postcode: string | null;
   deliveryInstructions: string | null;
+  defaultDeliveryOption: DeliveryOption | null;
+  defaultSafePlace: string | null;
   adminNotes: string | null;
   hasOutstandingBox: boolean;
   totalOrders: number;
@@ -1763,7 +1765,7 @@ export async function getAllCustomers(): Promise<CustomerSummary[]> {
   // Get all customer profiles
   const { data: profiles, error: profilesError } = await supabase
     .from("customer_profiles")
-    .select("clerk_user_id, name, phone, address_line1, address_line2, city, postcode, delivery_instructions, admin_notes, has_outstanding_box");
+    .select("clerk_user_id, name, phone, address_line1, address_line2, city, postcode, delivery_instructions, default_delivery_option, default_safe_place, admin_notes, has_outstanding_box");
   if (profilesError) throw profilesError;
 
   const profileMap = new Map(profiles?.map(p => [p.clerk_user_id, p]) ?? []);
@@ -1824,6 +1826,8 @@ export async function getAllCustomers(): Promise<CustomerSummary[]> {
       city: profile?.city ?? null,
       postcode: profile?.postcode ?? null,
       deliveryInstructions: profile?.delivery_instructions ?? null,
+      defaultDeliveryOption: (profile?.default_delivery_option as DeliveryOption) ?? null,
+      defaultSafePlace: profile?.default_safe_place ?? null,
       adminNotes: profile?.admin_notes ?? null,
       hasOutstandingBox: profile?.has_outstanding_box ?? false,
       totalOrders: g.totalOrders,
