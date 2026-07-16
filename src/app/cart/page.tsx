@@ -224,8 +224,8 @@ export default function CartPage() {
     return product?.name.toLowerCase().includes("glass bottle");
   });
 
-  // Calculate if box deposit is needed (only for "out_need_coolbag" option)
-  const needsBoxDeposit = deliveryOption === "out_need_coolbag" && !hasOutstandingBox;
+  // Calculate if box deposit is needed (only when borrowing a Local cool box)
+  const needsBoxDeposit = deliveryOption === "local_coolbox" && !hasOutstandingBox;
   const boxDeposit = needsBoxDeposit && !topUpOrder ? BOX_DEPOSIT : 0;
   const bottleDeposit = hasGlassBottles && hasOwnBottles === false ? BOTTLE_DEPOSIT * bottleDepositQty : 0;
   const deliveryFee = topUpOrder ? 0 : DELIVERY_FEE;
@@ -240,7 +240,7 @@ export default function CartPage() {
   const hasHolidayItems = holidaySuppliersInCart.length > 0;
   
   // Derive willBeIn from deliveryOption for backwards compatibility
-  const willBeIn = deliveryOption === "in" || deliveryOption === "in_no_disturb";
+  const willBeIn = deliveryOption === "in";
   
   // Check if safe place is needed (all options except "in")
   const needsSafePlace = deliveryOption && deliveryOption !== "in";
@@ -727,7 +727,7 @@ export default function CartPage() {
                     📍 Please check your pin location
                   </p>
                   <p className={`text-sm mt-1 ${pinConfirmed ? "text-green-700" : "text-red-700"}`}>
-                    Even if you&apos;ve ordered before, please confirm your pin is correct — we may have a new driver who doesn&apos;t know the area. Tap the map to adjust if needed.
+                    Even if you&apos;ve ordered before, please confirm your pin is correct - we may have a new driver who doesn&apos;t know the area. Tap the map to adjust if needed.
                   </p>
                   <label className={`mt-3 flex items-center gap-2 cursor-pointer ${pinConfirmed ? "text-green-800" : "text-red-800"}`}>
                     <input
@@ -902,36 +902,36 @@ export default function CartPage() {
             <span className="block text-sm text-muted mt-1">We&apos;ll knock and hand it straight to you</span>
           </button>
           
-          {/* I'm in but don't disturb */}
+          {/* Leave it in my own cool bag or box (covers "don't disturb" too) */}
           <button
-            onClick={() => setDeliveryOption("in_no_disturb")}
+            onClick={() => setDeliveryOption("own_coolbag")}
             className={`w-full rounded-lg border-2 px-4 py-4 text-left transition ${
-              deliveryOption === "in_no_disturb"
+              deliveryOption === "own_coolbag"
                 ? "border-primary bg-primary/5"
                 : "border-primary/20 bg-surface hover:border-secondary"
             }`}
           >
-            <span className="block font-semibold text-primary">I&apos;m in but don&apos;t disturb (for Teams calls etc)</span>
-            <span className="block text-sm text-muted mt-1">Please leave a large box or bag outside and we&apos;ll deposit your produce - but please bring it inside pronto!</span>
+            <span className="block font-semibold text-primary">Leave it in my own cool bag or box</span>
+            <span className="block text-sm text-muted mt-1">Perfect if you&apos;re out - or in but can&apos;t be disturbed (Teams calls, meetings, sleeping baby). Pop your own cool bag or box in your safe place with a couple of ice packs in, and we&apos;ll fill it. No deposit needed.</span>
           </button>
-          
-          {/* I'm out, I need a cool bag */}
+
+          {/* Borrow a Local cool box (£10 deposit) */}
           <div
             role="button"
             tabIndex={0}
-            onClick={() => setDeliveryOption("out_need_coolbag")}
-            onKeyDown={(e) => e.key === "Enter" && setDeliveryOption("out_need_coolbag")}
+            onClick={() => setDeliveryOption("local_coolbox")}
+            onKeyDown={(e) => e.key === "Enter" && setDeliveryOption("local_coolbox")}
             className={`w-full rounded-lg border-2 px-4 py-4 text-left transition cursor-pointer ${
-              deliveryOption === "out_need_coolbag"
+              deliveryOption === "local_coolbox"
                 ? "border-primary bg-primary/5"
                 : "border-primary/20 bg-surface hover:border-secondary"
             }`}
           >
             <div className="flex items-start justify-between">
               <div>
-                <span className="block font-semibold text-primary">I&apos;m out - I need a Local cool bag/box</span>
+                <span className="block font-semibold text-primary">I need to borrow a Local cool box</span>
                 <span className="block text-sm text-muted mt-1">
-                  Pay a £{BOX_DEPOSIT} deposit and we&apos;ll leave one of our wooden crates and cool boxes with an ice pack in your designated safe place.
+                  We&apos;ll leave one of our cool boxes and crates, packed with ice packs, in your designated safe place. Keep ordering and we simply swap the empty for a full one each week.
                   {!hasOutstandingBox && (
                     <span className="block mt-1 font-medium text-secondary">
                       £{BOX_DEPOSIT} refundable deposit
@@ -948,19 +948,6 @@ export default function CartPage() {
               </button>
             </div>
           </div>
-          
-          {/* I'm out, I'll leave my own cool bag */}
-          <button
-            onClick={() => setDeliveryOption("out_own_coolbag")}
-            className={`w-full rounded-lg border-2 px-4 py-4 text-left transition ${
-              deliveryOption === "out_own_coolbag"
-                ? "border-primary bg-primary/5"
-                : "border-primary/20 bg-surface hover:border-secondary"
-            }`}
-          >
-            <span className="block font-semibold text-primary">I&apos;m out but I&apos;ll leave my own cool bag</span>
-            <span className="block text-sm text-muted mt-1">Please leave your own cardboard box or bag AND a cool bag, and we&apos;ll fill it. No deposit needed.</span>
-          </button>
         </div>
       </div>
       )}
@@ -1000,7 +987,7 @@ export default function CartPage() {
                 There&apos;s a <strong className="text-primary">refundable £{BOX_DEPOSIT} deposit</strong> for the box and bag on your first order.
               </p>
               <p>
-                <strong className="text-primary">Next time you order:</strong> The system remembers you have a box, so you won&apos;t need to pay the deposit again – we&apos;ll simply swap your old box for a fresh one!
+                <strong className="text-primary">Next time you order:</strong> The system remembers you have a box, so you won&apos;t need to pay the deposit again - we&apos;ll simply swap your old box for a fresh one!
               </p>
               <p>
                 <strong className="text-primary">If you don&apos;t order again:</strong> 😢 No worries! We&apos;ll come and collect the box and bag on our next delivery round and refund your £{BOX_DEPOSIT} deposit.
@@ -1032,8 +1019,8 @@ export default function CartPage() {
             rows={3}
           />
 
-          {/* Box Deposit Info - only show for out_need_coolbag option */}
-          {deliveryOption === "out_need_coolbag" && (
+          {/* Box Deposit Info - only when borrowing a Local cool box */}
+          {deliveryOption === "local_coolbox" && (
             <div className="mt-4 rounded-lg bg-amber-50 border border-amber-200 p-4">
               <div className="flex items-start gap-3">
                 <Package size={20} className="text-amber-600 mt-0.5" />

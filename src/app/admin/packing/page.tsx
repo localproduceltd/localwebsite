@@ -99,7 +99,7 @@ function derivePackingFields(
     boxAction = "Swap";
   }
 
-  const isIn = order.deliveryOption ? order.deliveryOption.startsWith("in") : order.willBeIn;
+  const isIn = order.deliveryOption ? order.deliveryOption === "in" : order.willBeIn;
   const deliveryLabel = order.deliveryOption
     ? DELIVERY_OPTION_LABELS[order.deliveryOption]
     : (order.willBeIn ? "I'll be in" : "I'm out");

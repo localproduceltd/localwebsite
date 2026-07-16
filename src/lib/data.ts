@@ -96,13 +96,15 @@ export interface OrderItem {
 
 export type DeliveryWindow = "morning" | "afternoon" | "any";
 
-export type DeliveryOption = "in" | "in_no_disturb" | "out_need_coolbag" | "out_own_coolbag";
+// Three options since Jul 2026 ("in but don't disturb" and "out with own
+// cool bag" merged - same driver job). DB values migrated in
+// 20260716_merge_delivery_options.sql.
+export type DeliveryOption = "in" | "own_coolbag" | "local_coolbox";
 
 export const DELIVERY_OPTION_LABELS: Record<DeliveryOption, string> = {
-  in: "I'll be in",
-  in_no_disturb: "I'm in but don't disturb",
-  out_need_coolbag: "I'm out, I need a cool bag",
-  out_own_coolbag: "I'm out, I'll leave my own cool bag",
+  in: "I'll be in - knock",
+  own_coolbag: "Own cool bag/box out - don't knock",
+  local_coolbox: "Local cool box (borrowed)",
 };
 
 export interface Order {

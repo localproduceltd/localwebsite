@@ -771,12 +771,10 @@ export default function AdminDeliveriesPage() {
                               <span className="inline-flex items-center gap-1 text-[10px] text-muted">
                                 {order.deliveryOption === "in" ? (
                                   <><Home size={10} /> In</>
-                                ) : order.deliveryOption === "in_no_disturb" ? (
-                                  <><Home size={10} /> Quiet</>
-                                ) : order.deliveryOption === "out_need_coolbag" ? (
-                                  <><Package size={10} /> Cool</>
-                                ) : order.deliveryOption === "out_own_coolbag" ? (
+                                ) : order.deliveryOption === "own_coolbag" ? (
                                   <><MapPin size={10} /> Own</>
+                                ) : order.deliveryOption === "local_coolbox" ? (
+                                  <><Package size={10} /> Local box</>
                                 ) : order.willBeIn ? (
                                   <><Home size={10} /> In</>
                                 ) : (

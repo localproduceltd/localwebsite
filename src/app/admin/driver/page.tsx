@@ -33,9 +33,8 @@ function getAccessLabel(order: Order): string {
   if (order.deliveryOption) {
     const labels: Record<DeliveryOption, string> = {
       in: "Hand to customer",
-      in_no_disturb: "Leave at door (don't disturb)",
-      out_need_coolbag: "Leave in cool box",
-      out_own_coolbag: "Fill their cool bag",
+      own_coolbag: "Fill their cool bag - don't knock",
+      local_coolbox: "Leave in Local cool box",
     };
     return labels[order.deliveryOption];
   }
@@ -589,7 +588,7 @@ export default function AdminDriverPage() {
 
                         {/* Delivery option */}
                         <div className="flex items-center gap-2 text-sm">
-                          {order.deliveryOption?.startsWith("in") ? (
+                          {order.deliveryOption === "in" ? (
                             <Home size={16} className="text-green-600" />
                           ) : (
                             <MapPin size={16} className="text-amber-600" />

@@ -57,12 +57,10 @@ function deliveryInstruction(option?: string | null, safePlace?: string | null):
   switch (option) {
     case "in":
       return { title: "You'll be in", body: "We'll knock and hand your box straight to you." };
-    case "in_no_disturb":
-      return { title: "In, but don't disturb", body: `You've asked us not to disturb you - please leave a box or large bag outside${place} and we'll pop everything in it. Just bring it inside as soon as you can.` };
-    case "out_need_coolbag":
-      return { title: "You're out - we'll leave it safe", body: `You won't be in, so we'll leave everything in one of our cool boxes in your safe place${place}. Bring it in when you're back, and pop the empty cool box out next Friday and we'll collect it.` };
-    case "out_own_coolbag":
-      return { title: "You're out - your own cool bag", body: `You won't be in, so please leave your own cool bag or box out${place} and we'll fill it up. Bring it inside as soon as you're back.` };
+    case "own_coolbag":
+      return { title: "Your own cool bag or box", body: `You've asked us not to knock - please leave your own cool bag or box out${place} with a couple of ice packs in, and we'll fill it. Bring it inside as soon as you can.` };
+    case "local_coolbox":
+      return { title: "You're borrowing a Local cool box", body: `We'll leave everything in one of our cool boxes, packed with ice packs, in your safe place${place}. Bring it in when you're back, and pop the empty box out next Friday and we'll swap or collect it.` };
     default:
       return null;
   }
@@ -74,12 +72,10 @@ function deliveryReminderLine(option?: string | null, safePlace?: string | null)
   switch (option) {
     case "in":
       return "You've asked us to knock and hand it straight to you - see you at the door.";
-    case "in_no_disturb":
-      return `You've asked us not to disturb you, so if you could leave a box or bag outside${place} we'll pop everything in it.`;
-    case "out_need_coolbag":
-      return `You're out, so we'll leave it all in a cool box in your safe place${place}.`;
-    case "out_own_coolbag":
-      return `You're out, so please have your own cool bag or box out${place} and we'll fill it.`;
+    case "own_coolbag":
+      return `You've asked us not to knock - please have your own cool bag or box out${place} with a couple of ice packs in, and we'll fill it. 💚`;
+    case "local_coolbox":
+      return `We'll leave it all in a Local cool box, packed with ice packs, in your safe place${place}.`;
     default:
       return "";
   }
@@ -121,7 +117,7 @@ export async function sendOrderConfirmation(data: OrderConfirmationData) {
     ? `Good news - we've added those to your box for delivery. Here's everything that's coming and who it's from.`
     : `Lovely to have your order. We're only a few weeks old, so every single box matters - thank you for giving us a go. Here's what's coming and who it's from.`;
 
-  const deliveryWindowText = data.deliveryWindow === "morning" ? "9am – 1pm" : data.deliveryWindow === "afternoon" ? "1pm – 5pm" : data.deliveryWindow === "any" ? "we'll confirm the day before" : "";
+  const deliveryWindowText = data.deliveryWindow === "morning" ? "9am - 1pm" : data.deliveryWindow === "afternoon" ? "1pm - 5pm" : data.deliveryWindow === "any" ? "we'll confirm the day before" : "";
 
   // Group items by producer so the people behind the food come first.
   const groups = new Map<string, typeof data.items>();
@@ -540,14 +536,11 @@ export async function sendSlotEmail(data: SlotEmailData) {
     case "in":
       optionLine = "You said you'll be in, so we'll see you at the door. If for whatever reason you now won't be in, just leave a cool bag and some ice packs out and we'll drop your order there.";
       break;
-    case "out_own_coolbag":
-      optionLine = `You've asked us to leave it in your own cool bag${place}, so the driver will pop your order straight in there - a couple of ice packs in it will help keep everything fresh. 💚`;
+    case "own_coolbag":
+      optionLine = `You've asked us not to knock - the driver will fill your own cool bag or box${place}, so please have it out with a couple of ice packs in. 💚`;
       break;
-    case "out_need_coolbag":
-      optionLine = `You've asked us to leave it in your Local cool box${place}, so the driver will pop your order straight in there.`;
-      break;
-    case "in_no_disturb":
-      optionLine = `You've asked us to leave it${place} without disturbing you, so that's exactly what we'll do.`;
+    case "local_coolbox":
+      optionLine = `You're borrowing a Local cool box - the driver will leave everything in one of our boxes, packed with ice packs${place}.`;
       break;
     default:
       optionLine = "";
@@ -609,13 +602,6 @@ export async function sendOrderStatusUpdate(data: OrderStatusUpdateData) {
   const resolvedSlot = data.routeLeg ?? data.deliveryWindow;
   const deliveryWindowText = resolvedSlot === "morning" ? "9am - 1pm" : resolvedSlot === "afternoon" ? "1pm - 5pm" : "";
 
-  // Extra ice-pack nudge only when the customer leaves their own box/bag out
-  // (people getting one of our cool boxes already get ice packs from us).
-  const iceReminder =
-    data.deliveryOption === "out_own_coolbag" || data.deliveryOption === "in_no_disturb"
-      ? "And please pop a couple of ice packs in too if you can - it helps keep everything fresh and cool until you're home. 💚"
-      : "";
-
   // Build position phrase if we have route info. Doesn't restate morning/afternoon -
   // the time window already says that; this just gives the rough place in the run.
   let positionPhrase = "";
@@ -649,7 +635,6 @@ export async function sendOrderStatusUpdate(data: OrderStatusUpdateData) {
         <p style="margin: 0 0 12px;">${openingLine}</p>
         <p style="margin: 0 0 12px;">${timingLine ? `${timingLine} ${oneStopLine}` : oneStopLine}</p>
         ${reminder ? `<p style="margin: 0 0 12px;">${reminder}</p>` : ""}
-        ${iceReminder ? `<p style="margin: 0 0 12px;">${iceReminder}</p>` : ""}
         <p style="margin: 12px 0 4px;">Our driver will see you tomorrow,</p>
         ${SIGNOFF}`;
   } else if (data.status === "next_hour") {
