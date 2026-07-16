@@ -713,22 +713,6 @@ export default function CartPage() {
             </div>
           )}
 
-          {/* Delivery instructions - only show if in zone */}
-          {deliveryCheck?.inZone && (
-            <div className="mt-4">
-              <label className="block text-sm font-medium text-primary mb-1">
-                Delivery instructions <span className="text-muted font-normal">(optional)</span>
-              </label>
-              <textarea
-                placeholder="Help us find you - e.g. &quot;second gate on the left&quot;, &quot;flat above the shop&quot;, &quot;park on the lane&quot;"
-                value={deliveryInstructions}
-                onChange={(e) => setDeliveryInstructions(e.target.value)}
-                rows={2}
-                className="w-full rounded-lg border border-primary/20 bg-white px-4 py-2.5 text-base sm:text-sm outline-none transition focus:border-secondary resize-none"
-              />
-            </div>
-          )}
-
           {/* Map pin confirmation - only show if in zone and we have geocoded coords */}
           {deliveryCheck?.inZone && geocodedLat !== null && geocodedLng !== null && (
             <div className={`mt-4 rounded-lg p-4 ${pinConfirmed ? "bg-green-50 border-2 border-green-300" : "bg-red-50 border-2 border-red-300"}`}>
@@ -1021,21 +1005,41 @@ export default function CartPage() {
         </div>
       )}
 
-      {/* Safe Place (show for all delivery options except "in") */}
-      {!topUpOrder && deliveryCheck?.inZone && needsSafePlace && (
+      {/* Safe Place + delivery instructions - once an option is picked. The
+          safe place (WHERE we leave it - quoted back in customer emails) only
+          applies to the leave-it options; the finding-you instructions (HOW to
+          find the house - driver-facing) apply to everyone. */}
+      {!topUpOrder && deliveryCheck?.inZone && deliveryOption && (
         <div className="mt-6 rounded-xl bg-surface p-6 shadow-sm">
           <div className="flex items-center gap-2">
             <MapPin size={20} className="text-secondary" />
-            <h2 className="text-lg font-semibold text-primary">Safe Place</h2>
+            <h2 className="text-lg font-semibold text-primary">{needsSafePlace ? "Safe Place" : "Finding You"}</h2>
           </div>
-          <p className="mt-1 text-sm text-muted">Where should we leave your order? Please give clear instructions.</p>
-          <textarea
-            value={safePlace}
-            onChange={(e) => setSafePlace(e.target.value)}
-            placeholder="e.g. Behind side gate, In porch, By back door, In garage..."
-            className="mt-4 w-full rounded-lg border border-primary/20 bg-white px-4 py-3 text-sm outline-none focus:border-secondary"
-            rows={3}
-          />
+          {needsSafePlace && (
+            <>
+              <p className="mt-1 text-sm text-muted">Where exactly should we leave your order?</p>
+              <textarea
+                value={safePlace}
+                onChange={(e) => setSafePlace(e.target.value)}
+                placeholder="e.g. In the porch, Behind the side gate, By the back door, In the garage..."
+                className="mt-4 w-full rounded-lg border border-primary/20 bg-white px-4 py-3 text-sm outline-none focus:border-secondary"
+                rows={3}
+              />
+            </>
+          )}
+
+          <div className={needsSafePlace ? "mt-4" : "mt-1"}>
+            <label className="block text-sm font-medium text-primary mb-1">
+              Delivery instructions <span className="text-muted font-normal">(optional)</span>
+            </label>
+            <textarea
+              placeholder="Anything that helps the driver find you - e.g. &quot;second gate on the left&quot;, &quot;flat above the shop&quot;, &quot;park on the lane&quot;"
+              value={deliveryInstructions}
+              onChange={(e) => setDeliveryInstructions(e.target.value)}
+              rows={2}
+              className="w-full rounded-lg border border-primary/20 bg-white px-4 py-2.5 text-base sm:text-sm outline-none transition focus:border-secondary resize-none"
+            />
+          </div>
 
           {/* Box Deposit Info - only when borrowing a Local cool box */}
           {deliveryOption === "local_coolbox" && (
