@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Trash2, Plus, Minus, ShoppingCart, CheckCircle, Calendar, Clock, Home, Package, MapPin, HelpCircle, X, Loader2, MessageCircle, Bookmark } from "lucide-react";
+import { Trash2, Plus, Minus, ShoppingCart, CheckCircle, Calendar, Clock, Home, Package, MapPin, HelpCircle, X, Loader2, MessageCircle, Bookmark, LogIn } from "lucide-react";
 import { useUser } from "@clerk/nextjs";
 import { useCart } from "@/lib/cart-context";
 import { type CustomerProfile, type DeliveryDay, type DeliveryWindow, type DeliveryArea, type SupplierHolidayInfo, type DeliveryOption, getActiveDeliveryDays, getCustomerProfile, getDeliveryArea, submitExpansionRequest, getSuppliersHolidayInfo, isSupplierOnHoliday, saveBasket } from "@/lib/data";
@@ -247,7 +247,7 @@ export default function CartPage() {
 
   const handlePlaceOrder = async () => {
     if (!isSignedIn || !user) {
-      router.push("/sign-in");
+      router.push("/sign-in?redirect_url=/cart");
       return;
     }
     
@@ -572,8 +572,26 @@ export default function CartPage() {
         })()}
       </div>
 
-      {/* Delivery Address - only show if not top-up mode */}
-      {!topUpOrder && (
+      {/* Signed out: the whole delivery section waits behind sign-in - anything
+          typed here would be lost in the sign-in redirect anyway. */}
+      {!topUpOrder && !isSignedIn && (
+        <div className="mt-8 rounded-xl bg-surface p-8 shadow-sm text-center">
+          <LogIn size={32} className="mx-auto text-secondary mb-3" />
+          <h2 className="text-lg font-semibold text-primary">Sign in to continue</h2>
+          <p className="mt-2 text-sm text-muted max-w-md mx-auto">
+            Sign in to add your delivery details and pick your delivery day. New to Local? Creating an account takes a few seconds - fill in your details once and we&apos;ll remember them for every order after that.
+          </p>
+          <button
+            onClick={() => router.push("/sign-in?redirect_url=/cart")}
+            className="mt-4 rounded-lg bg-primary px-6 py-3 text-sm font-semibold text-white transition hover:bg-secondary"
+          >
+            Sign In / Create Account
+          </button>
+        </div>
+      )}
+
+      {/* Delivery Address - only show if signed in and not top-up mode */}
+      {!topUpOrder && isSignedIn && (
         <div className="mt-8 rounded-xl bg-surface p-6 shadow-sm">
           <div className="flex items-center gap-2">
             <MapPin size={20} className="text-secondary" />
