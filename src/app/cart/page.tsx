@@ -123,7 +123,9 @@ export default function CartPage() {
     if (p.phone) setPhone(p.phone);
     if (p.deliveryInstructions) setDeliveryInstructions(p.deliveryInstructions);
     if (p.defaultDeliveryWindow) setDeliveryWindow(p.defaultDeliveryWindow);
-    if (p.defaultDeliveryOption) setDeliveryOption(p.defaultDeliveryOption);
+    // The in/out delivery option is deliberately NOT prefetched - it's a weekly
+    // decision, asked fresh every order. Their usual safe place IS prefilled,
+    // so it appears ready-made the moment they pick a leave-it option.
     if (p.defaultSafePlace) setSafePlace(p.defaultSafePlace);
     if (p.pinLat != null && p.pinLng != null) {
       setGeocodedLat(p.pinLat);
@@ -1017,7 +1019,11 @@ export default function CartPage() {
           </div>
           {needsSafePlace && (
             <>
-              <p className="mt-1 text-sm text-muted">Where exactly should we leave your order?</p>
+              <p className="mt-1 text-sm text-muted">
+                {usingSavedDetails && safePlace.trim()
+                  ? "Your usual safe place - click to change it if this week's different."
+                  : "Where exactly should we leave your order?"}
+              </p>
               <textarea
                 value={safePlace}
                 onChange={(e) => setSafePlace(e.target.value)}

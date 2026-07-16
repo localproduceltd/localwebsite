@@ -102,8 +102,7 @@ export async function POST(request: NextRequest) {
           pinLat: metadata.pinLat ? parseFloat(metadata.pinLat) : undefined,
           pinLng: metadata.pinLng ? parseFloat(metadata.pinLng) : undefined,
           defaultDeliveryWindow: metadata.deliveryWindow || undefined,
-          defaultDeliveryOption: metadata.deliveryOption || undefined,
-          defaultSafePlace: metadata.safePlace || null,
+          defaultSafePlace: metadata.safePlace || undefined,
         });
       } catch (e) {
         console.error("Failed to update customer profile from order:", e);

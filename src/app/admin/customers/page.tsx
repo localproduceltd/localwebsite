@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { Package, Search, Mail, MapPin, Calendar, CheckCircle, X, Loader2, CreditCard, AlertCircle, Phone, Star, StickyNote, Info } from "lucide-react";
-import { type CustomerSummary, type CustomerSegment, DELIVERY_OPTION_LABELS, getAllCustomers, setCustomerOutstandingBox, updateCustomerAdminNotes } from "@/lib/data";
+import { type CustomerSummary, type CustomerSegment, getAllCustomers, setCustomerOutstandingBox, updateCustomerAdminNotes } from "@/lib/data";
 
 // Badge styling per segment
 const segmentConfig: Record<CustomerSegment, { label: string; classes: string }> = {
@@ -358,13 +358,10 @@ export default function AdminCustomersPage() {
                     {customer.addressLine1 ? `${customer.addressLine1}, ${customer.postcode ?? ""}` : customer.postcode || "—"}
                   </span>
                 </p>
-                {(customer.defaultDeliveryOption || customer.defaultSafePlace) && (
+                {customer.defaultSafePlace && (
                   <p className="flex items-start gap-2 text-xs text-amber-800 bg-amber-50 rounded px-2 py-1">
                     <Package size={12} className="flex-shrink-0 mt-0.5" />
-                    <span>
-                      {customer.defaultDeliveryOption ? DELIVERY_OPTION_LABELS[customer.defaultDeliveryOption] : "Safe place"}
-                      {customer.defaultSafePlace ? ` - ${customer.defaultSafePlace}` : ""}
-                    </span>
+                    <span>Safe place - {customer.defaultSafePlace}</span>
                   </p>
                 )}
                 {customer.deliveryInstructions && (
@@ -453,10 +450,9 @@ export default function AdminCustomersPage() {
                           <span className="text-muted text-xs block">{customer.postcode}</span>
                         ) : null}
                       </p>
-                      {(customer.defaultDeliveryOption || customer.defaultSafePlace) && (
-                        <p className={`mt-1 text-xs text-amber-800 ${expanded === customer.clerkUserId ? "" : "truncate"}`} title={`${customer.defaultDeliveryOption ? DELIVERY_OPTION_LABELS[customer.defaultDeliveryOption] : ""}${customer.defaultSafePlace ? ` - ${customer.defaultSafePlace}` : ""}`}>
-                          📍 {customer.defaultDeliveryOption ? DELIVERY_OPTION_LABELS[customer.defaultDeliveryOption] : "Safe place"}
-                          {customer.defaultSafePlace ? ` - ${customer.defaultSafePlace}` : ""}
+                      {customer.defaultSafePlace && (
+                        <p className={`mt-1 text-xs text-amber-800 ${expanded === customer.clerkUserId ? "" : "truncate"}`} title={customer.defaultSafePlace}>
+                          📍 Safe place - {customer.defaultSafePlace}
                         </p>
                       )}
                       {customer.deliveryInstructions && (

@@ -1617,9 +1617,9 @@ export interface CustomerProfile {
   deliveryInstructions: string | null;
   pinLat: number | null;
   pinLng: number | null;
-  // Defaults for the genuinely-weekly checkout questions
+  // Saved for prefill: the window default and their usual safe place. The
+  // in/out delivery option is deliberately NOT saved - it's a weekly decision.
   defaultDeliveryWindow: DeliveryWindow | null;
-  defaultDeliveryOption: DeliveryOption | null;
   defaultSafePlace: string | null;
   // Admin-only ("gate code 1234") - never shown to the customer
   adminNotes: string | null;
@@ -1648,7 +1648,6 @@ export async function getCustomerProfile(clerkUserId: string): Promise<CustomerP
     pinLat: data.pin_lat != null ? Number(data.pin_lat) : null,
     pinLng: data.pin_lng != null ? Number(data.pin_lng) : null,
     defaultDeliveryWindow: (data.default_delivery_window as DeliveryWindow) ?? null,
-    defaultDeliveryOption: (data.default_delivery_option as DeliveryOption) ?? null,
     defaultSafePlace: data.default_safe_place ?? null,
     adminNotes: data.admin_notes ?? null,
   };
@@ -1668,7 +1667,6 @@ export interface CustomerDeliveryDetails {
   pinLat?: number | null;
   pinLng?: number | null;
   defaultDeliveryWindow?: string | null;
-  defaultDeliveryOption?: string | null;
   defaultSafePlace?: string | null;
 }
 
@@ -1691,7 +1689,6 @@ export async function updateCustomerDeliveryDetails(
   if (details.pinLat !== undefined) row.pin_lat = details.pinLat;
   if (details.pinLng !== undefined) row.pin_lng = details.pinLng;
   if (details.defaultDeliveryWindow !== undefined) row.default_delivery_window = details.defaultDeliveryWindow;
-  if (details.defaultDeliveryOption !== undefined) row.default_delivery_option = details.defaultDeliveryOption;
   if (details.defaultSafePlace !== undefined) row.default_safe_place = details.defaultSafePlace;
 
   const { error } = await client
@@ -1730,7 +1727,6 @@ export interface CustomerSummary {
   city: string | null;
   postcode: string | null;
   deliveryInstructions: string | null;
-  defaultDeliveryOption: DeliveryOption | null;
   defaultSafePlace: string | null;
   adminNotes: string | null;
   hasOutstandingBox: boolean;
@@ -1765,7 +1761,7 @@ export async function getAllCustomers(): Promise<CustomerSummary[]> {
   // Get all customer profiles
   const { data: profiles, error: profilesError } = await supabase
     .from("customer_profiles")
-    .select("clerk_user_id, name, phone, address_line1, address_line2, city, postcode, delivery_instructions, default_delivery_option, default_safe_place, admin_notes, has_outstanding_box");
+    .select("clerk_user_id, name, phone, address_line1, address_line2, city, postcode, delivery_instructions, default_safe_place, admin_notes, has_outstanding_box");
   if (profilesError) throw profilesError;
 
   const profileMap = new Map(profiles?.map(p => [p.clerk_user_id, p]) ?? []);
@@ -1826,7 +1822,6 @@ export async function getAllCustomers(): Promise<CustomerSummary[]> {
       city: profile?.city ?? null,
       postcode: profile?.postcode ?? null,
       deliveryInstructions: profile?.delivery_instructions ?? null,
-      defaultDeliveryOption: (profile?.default_delivery_option as DeliveryOption) ?? null,
       defaultSafePlace: profile?.default_safe_place ?? null,
       adminNotes: profile?.admin_notes ?? null,
       hasOutstandingBox: profile?.has_outstanding_box ?? false,
