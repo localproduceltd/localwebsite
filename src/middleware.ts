@@ -10,10 +10,11 @@ const isProtectedRoute = createRouteMatcher([
 
 const isAdminRoute = createRouteMatcher(["/admin(.*)"]);
 
-// Admin pages a "driver" role is allowed to use
+// Admin pages a "driver" role is allowed to use. Customers was removed Jul 2026:
+// the stop cards on Driver Run carry everything the driver needs (address, phone,
+// notes, box flags), and the Customers tab is commercial information.
 const isDriverAllowedRoute = createRouteMatcher([
   "/admin/driver(.*)",
-  "/admin/customers(.*)",
 ]);
 
 export default clerkMiddleware(async (auth, req) => {

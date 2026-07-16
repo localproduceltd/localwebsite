@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo, useCallback } from "react";
-import { type Order, type OrderItem, type OrderItemRefund, type RefundPaidBy, type RefundReasonType, DELIVERY_OPTION_LABELS, getOrders, updateOrderStatus, getCustomerBoxStatuses, getRefundsForDeliveryDay, deleteOrderItemRefund, setCustomerOutstandingBox } from "@/lib/data";
+import { type Order, type OrderItem, type OrderItemRefund, type RefundPaidBy, type RefundReasonType, DELIVERY_OPTION_LABELS, getOrders, updateOrderStatus, getCustomerBoxStatuses, getRefundsForDeliveryDay, deleteOrderItemRefund } from "@/lib/data";
 import { Package, Clock, CheckCircle, XCircle, Calendar, ChevronDown, ChevronRight, Home, MapPin, Users, Truck, Search, MoreVertical, Play, Download, ArrowRight, FileText } from "lucide-react";
 import { jsPDF } from "jspdf";
 import Link from "next/link";
@@ -336,16 +336,39 @@ export default function AdminDeliveriesPage() {
 
   const updateStatus = async (orderId: string, newStatus: Order["status"]) => {
     const order = orderList.find((o) => o.id === orderId);
-    await updateOrderStatus(orderId, newStatus);
-    
-    if (newStatus === "delivered" && order && order.boxDepositPaid) {
-      await setCustomerOutstandingBox(order.userId, true);
+
+    if (newStatus === "delivered") {
+      // Same server path as the Driver Run tab: records the box outcome
+      // (default here: a box goes out with box-deposit orders, nothing
+      // collected - the driver page asks explicitly), keeps the customer's
+      // outstanding-box flag in step, and sends the delivered email.
+      try {
+        const res = await fetch(`/api/admin/orders/${orderId}/delivered`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ boxLeft: order?.boxDepositPaid ?? false, boxCollected: false }),
+        });
+        if (!res.ok) {
+          const result = await res.json().catch(() => ({}));
+          throw new Error(result.error?.message || "Failed to mark delivered");
+        }
+      } catch (error) {
+        alert(error instanceof Error ? error.message : "Failed to mark delivered");
+        return;
+      }
+      const updated = await getOrders();
+      setOrderList(updated);
+      const userIds = [...new Set(updated.map(o => o.userId))];
+      setBoxStatuses(await getCustomerBoxStatuses(userIds));
+      return;
     }
-    
+
+    await updateOrderStatus(orderId, newStatus);
+
     const updated = await getOrders();
     setOrderList(updated);
 
-    if (order && order.customerEmail && ["prepped", "next_hour", "delivered", "cancelled"].includes(newStatus)) {
+    if (order && order.customerEmail && ["prepped", "next_hour", "cancelled"].includes(newStatus)) {
       fetch("/api/email", {
         method: "POST",
         headers: { "Content-Type": "application/json" },

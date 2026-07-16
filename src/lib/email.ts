@@ -509,6 +509,75 @@ export async function sendSupplierNewOrder(data: NewOrderData) {
   }
 }
 
+// ─── Thursday Slot Email ("any" customers) ───────────────────────────────────
+
+interface SlotEmailData {
+  customerEmail: string;
+  customerName: string;
+  deliveryDay: string; // e.g. "17 July" - slotted into "this Friday (17 July)"
+  leg: "morning" | "afternoon";
+  stopPosition: number;
+  legSize: number;
+  etaBand?: string; // e.g. "9-10am"
+  deliveryOption?: string;
+  safePlace?: string;
+}
+
+// Sent on Thursday (after Josie approves the route) to customers who picked
+// "I don't mind" at checkout, telling them their worked-out slot. Fixed
+// morning/afternoon customers already know theirs, so they're not sent this -
+// everyone gets the fuller "prepped + your time" email in the evening.
+// Wording is Josie's original Gmail-draft template - keep it.
+export async function sendSlotEmail(data: SlotEmailData) {
+  const name = firstName(data.customerName);
+  const legName = data.leg === "morning" ? "morning" : "afternoon";
+  const legWindow = data.leg === "morning" ? "9am-1pm" : "1pm-5pm";
+  const place = data.safePlace && data.safePlace.trim() ? ` (${data.safePlace.trim()})` : "";
+
+  // Last line reflects what they chose at checkout - never the generic version.
+  let optionLine: string;
+  switch (data.deliveryOption) {
+    case "in":
+      optionLine = "You said you'll be in, so we'll see you at the door. If for whatever reason you now won't be in, just leave a cool bag and some ice packs out and we'll drop your order there.";
+      break;
+    case "out_own_coolbag":
+      optionLine = `You've asked us to leave it in your own cool bag${place}, so the driver will pop your order straight in there - a couple of ice packs in it will help keep everything fresh. 💚`;
+      break;
+    case "out_need_coolbag":
+      optionLine = `You've asked us to leave it in your Local cool box${place}, so the driver will pop your order straight in there.`;
+      break;
+    case "in_no_disturb":
+      optionLine = `You've asked us to leave it${place} without disturbing you, so that's exactly what we'll do.`;
+      break;
+    default:
+      optionLine = "";
+  }
+
+  const roughTime = data.etaBand
+    ? `, so we should be with you roughly <strong>${data.etaBand}</strong>`
+    : "";
+
+  const { error } = await resend.emails.send({
+    from: FROM_EMAIL,
+    to: data.customerEmail,
+    subject: `Your Friday delivery (${data.deliveryDay}) will be in the ${legName.toUpperCase()}`,
+    html: shell(`
+        <h1 style="color: ${BRAND}; font-size: 21px; margin: 0 0 14px;">You're on the ${legName} run 💚</h1>
+        <p style="margin: 0 0 12px;">Hi ${name},</p>
+        <p style="margin: 0 0 12px;">You put "I don't mind" for your delivery slot this Friday (${data.deliveryDay}) - thanks for being easy about the timing.</p>
+        <p style="margin: 0 0 12px;">I've planned the route now, and you're on the <strong>${legName}</strong> run (<strong>${legWindow}</strong>). You're stop ${data.stopPosition} of ${data.legSize}${roughTime}.</p>
+        <p style="margin: 0 0 12px;">As always, you'll get an email when we're just one stop away.</p>
+        ${optionLine ? `<p style="margin: 0 0 12px;">${optionLine}</p>` : ""}
+        <p style="margin: 12px 0 4px;">See you Friday!</p>
+        ${SIGNOFF}`),
+  });
+
+  if (error) {
+    console.error("Failed to send slot email:", error);
+    throw error;
+  }
+}
+
 // ─── Order Status Update Emails ──────────────────────────────────────────────
 
 interface OrderStatusUpdateData {
@@ -524,6 +593,8 @@ interface OrderStatusUpdateData {
   routeLeg?: "morning" | "afternoon";
   routePosition?: number;
   legSize?: number;
+  // Rough hour arrival band from the route build (delivery_routes.eta_band), e.g. "9-10am"
+  etaBand?: string;
   // For "on our way" emails: how many stops are ahead of this one when notified
   // (0 = you're next, 1 = one stop before you, 2 = two stops before you)
   stopsAhead?: number;
@@ -537,10 +608,6 @@ export async function sendOrderStatusUpdate(data: OrderStatusUpdateData) {
   // Resolve delivery slot: use routeLeg from delivery_routes if available, else fall back to order's deliveryWindow
   const resolvedSlot = data.routeLeg ?? data.deliveryWindow;
   const deliveryWindowText = resolvedSlot === "morning" ? "9am - 1pm" : resolvedSlot === "afternoon" ? "1pm - 5pm" : "";
-  const runName = resolvedSlot === "morning" ? "morning" : resolvedSlot === "afternoon" ? "afternoon" : "";
-
-  // Customer chose "any" at checkout and now has a slot worked out from the route.
-  const wasAny = data.deliveryWindow === "any" && !!data.routeLeg;
 
   // Extra ice-pack nudge only when the customer leaves their own box/bag out
   // (people getting one of our cool boxes already get ice packs from us).
@@ -567,16 +634,22 @@ export async function sendOrderStatusUpdate(data: OrderStatusUpdateData) {
 
   if (data.status === "prepped") {
     subject = `Confirming your delivery tomorrow${nm} 🥕`;
-    const openingLine = wasAny
-      ? `Hi ${name}, just confirming your delivery for tomorrow, <strong>${data.deliveryDay}</strong>. You'd said you didn't mind your time (thank you for that!), so now we've worked out the route${deliveryWindowText ? ` - you'll be on our ${runName} run, which is between <strong>${deliveryWindowText}</strong>` : ""}.`
-      : `Hi ${name}, just confirming your delivery is booked in for tomorrow, <strong>${data.deliveryDay}</strong>${deliveryWindowText ? `, between <strong>${deliveryWindowText}</strong>` : ""}.`;
+    // Everyone gets the same opening - the "any" customers already heard about
+    // their worked-out slot in the Thursday-morning email, so no special copy.
+    const openingLine = `Hi ${name}, just confirming your delivery is booked in for tomorrow, <strong>${data.deliveryDay}</strong>${deliveryWindowText ? `, between <strong>${deliveryWindowText}</strong>` : ""}.`;
+    // Prefer the route build's hour band; fall back to the rough position phrase.
+    // The one-stop-away reminder sits in the same breath as the time, so the
+    // "when" of the delivery reads as one thought.
+    const timingLine = data.etaBand
+      ? `Looking at the route, we should be with you at <strong>roughly ${data.etaBand}</strong> - that can drift a little either way depending on how the run goes.`
+      : positionPhrase;
+    const oneStopLine = "As always, you'll get an email when we're just one stop away.";
     body = `
         <h1 style="color: ${BRAND}; font-size: 21px; margin: 0 0 14px;">Confirming your delivery${nm} 💚</h1>
         <p style="margin: 0 0 12px;">${openingLine}</p>
-        ${positionPhrase ? `<p style="margin: 0 0 12px;">${positionPhrase}</p>` : ""}
+        <p style="margin: 0 0 12px;">${timingLine ? `${timingLine} ${oneStopLine}` : oneStopLine}</p>
         ${reminder ? `<p style="margin: 0 0 12px;">${reminder}</p>` : ""}
         ${iceReminder ? `<p style="margin: 0 0 12px;">${iceReminder}</p>` : ""}
-        <p style="margin: 0 0 12px;">As usual, you'll receive an email when we're just a couple of stops away.</p>
         <p style="margin: 12px 0 4px;">Our driver will see you tomorrow,</p>
         ${SIGNOFF}`;
   } else if (data.status === "next_hour") {
@@ -584,13 +657,9 @@ export async function sendOrderStatusUpdate(data: OrderStatusUpdateData) {
     const stops = data.stopsAhead;
     let positionLine: string;
     if (stops === 0) {
-      positionLine = "You're first in line - you're our first stop.";
-    } else if (stops === 1) {
-      positionLine = "You're second in line - we've just one more stop before yours, so it should be roughly 15 to 30 minutes.";
-    } else if (stops === 2) {
-      positionLine = "You're third in line - we've two more stops before yours, so roughly half an hour to an hour.";
-    } else if (typeof stops === "number" && stops > 2) {
-      positionLine = `You're number ${stops + 1} in line - we've ${stops} stops to make before yours, so it'll be a little while yet.`;
+      positionLine = "You're our first stop of the run, so we're heading straight to you.";
+    } else if (typeof stops === "number") {
+      positionLine = "We've got one stop to make before yours, so we should be with you in around 30 minutes to an hour, depending on distances.";
     } else {
       positionLine = "Your box is on the van and should be with you within the hour.";
     }

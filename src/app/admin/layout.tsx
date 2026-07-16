@@ -8,7 +8,7 @@ import { SignedIn, useUser } from "@clerk/nextjs";
 import UserAvatar from "@/components/UserAvatar";
 
 // Tabs the "driver" role can see; middleware blocks the rest of /admin for drivers
-const driverLinkHrefs = ["/admin/driver", "/admin/customers"];
+const driverLinkHrefs = ["/admin/driver"];
 
 const adminLinks = [
   { href: "/admin", label: "Dashboard", icon: LayoutDashboard },

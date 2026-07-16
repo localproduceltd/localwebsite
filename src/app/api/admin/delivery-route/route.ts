@@ -28,10 +28,18 @@ export async function GET(request: NextRequest) {
   return NextResponse.json(data || []);
 }
 
-// POST: Upload/replace a route for a delivery day
+// POST: Upload/replace a route for a delivery day.
+// Auth: a signed-in admin/driver (the /admin/driver upload button), OR the
+// x-route-upload-key secret header - that's how the Thursday 8am route build
+// uploads headlessly (key = ROUTE_UPLOAD_KEY env var, same value locally and
+// in Vercel).
 export async function POST(request: NextRequest) {
-  const gate = await requireAdminOrDriver();
-  if (gate instanceof NextResponse) return gate;
+  const uploadKey = process.env.ROUTE_UPLOAD_KEY;
+  const headerKey = request.headers.get("x-route-upload-key");
+  if (!uploadKey || headerKey !== uploadKey) {
+    const gate = await requireAdminOrDriver();
+    if (gate instanceof NextResponse) return gate;
+  }
 
   try {
     const body = await request.json();
@@ -92,13 +100,14 @@ export async function POST(request: NextRequest) {
     // Insert new route entries
     const routeEntries = route
       .filter((r: { order_number: number }) => orderMap.has(r.order_number))
-      .map((r: { order_number: number; position: number; leg: string }) => ({
+      .map((r: { order_number: number; position: number; leg: string; eta_band?: string }) => ({
         delivery_day,
         order_id: orderMap.get(r.order_number),
         order_number: r.order_number,
         box_number: boxMap.get(r.order_number) ?? null,
         route_position: r.position,
         leg: r.leg || "morning",
+        eta_band: r.eta_band ?? null,
       }));
 
     if (routeEntries.length === 0) {

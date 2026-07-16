@@ -11,6 +11,7 @@ import {
   getRatingsByOrder,
   submitOrderRatings,
   getCustomerProfile,
+  updateCustomerDeliveryDetails,
   canModifyOrder,
   submitFeedback,
 } from "@/lib/data";
@@ -28,7 +29,11 @@ import {
   RefreshCw,
   Plus,
   Truck,
+  MapPin,
+  Phone,
 } from "lucide-react";
+import MapPicker from "@/components/MapPicker";
+import MiniMapPreview from "@/components/MiniMapPreview";
 import { useRouter } from "next/navigation";
 import { useCart } from "@/lib/cart-context";
 
@@ -81,6 +86,65 @@ export default function AccountPage() {
 
   // Profile state
   const [profile, setProfile] = useState<CustomerProfile | null>(null);
+
+  // Delivery details editing state
+  const [editingDetails, setEditingDetails] = useState(false);
+  const [detailsForm, setDetailsForm] = useState({
+    addressLine1: "",
+    addressLine2: "",
+    city: "",
+    postcode: "",
+    phone: "",
+    deliveryInstructions: "",
+    pinLat: null as number | null,
+    pinLng: null as number | null,
+  });
+  const [showMapPicker, setShowMapPicker] = useState(false);
+  const [savingDetails, setSavingDetails] = useState(false);
+  const [detailsSaved, setDetailsSaved] = useState(false);
+
+  const startEditingDetails = () => {
+    setDetailsForm({
+      addressLine1: profile?.addressLine1 ?? "",
+      addressLine2: profile?.addressLine2 ?? "",
+      city: profile?.city ?? "",
+      postcode: profile?.postcode ?? "",
+      phone: profile?.phone ?? "",
+      deliveryInstructions: profile?.deliveryInstructions ?? "",
+      pinLat: profile?.pinLat ?? null,
+      pinLng: profile?.pinLng ?? null,
+    });
+    setEditingDetails(true);
+    setDetailsSaved(false);
+  };
+
+  const saveDetails = async () => {
+    if (!user) return;
+    setSavingDetails(true);
+    try {
+      await updateCustomerDeliveryDetails(user.id, {
+        name: user.fullName ?? undefined,
+        addressLine1: detailsForm.addressLine1.trim() || null,
+        addressLine2: detailsForm.addressLine2.trim() || null,
+        city: detailsForm.city.trim() || null,
+        postcode: detailsForm.postcode.trim() || null,
+        phone: detailsForm.phone.trim() || null,
+        deliveryInstructions: detailsForm.deliveryInstructions.trim() || null,
+        pinLat: detailsForm.pinLat,
+        pinLng: detailsForm.pinLng,
+      });
+      const fresh = await getCustomerProfile(user.id);
+      setProfile(fresh);
+      setEditingDetails(false);
+      setDetailsSaved(true);
+      setTimeout(() => setDetailsSaved(false), 3000);
+    } catch (error) {
+      console.error("Failed to save delivery details:", error);
+      alert("Failed to save your details - please try again.");
+    } finally {
+      setSavingDetails(false);
+    }
+  };
 
   // Orders state
   const [orders, setOrders] = useState<Order[]>([]);
@@ -289,6 +353,157 @@ export default function AccountPage() {
             </div>
           </div>
         </div>
+      </section>
+
+      {/* ─── Delivery Details Section ─── */}
+      <section className="mt-6 rounded-xl bg-surface p-6 shadow-sm">
+        <div className="flex items-center justify-between mb-1">
+          <div className="flex items-center gap-2">
+            <MapPin size={20} className="text-secondary" />
+            <h2 className="text-lg font-semibold text-primary">My Delivery Details</h2>
+          </div>
+          {!editingDetails && (
+            <button
+              onClick={startEditingDetails}
+              className="text-xs text-secondary hover:text-secondary/80 transition flex items-center gap-1"
+            >
+              <Pencil size={12} />
+              Edit
+            </button>
+          )}
+        </div>
+        <p className="text-xs text-muted mb-4">
+          Saved for every order so checkout&apos;s quick. Changes apply from your next order - they don&apos;t affect one you&apos;ve already placed.
+        </p>
+
+        {detailsSaved && (
+          <div className="mb-4 rounded-lg bg-green-50 border border-green-200 px-3 py-2 text-sm text-green-700">
+            ✓ Delivery details saved
+          </div>
+        )}
+
+        {!editingDetails ? (
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <label className="block text-xs font-medium text-muted mb-1">Delivery address</label>
+              {profile?.addressLine1 ? (
+                <p className="text-sm font-medium text-primary">
+                  {profile.addressLine1}
+                  {profile.addressLine2 ? `, ${profile.addressLine2}` : ""}
+                  <br />
+                  {profile.city}, {profile.postcode}
+                </p>
+              ) : (
+                <p className="text-sm text-muted">Not saved yet - it&apos;ll save when you next order</p>
+              )}
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-muted mb-1">Contact number</label>
+              <div className="flex items-center gap-2">
+                <Phone size={14} className="text-muted" />
+                <p className="text-sm font-medium text-primary">{profile?.phone || "—"}</p>
+              </div>
+              <label className="block text-xs font-medium text-muted mt-3 mb-1">Delivery instructions</label>
+              <p className="text-sm font-medium text-primary">{profile?.deliveryInstructions || "—"}</p>
+            </div>
+            {profile?.pinLat != null && profile?.pinLng != null && (
+              <div>
+                <label className="block text-xs font-medium text-muted mb-1">Your door pin</label>
+                <MiniMapPreview lat={profile.pinLat} lng={profile.pinLng} size={96} />
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <input
+              type="text"
+              placeholder="Address line 1"
+              value={detailsForm.addressLine1}
+              onChange={(e) => setDetailsForm({ ...detailsForm, addressLine1: e.target.value })}
+              className="w-full rounded-lg border border-primary/20 bg-white px-4 py-2.5 text-base sm:text-sm outline-none transition focus:border-secondary"
+            />
+            <input
+              type="text"
+              placeholder="Address line 2 (optional)"
+              value={detailsForm.addressLine2}
+              onChange={(e) => setDetailsForm({ ...detailsForm, addressLine2: e.target.value })}
+              className="w-full rounded-lg border border-primary/20 bg-white px-4 py-2.5 text-base sm:text-sm outline-none transition focus:border-secondary"
+            />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <input
+                type="text"
+                placeholder="City / Town"
+                value={detailsForm.city}
+                onChange={(e) => setDetailsForm({ ...detailsForm, city: e.target.value })}
+                className="w-full rounded-lg border border-primary/20 bg-white px-4 py-2.5 text-base sm:text-sm outline-none transition focus:border-secondary"
+              />
+              <input
+                type="text"
+                placeholder="Postcode"
+                value={detailsForm.postcode}
+                onChange={(e) => setDetailsForm({ ...detailsForm, postcode: e.target.value })}
+                className="w-full rounded-lg border border-primary/20 bg-white px-4 py-2.5 text-base sm:text-sm outline-none transition focus:border-secondary"
+              />
+            </div>
+            <input
+              type="tel"
+              inputMode="tel"
+              placeholder="Mobile number"
+              value={detailsForm.phone}
+              onChange={(e) => setDetailsForm({ ...detailsForm, phone: e.target.value })}
+              className="w-full rounded-lg border border-primary/20 bg-white px-4 py-2.5 text-base sm:text-sm outline-none transition focus:border-secondary"
+            />
+            <textarea
+              placeholder='Delivery instructions - e.g. "second gate on the left", "park on the lane"'
+              value={detailsForm.deliveryInstructions}
+              onChange={(e) => setDetailsForm({ ...detailsForm, deliveryInstructions: e.target.value })}
+              rows={2}
+              className="w-full rounded-lg border border-primary/20 bg-white px-4 py-2.5 text-base sm:text-sm outline-none transition focus:border-secondary resize-none"
+            />
+            {detailsForm.pinLat != null && detailsForm.pinLng != null ? (
+              <div className="flex items-center gap-3">
+                <MiniMapPreview
+                  lat={detailsForm.pinLat}
+                  lng={detailsForm.pinLng}
+                  onClick={() => setShowMapPicker(true)}
+                  size={80}
+                />
+                <p className="text-xs text-muted">Tap the map to move your door pin. If you&apos;ve moved house, drop the pin on the new place too.</p>
+              </div>
+            ) : (
+              <p className="text-xs text-muted">No door pin saved yet - you&apos;ll set it the next time you order.</p>
+            )}
+            <div className="flex gap-2 pt-1">
+              <button
+                onClick={() => setEditingDetails(false)}
+                disabled={savingDetails}
+                className="rounded-lg border border-primary/20 px-4 py-2 text-sm font-medium text-muted hover:bg-white disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={saveDetails}
+                disabled={savingDetails}
+                className="rounded-lg bg-primary px-5 py-2 text-sm font-semibold text-white hover:bg-secondary disabled:opacity-50 flex items-center gap-2"
+              >
+                {savingDetails && <Loader2 size={14} className="animate-spin" />}
+                {savingDetails ? "Saving..." : "Save Details"}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {showMapPicker && (
+          <MapPicker
+            lat={detailsForm.pinLat}
+            lng={detailsForm.pinLng}
+            onLocationSelect={(lat, lng) => {
+              setDetailsForm((prev) => ({ ...prev, pinLat: lat, pinLng: lng }));
+              setShowMapPicker(false);
+            }}
+            onClose={() => setShowMapPicker(false)}
+          />
+        )}
       </section>
 
       {/* ─── Orders Section ─── */}

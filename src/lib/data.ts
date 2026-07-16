@@ -123,6 +123,9 @@ export interface Order {
   safePlace: string | null;
   boxDepositPaid: boolean;
   bottleDepositPaid: boolean;
+  // Box outcome recorded by the driver at delivery (null = not recorded)
+  boxLeft: boolean | null;
+  boxCollected: boolean | null;
   address: OrderAddress | null;
   phone: string | null;
   stripeSessionId: string | null;
@@ -519,6 +522,8 @@ export async function getOrders(userId?: string): Promise<Order[]> {
     safePlace: o.safe_place ?? null,
     boxDepositPaid: o.box_deposit_paid ?? false,
     bottleDepositPaid: o.bottle_deposit_paid ?? false,
+    boxLeft: o.box_left ?? null,
+    boxCollected: o.box_collected ?? null,
     address: o.address_line1 ? {
       addressLine1: o.address_line1,
       addressLine2: o.address_line2 ?? undefined,
@@ -938,6 +943,8 @@ export async function getOrdersByDeliveryDay(deliveryDate: string): Promise<Orde
     safePlace: o.safe_place ?? null,
     boxDepositPaid: o.box_deposit_paid ?? false,
     bottleDepositPaid: o.bottle_deposit_paid ?? false,
+    boxLeft: o.box_left ?? null,
+    boxCollected: o.box_collected ?? null,
     address: o.address_line1 ? {
       addressLine1: o.address_line1,
       addressLine2: o.address_line2 ?? undefined,
@@ -1023,6 +1030,8 @@ export async function getOrderByStripeSession(sessionId: string): Promise<Order 
     safePlace: data.safe_place ?? null,
     boxDepositPaid: data.box_deposit_paid ?? false,
     bottleDepositPaid: data.bottle_deposit_paid ?? false,
+    boxLeft: data.box_left ?? null,
+    boxCollected: data.box_collected ?? null,
     address: data.address_line1 ? {
       addressLine1: data.address_line1,
       addressLine2: data.address_line2 ?? undefined,
@@ -1111,6 +1120,8 @@ export async function createOrder(options: CreateOrderOptions): Promise<Order> {
     safePlace: order.safe_place ?? null,
     boxDepositPaid: order.box_deposit_paid ?? false,
     bottleDepositPaid: order.bottle_deposit_paid ?? false,
+    boxLeft: order.box_left ?? null,
+    boxCollected: order.box_collected ?? null,
     address: options.address ?? null,
     stripeSessionId: order.stripe_session_id ?? null,
     discountCode: order.discount_code ?? null,
@@ -1235,6 +1246,8 @@ export async function getOrder(orderId: string, client: SupabaseClient = supabas
     safePlace: data.safe_place ?? null,
     boxDepositPaid: data.box_deposit_paid ?? false,
     bottleDepositPaid: data.bottle_deposit_paid ?? false,
+    boxLeft: data.box_left ?? null,
+    boxCollected: data.box_collected ?? null,
     address: data.address_line1 ? {
       addressLine1: data.address_line1,
       addressLine2: data.address_line2 ?? undefined,
@@ -1589,6 +1602,7 @@ export async function getAllReviews(): Promise<Array<{ id: string; kind: "produc
 export interface CustomerProfile {
   id: string;
   clerkUserId: string;
+  name: string | null;
   addressLine1: string | null;
   addressLine2: string | null;
   city: string | null;
@@ -1596,6 +1610,17 @@ export interface CustomerProfile {
   lat: number | null;
   lng: number | null;
   hasOutstandingBox: boolean;
+  // Standing delivery details - the profile is the home, orders snapshot them weekly
+  phone: string | null;
+  deliveryInstructions: string | null;
+  pinLat: number | null;
+  pinLng: number | null;
+  // Defaults for the genuinely-weekly checkout questions
+  defaultDeliveryWindow: DeliveryWindow | null;
+  defaultDeliveryOption: DeliveryOption | null;
+  defaultSafePlace: string | null;
+  // Admin-only ("gate code 1234") - never shown to the customer
+  adminNotes: string | null;
 }
 
 export async function getCustomerProfile(clerkUserId: string): Promise<CustomerProfile | null> {
@@ -1608,6 +1633,7 @@ export async function getCustomerProfile(clerkUserId: string): Promise<CustomerP
   return {
     id: data.id,
     clerkUserId: data.clerk_user_id,
+    name: data.name ?? null,
     addressLine1: data.address_line1 ?? null,
     addressLine2: data.address_line2 ?? null,
     city: data.city ?? null,
@@ -1615,71 +1641,232 @@ export async function getCustomerProfile(clerkUserId: string): Promise<CustomerP
     lat: data.lat ?? null,
     lng: data.lng ?? null,
     hasOutstandingBox: data.has_outstanding_box ?? false,
+    phone: data.phone ?? null,
+    deliveryInstructions: data.delivery_instructions ?? null,
+    pinLat: data.pin_lat != null ? Number(data.pin_lat) : null,
+    pinLng: data.pin_lng != null ? Number(data.pin_lng) : null,
+    defaultDeliveryWindow: (data.default_delivery_window as DeliveryWindow) ?? null,
+    defaultDeliveryOption: (data.default_delivery_option as DeliveryOption) ?? null,
+    defaultSafePlace: data.default_safe_place ?? null,
+    adminNotes: data.admin_notes ?? null,
   };
 }
 
+// The customer's standing delivery details, editable from their account page.
+// Only the fields provided are written; orders already placed are unaffected
+// (they carry their own snapshot) - changes apply from the next order.
+export interface CustomerDeliveryDetails {
+  name?: string | null;
+  addressLine1?: string | null;
+  addressLine2?: string | null;
+  city?: string | null;
+  postcode?: string | null;
+  phone?: string | null;
+  deliveryInstructions?: string | null;
+  pinLat?: number | null;
+  pinLng?: number | null;
+  defaultDeliveryWindow?: string | null;
+  defaultDeliveryOption?: string | null;
+  defaultSafePlace?: string | null;
+}
+
+export async function updateCustomerDeliveryDetails(
+  clerkUserId: string,
+  details: CustomerDeliveryDetails,
+  client: SupabaseClient = supabase,
+): Promise<void> {
+  const row: Record<string, unknown> = {
+    clerk_user_id: clerkUserId,
+    updated_at: new Date().toISOString(),
+  };
+  if (details.name !== undefined) row.name = details.name;
+  if (details.addressLine1 !== undefined) row.address_line1 = details.addressLine1;
+  if (details.addressLine2 !== undefined) row.address_line2 = details.addressLine2;
+  if (details.city !== undefined) row.city = details.city;
+  if (details.postcode !== undefined) row.postcode = details.postcode;
+  if (details.phone !== undefined) row.phone = details.phone;
+  if (details.deliveryInstructions !== undefined) row.delivery_instructions = details.deliveryInstructions;
+  if (details.pinLat !== undefined) row.pin_lat = details.pinLat;
+  if (details.pinLng !== undefined) row.pin_lng = details.pinLng;
+  if (details.defaultDeliveryWindow !== undefined) row.default_delivery_window = details.defaultDeliveryWindow;
+  if (details.defaultDeliveryOption !== undefined) row.default_delivery_option = details.defaultDeliveryOption;
+  if (details.defaultSafePlace !== undefined) row.default_safe_place = details.defaultSafePlace;
+
+  const { error } = await client
+    .from("customer_profiles")
+    .upsert(row, { onConflict: "clerk_user_id" });
+  if (error) throw error;
+}
+
+export async function updateCustomerAdminNotes(clerkUserId: string, notes: string | null): Promise<void> {
+  const { error } = await supabase
+    .from("customer_profiles")
+    .upsert(
+      { clerk_user_id: clerkUserId, admin_notes: notes, updated_at: new Date().toISOString() },
+      { onConflict: "clerk_user_id" },
+    );
+  if (error) throw error;
+}
+
+// Segment thresholds (weeks since last order). Named so they're easy to tune
+// as the business ages - with only a few months of trading, "churned" is a
+// soft signal, not a verdict.
+export const SEGMENT_CURRENT_WEEKS = 4;   // ordered within this = current
+export const SEGMENT_CHURNED_WEEKS = 8;   // quiet for longer than this = churned
+export const SEGMENT_NEW_DAYS = 28;       // first order within this = new
+export const TOP_CUSTOMER_FRACTION = 0.1; // top 10% by lifetime spend get the star
+
+export type CustomerSegment = "new" | "current" | "lapsing" | "churned";
+
 export interface CustomerSummary {
   clerkUserId: string;
+  name: string | null;
   email: string | null;
+  phone: string | null;
+  addressLine1: string | null;
+  addressLine2: string | null;
+  city: string | null;
   postcode: string | null;
+  deliveryInstructions: string | null;
+  adminNotes: string | null;
   hasOutstandingBox: boolean;
   totalOrders: number;
-  totalSpent: number;
+  totalSpent: number; // kept for the top-10% calculation; not displayed as a figure
+  firstOrderDate: string | null;
   lastOrderDate: string | null;
+  avgGapDays: number | null; // average days between orders (null with <2 orders)
+  segment: CustomerSegment;
+  isTopCustomer: boolean;
   boxDepositOrders: number;
+}
+
+function customerSegment(firstOrder: string, lastOrder: string): CustomerSegment {
+  const now = Date.now();
+  const daysSinceLast = (now - new Date(lastOrder).getTime()) / 86400000;
+  const daysSinceFirst = (now - new Date(firstOrder).getTime()) / 86400000;
+  if (daysSinceLast > SEGMENT_CHURNED_WEEKS * 7) return "churned";
+  if (daysSinceLast > SEGMENT_CURRENT_WEEKS * 7) return "lapsing";
+  if (daysSinceFirst <= SEGMENT_NEW_DAYS) return "new";
+  return "current";
 }
 
 export async function getAllCustomers(): Promise<CustomerSummary[]> {
   // Get all orders grouped by user
   const { data: orders, error: ordersError } = await supabase
     .from("orders")
-    .select("user_id, customer_email, total, created_at, box_deposit_paid, status")
+    .select("user_id, customer_email, customer_name, total, created_at, box_deposit_paid, status")
     .neq("status", "cancelled");
   if (ordersError) throw ordersError;
 
   // Get all customer profiles
   const { data: profiles, error: profilesError } = await supabase
     .from("customer_profiles")
-    .select("clerk_user_id, postcode, has_outstanding_box");
+    .select("clerk_user_id, name, phone, address_line1, address_line2, city, postcode, delivery_instructions, admin_notes, has_outstanding_box");
   if (profilesError) throw profilesError;
 
   const profileMap = new Map(profiles?.map(p => [p.clerk_user_id, p]) ?? []);
 
   // Group orders by user
-  const customerMap = new Map<string, CustomerSummary>();
-  
+  interface Grouped {
+    email: string | null;
+    orderName: string | null;
+    totalOrders: number;
+    totalSpent: number;
+    firstOrderDate: string;
+    lastOrderDate: string;
+    orderDates: string[];
+    boxDepositOrders: number;
+  }
+  const grouped = new Map<string, Grouped>();
+
   for (const order of orders ?? []) {
     if (!order.user_id) continue;
-    
-    const existing = customerMap.get(order.user_id);
-    const profile = profileMap.get(order.user_id);
-    
-    if (existing) {
-      existing.totalOrders += 1;
-      existing.totalSpent += Number(order.total);
-      if (order.box_deposit_paid) existing.boxDepositOrders += 1;
-      if (!existing.lastOrderDate || order.created_at > existing.lastOrderDate) {
-        existing.lastOrderDate = order.created_at;
-      }
-      if (!existing.email && order.customer_email) {
-        existing.email = order.customer_email;
-      }
+    const g = grouped.get(order.user_id);
+    if (g) {
+      g.totalOrders += 1;
+      g.totalSpent += Number(order.total);
+      g.orderDates.push(order.created_at);
+      if (order.box_deposit_paid) g.boxDepositOrders += 1;
+      if (order.created_at > g.lastOrderDate) g.lastOrderDate = order.created_at;
+      if (order.created_at < g.firstOrderDate) g.firstOrderDate = order.created_at;
+      if (!g.email && order.customer_email) g.email = order.customer_email;
+      if (!g.orderName && order.customer_name) g.orderName = order.customer_name;
     } else {
-      customerMap.set(order.user_id, {
-        clerkUserId: order.user_id,
+      grouped.set(order.user_id, {
         email: order.customer_email ?? null,
-        postcode: profile?.postcode ?? null,
-        hasOutstandingBox: profile?.has_outstanding_box ?? false,
+        orderName: order.customer_name ?? null,
         totalOrders: 1,
         totalSpent: Number(order.total),
+        firstOrderDate: order.created_at,
         lastOrderDate: order.created_at,
+        orderDates: [order.created_at],
         boxDepositOrders: order.box_deposit_paid ? 1 : 0,
       });
     }
   }
 
-  // Sort by total spent descending
-  return Array.from(customerMap.values()).sort((a, b) => b.totalSpent - a.totalSpent);
+  const summaries: CustomerSummary[] = [];
+  for (const [userId, g] of grouped) {
+    const profile = profileMap.get(userId);
+    // Average days between orders, from the span first->last
+    const avgGapDays = g.totalOrders >= 2
+      ? Math.round((new Date(g.lastOrderDate).getTime() - new Date(g.firstOrderDate).getTime()) / 86400000 / (g.totalOrders - 1))
+      : null;
+    summaries.push({
+      clerkUserId: userId,
+      name: profile?.name ?? g.orderName ?? null,
+      email: g.email,
+      phone: profile?.phone ?? null,
+      addressLine1: profile?.address_line1 ?? null,
+      addressLine2: profile?.address_line2 ?? null,
+      city: profile?.city ?? null,
+      postcode: profile?.postcode ?? null,
+      deliveryInstructions: profile?.delivery_instructions ?? null,
+      adminNotes: profile?.admin_notes ?? null,
+      hasOutstandingBox: profile?.has_outstanding_box ?? false,
+      totalOrders: g.totalOrders,
+      totalSpent: g.totalSpent,
+      firstOrderDate: g.firstOrderDate,
+      lastOrderDate: g.lastOrderDate,
+      avgGapDays,
+      segment: customerSegment(g.firstOrderDate, g.lastOrderDate),
+      isTopCustomer: false, // filled in below once all totals are known
+      boxDepositOrders: g.boxDepositOrders,
+    });
+  }
+
+  // Top N% by lifetime spend get the star
+  const topCount = Math.max(1, Math.ceil(summaries.length * TOP_CUSTOMER_FRACTION));
+  const bySpend = [...summaries].sort((a, b) => b.totalSpent - a.totalSpent);
+  const topIds = new Set(bySpend.slice(0, topCount).map(s => s.clerkUserId));
+  for (const s of summaries) s.isTopCustomer = topIds.has(s.clerkUserId);
+
+  // Alphabetical by name (no-name customers last, by email)
+  return summaries.sort((a, b) => {
+    if (a.name && b.name) return a.name.localeCompare(b.name);
+    if (a.name) return -1;
+    if (b.name) return 1;
+    return (a.email ?? "").localeCompare(b.email ?? "");
+  });
+}
+
+// Lightweight per-customer info for the Driver Run stop cards: the
+// outstanding-box flag plus the admin-only notes ("gate code 1234").
+export async function getCustomerDriverInfo(userIds: string[]): Promise<Map<string, { hasOutstandingBox: boolean; adminNotes: string | null }>> {
+  if (userIds.length === 0) return new Map();
+  const { data, error } = await supabase
+    .from("customer_profiles")
+    .select("clerk_user_id, has_outstanding_box, admin_notes")
+    .in("clerk_user_id", userIds);
+  if (error) throw error;
+  const map = new Map<string, { hasOutstandingBox: boolean; adminNotes: string | null }>();
+  for (const row of data ?? []) {
+    map.set(row.clerk_user_id, {
+      hasOutstandingBox: row.has_outstanding_box ?? false,
+      adminNotes: row.admin_notes ?? null,
+    });
+  }
+  return map;
 }
 
 export async function saveCustomerAddress(

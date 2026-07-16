@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { stripe } from "@/lib/stripe";
-import { createOrder, getOrderByStripeSession, parseItemsFromMetadata, type DeliveryWindow, type DeliveryOption, type OrderItem, setCustomerOutstandingBox, getActiveDeliveryDays, markBasketConverted } from "@/lib/data";
+import { createOrder, getOrderByStripeSession, parseItemsFromMetadata, updateCustomerDeliveryDetails, type DeliveryWindow, type DeliveryOption, type OrderItem, setCustomerOutstandingBox, getActiveDeliveryDays, markBasketConverted } from "@/lib/data";
 import { sendOrderConfirmation } from "@/lib/email";
 import { auth, clerkClient } from "@clerk/nextjs/server";
 import { DELIVERY_FEE } from "@/lib/constants";
@@ -85,6 +85,30 @@ export async function POST(request: NextRequest) {
 
     // Note: has_outstanding_box is set when order is marked delivered, not at checkout
     // This ensures the flag reflects physical possession of a box
+
+    // Write the delivery details back to the customer's profile as their new
+    // defaults - unless they ticked "this order only" at checkout. Best-effort:
+    // the order itself already carries its own snapshot.
+    if (metadata.saveProfile !== "false") {
+      try {
+        await updateCustomerDeliveryDetails(metadata.userId, {
+          name: customerName ?? undefined,
+          addressLine1: metadata.addressLine1 || undefined,
+          addressLine2: metadata.addressLine2 || null,
+          city: metadata.city || undefined,
+          postcode: metadata.postcode || undefined,
+          phone: metadata.phone || undefined,
+          deliveryInstructions: metadata.instructions || null,
+          pinLat: metadata.pinLat ? parseFloat(metadata.pinLat) : undefined,
+          pinLng: metadata.pinLng ? parseFloat(metadata.pinLng) : undefined,
+          defaultDeliveryWindow: metadata.deliveryWindow || undefined,
+          defaultDeliveryOption: metadata.deliveryOption || undefined,
+          defaultSafePlace: metadata.safePlace || null,
+        });
+      } catch (e) {
+        console.error("Failed to update customer profile from order:", e);
+      }
+    }
 
     // Mark the saved basket as converted (keyed on email) before the cart clears,
     // so it moves to the Converted tab rather than being deleted as an empty cart.

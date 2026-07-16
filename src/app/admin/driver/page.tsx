@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { type Order, type DeliveryOption, DELIVERY_OPTION_LABELS, getOrders, markOrderOnWay, markOrderDelivered } from "@/lib/data";
-import { Truck, CheckCircle, MapPin, Home, Package, Upload, Play, RefreshCw, Navigation, Clock, ChevronDown, ChevronRight } from "lucide-react";
+import { type Order, type DeliveryOption, DELIVERY_OPTION_LABELS, getOrders, getCustomerDriverInfo, markOrderOnWay } from "@/lib/data";
+import { Truck, CheckCircle, MapPin, Home, Package, PackageCheck, Upload, Play, RefreshCw, Navigation, Clock, ChevronDown, ChevronRight, Phone, StickyNote } from "lucide-react";
 
 interface RouteStop {
   id: string;
@@ -11,14 +11,16 @@ interface RouteStop {
   order_number: number;
   route_position: number;
   leg: string;
+  eta_band: string | null;
 }
 
 interface RouteOrder extends Order {
   routePosition: number;
   leg: string;
+  etaBand: string | null;
 }
 
-const NEXT_BATCH_SIZE = 3;
+const NEXT_BATCH_SIZE = 2;
 
 function formatDeliveryDate(dateStr: string) {
   if (!dateStr) return "No date";
@@ -48,6 +50,17 @@ export default function AdminDriverPage() {
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [expandedStop, setExpandedStop] = useState<string | null>(null);
+  // Per-customer info for the stop cards: who currently holds one of our boxes
+  // (drives the "collect empty box back" note and the deliver prompt) plus
+  // Josie's admin notes ("gate code 1234").
+  const [customerInfo, setCustomerInfo] = useState<Map<string, { hasOutstandingBox: boolean; adminNotes: string | null }>>(new Map());
+  // The "confirm delivered" prompt: asked on every stop so the driver can
+  // record a box left even where none was expected (e.g. customer wasn't in).
+  const [deliverPrompt, setDeliverPrompt] = useState<{
+    order: RouteOrder;
+    boxLeft: boolean;
+    boxCollected: boolean;
+  } | null>(null);
   // Locks the run/deliver actions while one is in flight, so a slow tap can't be
   // fired again and re-trigger the "on our way" batch. The DB-level idempotency
   // in markOrderOnWay is the real guarantee; this just stops the UI inviting it.
@@ -59,6 +72,8 @@ export default function AdminDriverPage() {
     try {
       const allOrders = await getOrders();
       setOrders(allOrders);
+      const userIds = [...new Set(allOrders.map(o => o.userId))];
+      setCustomerInfo(await getCustomerDriverInfo(userIds));
     } catch (error) {
       console.error("Failed to load orders:", error);
     } finally {
@@ -104,12 +119,15 @@ export default function AdminDriverPage() {
     return Array.from(daySet).sort((a, b) => b.localeCompare(a));
   }, [orders]);
 
-  // Auto-select today or next delivery day
+  // Auto-select the NEAREST upcoming delivery day (today counts), not the
+  // furthest one - once next week's orders start arriving, this week's Friday
+  // must stay the default. The list is sorted descending, so that's the last
+  // entry >= today; if none are upcoming, fall back to the most recent past day.
   useEffect(() => {
     if (deliveryDays.length > 0 && !selectedDay) {
       const today = new Date().toISOString().split("T")[0];
-      const todayOrNext = deliveryDays.find(d => d >= today) || deliveryDays[0];
-      setSelectedDay(todayOrNext);
+      const upcoming = deliveryDays.filter(d => d >= today);
+      setSelectedDay(upcoming.length > 0 ? upcoming[upcoming.length - 1] : deliveryDays[0]);
     }
   }, [deliveryDays, selectedDay]);
 
@@ -138,6 +156,7 @@ export default function AdminDriverPage() {
           ...o,
           routePosition: r.route_position,
           leg: r.leg,
+          etaBand: r.eta_band ?? null,
         };
       })
       .sort((a, b) => {
@@ -225,7 +244,7 @@ export default function AdminDriverPage() {
       const routeMap = new Map(route.map(r => [r.order_id, r]));
       return sourceOrders
         .filter(o => o.deliveryDay === selectedDay && o.status !== "cancelled" && routeMap.has(o.id))
-        .map(o => ({ ...o, routePosition: routeMap.get(o.id)!.route_position, leg: routeMap.get(o.id)!.leg }))
+        .map(o => ({ ...o, routePosition: routeMap.get(o.id)!.route_position, leg: routeMap.get(o.id)!.leg, etaBand: routeMap.get(o.id)!.eta_band ?? null }))
         .filter(o => o.leg === leg && o.status !== "delivered")
         .sort((a, b) => a.routePosition - b.routePosition);
     },
@@ -291,47 +310,49 @@ export default function AdminDriverPage() {
     }
   };
 
-  // Mark an order delivered, then top up the SAME leg's queue so the next
-  // person in line gets their "on our way" email.
-  const handleDelivered = async (orderId: string) => {
+  // "Delivered" opens the box prompt rather than completing straight away, so
+  // every stop records whether a Local box was left or an empty one collected.
+  const openDeliverPrompt = (order: RouteOrder) => {
     if (busy) return;
-    const order = routeOrders.find(o => o.id === orderId);
-    if (!order) return;
+    setDeliverPrompt({
+      order,
+      // Defaults match what's expected: a new box-deposit customer should be
+      // getting a box; collections are the exception, so default off.
+      boxLeft: order.boxDepositPaid,
+      boxCollected: false,
+    });
+  };
+
+  // Confirm the prompt: mark delivered via the server (which records the box
+  // outcome, updates the customer's outstanding-box flag and sends the
+  // delivered email), then top up the SAME leg's queue so the next person in
+  // line gets their "on our way" email.
+  const handleConfirmDelivered = async () => {
+    if (busy || !deliverPrompt) return;
+    const { order, boxLeft, boxCollected } = deliverPrompt;
 
     setBusy(true);
     try {
-    // Atomically mark delivered; returns false if it was already delivered, in
-    // which case we skip the email so a double-tap can't send two.
-    const justDelivered = await markOrderDelivered(orderId);
-    if (!justDelivered) return;
-
-    // Send delivered email
-    if (order.customerEmail) {
-      fetch("/api/email", {
+      const response = await fetch(`/api/admin/orders/${order.id}/delivered`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          type: "order_status_update",
-          data: {
-            customerEmail: order.customerEmail,
-            customerName: order.customerName || order.customerEmail.split("@")[0],
-            orderNumber: order.orderNumber,
-            status: "delivered",
-            deliveryDay: order.deliveryDay
-              ? new Date(order.deliveryDay + "T00:00:00").toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })
-              : "Not set",
-            deliveryWindow: order.deliveryWindow,
-          },
-        }),
-      }).catch(console.error);
-    }
+        body: JSON.stringify({ boxLeft, boxCollected }),
+      });
+      if (!response.ok) {
+        const result = await response.json().catch(() => ({}));
+        throw new Error(result.error?.message || "Failed to mark delivered");
+      }
+      setDeliverPrompt(null);
 
-    // Use a fresh snapshot so the just-delivered order is excluded, then top up
-    // the queue within this leg only.
-    const fresh = await getOrders();
-    setOrders(fresh);
-    await notifyLeg(order.leg, fresh);
-    await loadOrders();
+      // Use a fresh snapshot so the just-delivered order is excluded, then top
+      // up the queue within this leg only.
+      const fresh = await getOrders();
+      setOrders(fresh);
+      await notifyLeg(order.leg, fresh);
+      await loadOrders();
+    } catch (error) {
+      console.error("Failed to mark delivered:", error);
+      alert(error instanceof Error ? error.message : "Failed to mark delivered - try again");
     } finally {
       setBusy(false);
     }
@@ -534,6 +555,7 @@ export default function AdminDriverPage() {
                           </span>
                         </div>
                         <p className="text-sm text-muted truncate">
+                          {order.etaBand && <span className="font-semibold text-primary">~{order.etaBand} · </span>}
                           {order.address?.postcode} · {getAccessLabel(order)}
                         </p>
                       </div>
@@ -591,6 +613,14 @@ export default function AdminDriverPage() {
                           </div>
                         )}
 
+                        {/* Josie's notes about this customer (gate codes etc.) */}
+                        {customerInfo.get(order.userId)?.adminNotes && (
+                          <div className="flex items-start gap-2 rounded-lg bg-yellow-50 px-3 py-2 text-sm text-yellow-800">
+                            <StickyNote size={16} className="flex-shrink-0 mt-0.5" />
+                            <span>{customerInfo.get(order.userId)?.adminNotes}</span>
+                          </div>
+                        )}
+
                         {/* Box info */}
                         {order.boxDepositPaid && (
                           <div className="flex items-center gap-2 text-sm text-green-700">
@@ -598,9 +628,25 @@ export default function AdminDriverPage() {
                             <span className="font-medium">New cool box customer</span>
                           </div>
                         )}
+                        {customerInfo.get(order.userId)?.hasOutstandingBox && (
+                          <div className="flex items-center gap-2 rounded-lg bg-orange-50 px-3 py-2 text-sm text-orange-800">
+                            <PackageCheck size={16} />
+                            <span className="font-bold">Has a Local box out - collect the empty if it's there</span>
+                          </div>
+                        )}
 
                         {/* Action buttons */}
                         <div className="flex gap-2 pt-2">
+                          {order.phone && (
+                            <a
+                              href={`tel:${order.phone}`}
+                              onClick={(e) => e.stopPropagation()}
+                              className="rounded-lg bg-green-100 px-4 py-3 text-sm font-semibold text-green-700 hover:bg-green-200 transition flex items-center justify-center gap-2"
+                            >
+                              <Phone size={18} />
+                              Call
+                            </a>
+                          )}
                           <button
                             onClick={(e) => { e.stopPropagation(); openMaps(order); }}
                             className="flex-1 rounded-lg bg-sky-100 py-3 text-sm font-semibold text-sky-700 hover:bg-sky-200 transition flex items-center justify-center gap-2"
@@ -610,7 +656,7 @@ export default function AdminDriverPage() {
                           </button>
                           {!isDelivered && (
                             <button
-                              onClick={(e) => { e.stopPropagation(); handleDelivered(order.id); }}
+                              onClick={(e) => { e.stopPropagation(); openDeliverPrompt(order); }}
                               disabled={busy}
                               className="flex-1 rounded-lg bg-green-600 py-3 text-sm font-bold text-white hover:bg-green-700 transition flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
                             >
@@ -651,6 +697,89 @@ export default function AdminDriverPage() {
             </label>
           </div>
         </>
+      )}
+
+      {/* Confirm-delivered prompt: records the box outcome on every stop */}
+      {deliverPrompt && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl">
+            <h2 className="text-lg font-bold text-primary mb-1">
+              Box {deliverPrompt.order.boxNumber ?? `#${deliverPrompt.order.orderNumber}`} delivered
+            </h2>
+            <p className="text-sm text-muted mb-3">
+              {deliverPrompt.order.customerName || deliverPrompt.order.customerEmail?.split("@")[0]} - quick box check before we move on.
+            </p>
+
+            {deliverPrompt.order.boxDepositPaid && (
+              <p className="rounded-lg bg-green-50 px-3 py-2 text-sm text-green-800 mb-2">
+                📦 New cool box customer - a Local box should be going out with this order.
+              </p>
+            )}
+            {customerInfo.get(deliverPrompt.order.userId)?.hasOutstandingBox && (
+              <p className="rounded-lg bg-orange-50 px-3 py-2 text-sm text-orange-800 mb-2">
+                ↩️ They already have a Local box out - collect the empty if it's there.
+              </p>
+            )}
+
+            <div className="space-y-2 my-4">
+              <button
+                onClick={() => setDeliverPrompt({ ...deliverPrompt, boxLeft: !deliverPrompt.boxLeft })}
+                className={`w-full flex items-center gap-3 rounded-xl border-2 px-4 py-3 text-left transition ${
+                  deliverPrompt.boxLeft
+                    ? "border-green-600 bg-green-50 text-green-800"
+                    : "border-primary/15 bg-surface text-primary"
+                }`}
+              >
+                <span className={`w-6 h-6 rounded-md flex items-center justify-center border-2 ${
+                  deliverPrompt.boxLeft ? "bg-green-600 border-green-600 text-white" : "border-primary/30"
+                }`}>
+                  {deliverPrompt.boxLeft && <CheckCircle size={16} />}
+                </span>
+                <span>
+                  <span className="block font-semibold">Left a Local box with them</span>
+                  <span className="block text-xs opacity-75">Tick if you left one of our boxes - even if you weren&apos;t meant to (e.g. they weren&apos;t in)</span>
+                </span>
+              </button>
+
+              <button
+                onClick={() => setDeliverPrompt({ ...deliverPrompt, boxCollected: !deliverPrompt.boxCollected })}
+                className={`w-full flex items-center gap-3 rounded-xl border-2 px-4 py-3 text-left transition ${
+                  deliverPrompt.boxCollected
+                    ? "border-orange-500 bg-orange-50 text-orange-800"
+                    : "border-primary/15 bg-surface text-primary"
+                }`}
+              >
+                <span className={`w-6 h-6 rounded-md flex items-center justify-center border-2 ${
+                  deliverPrompt.boxCollected ? "bg-orange-500 border-orange-500 text-white" : "border-primary/30"
+                }`}>
+                  {deliverPrompt.boxCollected && <CheckCircle size={16} />}
+                </span>
+                <span>
+                  <span className="block font-semibold">Collected an empty box back</span>
+                  <span className="block text-xs opacity-75">Tick if you picked up one of our empties from them</span>
+                </span>
+              </button>
+            </div>
+
+            <div className="flex gap-2">
+              <button
+                onClick={() => setDeliverPrompt(null)}
+                disabled={busy}
+                className="flex-1 rounded-lg border border-primary/20 py-3 text-sm font-semibold text-primary hover:bg-primary/5 transition disabled:opacity-60"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmDelivered}
+                disabled={busy}
+                className="flex-1 rounded-lg bg-green-600 py-3 text-sm font-bold text-white hover:bg-green-700 transition flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                <CheckCircle size={18} />
+                {busy ? "Saving..." : "Confirm delivered"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

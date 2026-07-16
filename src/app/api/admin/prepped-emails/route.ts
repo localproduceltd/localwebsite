@@ -56,17 +56,22 @@ export async function POST(request: NextRequest) {
       refundTotals.set(r.order_id, (refundTotals.get(r.order_id) ?? 0) + Number(r.refund_amount));
     }
 
-    // Route info (leg + position) for the day, plus leg sizes for the position phrase
+    // Route info (leg + position + arrival band) for the day, plus leg sizes
+    // for the position-phrase fallback when a stop has no band
     const { data: routeData } = await supabaseAdmin
       .from("delivery_routes")
-      .select("order_id, leg, route_position")
+      .select("order_id, leg, route_position, eta_band")
       .eq("delivery_day", delivery_day);
 
-    const routeMap = new Map<string, { leg: "morning" | "afternoon"; position: number }>();
+    const routeMap = new Map<string, { leg: "morning" | "afternoon"; position: number; etaBand: string | null }>();
     let morningCount = 0;
     let afternoonCount = 0;
     for (const r of routeData ?? []) {
-      routeMap.set(r.order_id, { leg: r.leg as "morning" | "afternoon", position: r.route_position });
+      routeMap.set(r.order_id, {
+        leg: r.leg as "morning" | "afternoon",
+        position: r.route_position,
+        etaBand: r.eta_band ?? null,
+      });
       if (r.leg === "morning") morningCount++;
       else afternoonCount++;
     }
@@ -112,6 +117,7 @@ export async function POST(request: NextRequest) {
           routeLeg: routeInfo?.leg,
           routePosition: routeInfo?.position,
           legSize: legSize || undefined,
+          etaBand: routeInfo?.etaBand ?? undefined,
         });
 
         sent++;

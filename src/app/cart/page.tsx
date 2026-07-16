@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { Trash2, Plus, Minus, ShoppingCart, CheckCircle, Calendar, Clock, Home, Package, MapPin, HelpCircle, X, Loader2, MessageCircle, Bookmark } from "lucide-react";
 import { useUser } from "@clerk/nextjs";
 import { useCart } from "@/lib/cart-context";
-import { type DeliveryDay, type DeliveryWindow, type DeliveryArea, type SupplierHolidayInfo, type DeliveryOption, getActiveDeliveryDays, getCustomerProfile, getDeliveryArea, submitExpansionRequest, getSuppliersHolidayInfo, isSupplierOnHoliday, saveBasket } from "@/lib/data";
+import { type CustomerProfile, type DeliveryDay, type DeliveryWindow, type DeliveryArea, type SupplierHolidayInfo, type DeliveryOption, getActiveDeliveryDays, getCustomerProfile, getDeliveryArea, submitExpansionRequest, getSuppliersHolidayInfo, isSupplierOnHoliday, saveBasket } from "@/lib/data";
 import { lookupPostcode } from "@/lib/postcode";
 import { BOX_DEPOSIT, BOTTLE_DEPOSIT, MINIMUM_ORDER, DELIVERY_FEE } from "@/lib/constants";
 import booleanPointInPolygon from "@turf/boolean-point-in-polygon";
@@ -60,6 +60,15 @@ export default function CartPage() {
   const [showMapPicker, setShowMapPicker] = useState(false);
   const [pinConfirmed, setPinConfirmed] = useState(false);
 
+  // Saved delivery details (customer profile) - prefilled once when both the
+  // profile and delivery area have loaded, then never re-applied so the
+  // customer's edits stick.
+  const [savedProfile, setSavedProfile] = useState<CustomerProfile | null>(null);
+  const [prefillDone, setPrefillDone] = useState(false);
+  const [usingSavedDetails, setUsingSavedDetails] = useState(false);
+  // Untick = "this order only": details go on the order but not back to the profile
+  const [rememberDetails, setRememberDetails] = useState(true);
+
   // Holiday suppliers state
   const [holidaySuppliers, setHolidaySuppliers] = useState<SupplierHolidayInfo[]>([]);
 
@@ -88,10 +97,43 @@ export default function CartPage() {
       getCustomerProfile(user.id).then((profile) => {
         if (profile) {
           setHasOutstandingBox(profile.hasOutstandingBox);
+          setSavedProfile(profile);
         }
       }).catch(console.error);
     }
   }, [user]);
+
+  // Prefill the saved delivery details once. With a saved pin the zone check
+  // runs straight from it (no postcode lookup), so returning customers land on
+  // a filled-in form - they just re-confirm the pin and carry on.
+  useEffect(() => {
+    if (prefillDone || !savedProfile || !deliveryArea) return;
+    const p = savedProfile;
+    if (!p.addressLine1 || !p.postcode) return;
+    setPrefillDone(true);
+    setAddressForm({
+      addressLine1: p.addressLine1,
+      addressLine2: p.addressLine2 ?? "",
+      city: p.city ?? "",
+      postcode: p.postcode,
+    });
+    if (p.phone) setPhone(p.phone);
+    if (p.deliveryInstructions) setDeliveryInstructions(p.deliveryInstructions);
+    if (p.defaultDeliveryWindow) setDeliveryWindow(p.defaultDeliveryWindow);
+    if (p.defaultDeliveryOption) setDeliveryOption(p.defaultDeliveryOption);
+    if (p.defaultSafePlace) setSafePlace(p.defaultSafePlace);
+    if (p.pinLat != null && p.pinLng != null) {
+      setGeocodedLat(p.pinLat);
+      setGeocodedLng(p.pinLng);
+      setPinLat(p.pinLat);
+      setPinLng(p.pinLng);
+      const geom = deliveryArea.polygonGeojson.type === "Feature"
+        ? deliveryArea.polygonGeojson
+        : { type: "Feature", geometry: deliveryArea.polygonGeojson, properties: {} };
+      setDeliveryCheck({ checked: true, inZone: booleanPointInPolygon(turfPoint([p.pinLng, p.pinLat]), geom) });
+      setUsingSavedDetails(true);
+    }
+  }, [prefillDone, savedProfile, deliveryArea]);
 
   // Note: the basket now auto-saves on every change (debounced) via CartProvider
   // for any signed-in customer, anywhere on the site - not just on this page.
@@ -287,6 +329,7 @@ export default function CartPage() {
             instructions: deliveryInstructions.trim() || undefined,
             pinLat: pinLat ?? undefined,
             pinLng: pinLng ?? undefined,
+            saveProfile: usingSavedDetails ? rememberDetails : true,
           }),
         });
 
@@ -531,7 +574,26 @@ export default function CartPage() {
             <h2 className="text-lg font-semibold text-primary">Delivery Address</h2>
           </div>
           <p className="mt-1 text-sm text-muted">Enter your delivery address to check if we deliver to your area</p>
-        
+
+          {usingSavedDetails && (
+            <div className="mt-4 rounded-lg bg-green-50 border border-green-200 p-4">
+              <p className="text-sm font-semibold text-green-800">💚 We&apos;ve filled in your saved delivery details</p>
+              <p className="mt-1 text-xs text-green-700">
+                Edit anything below if this week&apos;s different. To change them for good, use{" "}
+                <Link href="/account" className="underline font-medium">your account page</Link>.
+              </p>
+              <label className="mt-2 flex items-center gap-2 cursor-pointer text-green-800">
+                <input
+                  type="checkbox"
+                  checked={rememberDetails}
+                  onChange={(e) => setRememberDetails(e.target.checked)}
+                  className="w-4 h-4 rounded border-2 border-current accent-green-600"
+                />
+                <span className="text-xs font-medium">Remember any changes for next time (untick for this order only)</span>
+              </label>
+            </div>
+          )}
+
         <div className="mt-4 space-y-3">
           <div>
             <input

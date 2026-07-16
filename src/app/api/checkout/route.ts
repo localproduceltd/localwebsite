@@ -31,6 +31,9 @@ interface CheckoutRequest {
   instructions?: string;
   pinLat?: number;
   pinLng?: number;
+  // False = "this order only": don't write these details back to the
+  // customer's profile after payment. Defaults to true.
+  saveProfile?: boolean;
 }
 
 export async function POST(request: NextRequest) {
@@ -41,7 +44,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body: CheckoutRequest = await request.json();
-    const { items, deliveryDay, deliveryWindow, willBeIn, deliveryOption, safePlace, customerEmail, boxDepositPaid, bottleDepositPaid, bottleDepositQty, total, address, phone, instructions, pinLat, pinLng } = body;
+    const { items, deliveryDay, deliveryWindow, willBeIn, deliveryOption, safePlace, customerEmail, boxDepositPaid, bottleDepositPaid, bottleDepositQty, total, address, phone, instructions, pinLat, pinLng, saveProfile } = body;
 
     if (!items || items.length === 0) {
       return NextResponse.json({ error: "No items in cart" }, { status: 400 });
@@ -142,6 +145,7 @@ export async function POST(request: NextRequest) {
         instructions: instructions || "",
         pinLat: pinLat?.toString() || "",
         pinLng: pinLng?.toString() || "",
+        saveProfile: saveProfile === false ? "false" : "true",
         total: total.toString(),
         itemCount: items.length.toString(),
         // Split items across multiple metadata fields to stay under 500 char limit per field

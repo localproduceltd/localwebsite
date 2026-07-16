@@ -42,3 +42,4 @@ next-env.d.ts
 export.csv
 user-id-map.csv
 ins_*.csv
+.claude/settings.local.json

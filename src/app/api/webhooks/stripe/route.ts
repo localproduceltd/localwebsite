@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { stripe } from "@/lib/stripe";
-import { addItemsToOrder, createOrder, getOrder, getOrderByStripeSession, isTopUpSessionProcessed, markTopUpSessionProcessed, parseItemsFromMetadata, type DeliveryWindow, type DeliveryOption, type OrderItem, setCustomerOutstandingBox, getActiveDeliveryDays, markBasketConverted } from "@/lib/data";
+import { addItemsToOrder, createOrder, getOrder, getOrderByStripeSession, isTopUpSessionProcessed, markTopUpSessionProcessed, parseItemsFromMetadata, updateCustomerDeliveryDetails, type DeliveryWindow, type DeliveryOption, type OrderItem, setCustomerOutstandingBox, getActiveDeliveryDays, markBasketConverted } from "@/lib/data";
 import { sendOrderConfirmation } from "@/lib/email";
 import { DELIVERY_FEE } from "@/lib/constants";
 import { clerkClient } from "@clerk/nextjs/server";
@@ -216,6 +216,30 @@ export async function POST(request: NextRequest) {
 
       // Note: has_outstanding_box is set when order is marked delivered, not at checkout
       // This ensures the flag reflects physical possession of a box
+
+      // Write the delivery details back to the customer's profile as their new
+      // defaults - unless they ticked "this order only" at checkout. Same logic
+      // as /api/checkout/confirm; whichever path creates the order does this.
+      if (metadata.saveProfile !== "false") {
+        try {
+          await updateCustomerDeliveryDetails(metadata.userId, {
+            name: customerName ?? undefined,
+            addressLine1: metadata.addressLine1 || undefined,
+            addressLine2: metadata.addressLine2 || null,
+            city: metadata.city || undefined,
+            postcode: metadata.postcode || undefined,
+            phone: metadata.phone || undefined,
+            deliveryInstructions: metadata.instructions || null,
+            pinLat: metadata.pinLat ? parseFloat(metadata.pinLat) : undefined,
+            pinLng: metadata.pinLng ? parseFloat(metadata.pinLng) : undefined,
+            defaultDeliveryWindow: metadata.deliveryWindow || undefined,
+            defaultDeliveryOption: metadata.deliveryOption || undefined,
+            defaultSafePlace: metadata.safePlace || null,
+          });
+        } catch (e) {
+          console.error("Webhook: failed to update customer profile from order:", e);
+        }
+      }
 
       // Send emails
       const customerEmail = session.customer_email;
