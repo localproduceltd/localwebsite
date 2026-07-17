@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { stripe } from "@/lib/stripe";
 import { auth } from "@clerk/nextjs/server";
-import { type DeliveryWindow, type DeliveryOption, type OrderAddress, getSuppliersHolidayInfo, isSupplierOnHoliday } from "@/lib/data";
+import { type DeliveryWindow, type DeliveryOption, type OrderAddress, getSuppliersHolidayInfo, isSupplierOnHoliday, checkStockForItems } from "@/lib/data";
 import { BOX_DEPOSIT_PENCE, BOTTLE_DEPOSIT_PENCE, DELIVERY_FEE_PENCE } from "@/lib/constants";
 
 interface CartItem {
@@ -58,6 +58,24 @@ export async function POST(request: NextRequest) {
       const names = holidaySuppliers.map((s) => s.name).join(", ");
       return NextResponse.json(
         { error: `Cannot checkout: ${names} ${holidaySuppliers.length === 1 ? "is" : "are"} currently on holiday. Please remove their items from your cart.` },
+        { status: 400 }
+      );
+    }
+
+    // Weekly stock gate: re-check availability at the moment of payment.
+    // Baskets don't reserve stock, so this is the authoritative check.
+    const stockViolations = await checkStockForItems(
+      items.map((i) => ({ productId: i.productId, quantity: i.quantity })),
+      deliveryDay
+    );
+    if (stockViolations.length > 0) {
+      const parts = stockViolations.map((v) =>
+        v.remaining > 0
+          ? `only ${v.remaining} of "${v.productName}" ${v.remaining === 1 ? "is" : "are"} left for this delivery`
+          : `"${v.productName}" is sold out for this delivery`
+      );
+      return NextResponse.json(
+        { error: `Sorry - ${parts.join(", and ")}. Please adjust your basket and try again.`, stockViolations },
         { status: 400 }
       );
     }

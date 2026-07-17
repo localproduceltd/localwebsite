@@ -13,7 +13,7 @@ import {
   deleteSupplierUser,
   isOnHoliday,
 } from "@/lib/data";
-import { Plus, Pencil, Trash2, X, MapPin, UserPlus, Link2, ChevronDown, ChevronRight, Star, Palmtree } from "lucide-react";
+import { Plus, Pencil, Trash2, X, MapPin, UserPlus, Link2, ChevronDown, ChevronRight, Star, Palmtree, Boxes } from "lucide-react";
 import { type SupplierStatus } from "@/lib/data";
 import ImageUpload from "@/components/ImageUpload";
 import MapPicker from "@/components/MapPicker";
@@ -133,6 +133,14 @@ export default function AdminSuppliersPage() {
 
   const handleToggleFeatured = async (supplier: Supplier) => {
     const updated = { ...supplier, featured: !supplier.featured };
+    await updateSupplier(updated);
+    setSupplierList((prev) => prev.map((s) => (s.id === supplier.id ? updated : s)));
+  };
+
+  // Weekly stock tracking: off by default, switched on per supplier here only.
+  // While off, any weekly_stock numbers on their products are kept but ignored.
+  const handleToggleStockTracking = async (supplier: Supplier) => {
+    const updated = { ...supplier, stockTracking: !supplier.stockTracking };
     await updateSupplier(updated);
     setSupplierList((prev) => prev.map((s) => (s.id === supplier.id ? updated : s)));
   };
@@ -275,6 +283,7 @@ export default function AdminSuppliersPage() {
                   onLinkUser={() => { setLinkingSupplierId(supplier.id); setLinkClerkId(""); }}
                   onUnlinkUser={handleUnlinkUser}
                   onToggleFeatured={() => handleToggleFeatured(supplier)}
+                  onToggleStockTracking={() => handleToggleStockTracking(supplier)}
                 />
               ))
             )}
@@ -316,6 +325,7 @@ export default function AdminSuppliersPage() {
                   onLinkUser={() => { setLinkingSupplierId(supplier.id); setLinkClerkId(""); }}
                   onUnlinkUser={handleUnlinkUser}
                   onToggleFeatured={() => handleToggleFeatured(supplier)}
+                  onToggleStockTracking={() => handleToggleStockTracking(supplier)}
                 />
               ))
             )}
@@ -352,6 +362,7 @@ export default function AdminSuppliersPage() {
                   onLinkUser={() => { setLinkingSupplierId(supplier.id); setLinkClerkId(""); }}
                   onUnlinkUser={handleUnlinkUser}
                   onToggleFeatured={() => handleToggleFeatured(supplier)}
+                  onToggleStockTracking={() => handleToggleStockTracking(supplier)}
                 />
               ))
             )}
@@ -421,6 +432,7 @@ function SupplierForm({
       onHoliday: false,
       holidayUntil: null,
       holidayMessage: null,
+      stockTracking: false,
     }
   );
   const [showMapPicker, setShowMapPicker] = useState(false);
@@ -591,6 +603,7 @@ function SupplierCard({
   onLinkUser,
   onUnlinkUser,
   onToggleFeatured,
+  onToggleStockTracking,
 }: {
   supplier: Supplier;
   supplierUsers: (SupplierUser & { supplierName: string })[];
@@ -600,6 +613,7 @@ function SupplierCard({
   onLinkUser: () => void;
   onUnlinkUser: (id: string) => void;
   onToggleFeatured: () => void;
+  onToggleStockTracking: () => void;
 }) {
   const linked = supplierUsers.find((su) => su.supplierId === supplier.id);
   const statusConfig = STATUS_CONFIG[supplier.status];
@@ -672,6 +686,22 @@ function SupplierCard({
             <option value="launch_not_live">Not Live</option>
             <option value="archived">Archived</option>
           </select>
+        </div>
+
+        {/* Weekly stock tracking toggle: shows the weekly-stock controls in this
+            supplier's portal and enforces their per-item limits in the shop */}
+        <div className="mt-3 flex items-center justify-between rounded-lg bg-primary/5 px-2.5 py-1.5">
+          <span className="inline-flex items-center gap-1.5 text-xs font-medium text-primary">
+            <Boxes size={12} className="text-secondary" /> Stock tracking
+          </span>
+          <button
+            type="button"
+            onClick={onToggleStockTracking}
+            title={supplier.stockTracking ? "Switch off weekly stock limits for this supplier" : "Switch on weekly stock limits for this supplier"}
+            className={`relative h-6 w-11 rounded-full transition ${supplier.stockTracking ? "bg-secondary" : "bg-gray-300"}`}
+          >
+            <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition ${supplier.stockTracking ? "left-5" : "left-0.5"}`} />
+          </button>
         </div>
 
         {/* Linked user info */}

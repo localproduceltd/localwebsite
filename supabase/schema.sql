@@ -22,6 +22,9 @@ CREATE TABLE IF NOT EXISTS suppliers (
   active        boolean NOT NULL DEFAULT true,
   status        text DEFAULT 'live',
   email         text,
+  -- Admin-only toggle: weekly stock limits apply to this supplier's products
+  -- only when true (see migrations/20260717_weekly_stock.sql)
+  stock_tracking boolean NOT NULL DEFAULT false,
   created_at    timestamptz DEFAULT now()
 );
 
@@ -36,6 +39,9 @@ CREATE TABLE IF NOT EXISTS products (
   image             text NOT NULL DEFAULT '',
   category          text NOT NULL DEFAULT '',
   in_stock          boolean NOT NULL DEFAULT true,
+  -- Per-delivery-week cap; NULL = not tracked. Only enforced when the
+  -- supplier's stock_tracking is on (migrations/20260717_weekly_stock.sql)
+  weekly_stock      integer CHECK (weekly_stock IS NULL OR weekly_stock >= 0),
   locality          text DEFAULT 'Local',
   lat               double precision,
   lng               double precision,

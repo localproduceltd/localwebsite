@@ -18,6 +18,8 @@ import {
   deleteProduct,
   getAverageRatings,
   getProductRatings,
+  getActiveDeliveryDays,
+  getOrderedQuantities,
 } from "@/lib/data";
 import { PRODUCT_CATEGORIES, ALLERGENS, PRODUCT_TAGS } from "@/lib/categories";
 import { LOCALITY_COLORS } from "@/lib/locality";
@@ -40,6 +42,11 @@ export default function SupplierProductsPage() {
   const [reviewsModal, setReviewsModal] = useState<{ productId: string; productName: string } | null>(null);
   const [reviewsModalComments, setReviewsModalComments] = useState<Array<{ comment?: string; createdAt: string }>>([]);
   const [reviewsModalLoading, setReviewsModalLoading] = useState(false);
+  // Weekly stock (only used when the supplier has stock tracking switched on):
+  // what's already ordered for the next delivery day, plus in-progress edits.
+  const [orderedQty, setOrderedQty] = useState<Record<string, number>>({});
+  const [nextDeliveryDay, setNextDeliveryDay] = useState<string | null>(null);
+  const [stockDrafts, setStockDrafts] = useState<Record<string, string>>({});
 
   const fetchProducts = async (supplierId: string) => {
     const prods = await getProductsBySupplier(supplierId);
@@ -55,6 +62,17 @@ export default function SupplierProductsPage() {
         const s = await getSupplier(su.supplierId);
         setSupplier(s);
         if (s) await fetchProducts(s.id);
+        if (s?.stockTracking) {
+          try {
+            const days = await getActiveDeliveryDays();
+            if (days.length > 0) {
+              setNextDeliveryDay(days[0].deliveryDate);
+              setOrderedQty(await getOrderedQuantities(days[0].deliveryDate));
+            }
+          } catch (e) {
+            console.error("Failed to load ordered quantities:", e);
+          }
+        }
       }
       const ratings = await getAverageRatings();
       setAvgRatings(ratings);
@@ -116,6 +134,31 @@ export default function SupplierProductsPage() {
     setProducts((prev) => prev.map((p) => (p.id === product.id ? updated : p)));
   };
 
+  // Save an inline weekly-stock edit (blank = not tracked). Doesn't touch
+  // approval status - stock edits go live straight away like the toggle above.
+  const handleSaveWeeklyStock = async (product: Product) => {
+    const draft = stockDrafts[product.id];
+    if (draft === undefined) return;
+    const parsed = draft.trim() === "" ? null : Math.max(0, Math.floor(Number(draft)) || 0);
+    setStockDrafts((prev) => {
+      const next = { ...prev };
+      delete next[product.id];
+      return next;
+    });
+    if (parsed === product.weeklyStock) return;
+    const updated = { ...product, weeklyStock: parsed };
+    try {
+      await updateProduct(updated);
+      setProducts((prev) => prev.map((p) => (p.id === product.id ? updated : p)));
+    } catch (e) {
+      console.error("Failed to save weekly stock:", e);
+      alert("Failed to save weekly stock. Please try again.");
+    }
+  };
+
+  const weeklyRemaining = (product: Product): number | null =>
+    product.weeklyStock == null ? null : Math.max(0, product.weeklyStock - (orderedQty[product.id] ?? 0));
+
   if (!isLoaded || loading) {
     return (
       <div className="flex min-h-[50vh] items-center justify-center">
@@ -155,6 +198,13 @@ export default function SupplierProductsPage() {
         <div>
           <h1 className="text-2xl font-bold text-primary">Your Products</h1>
           <p className="text-sm text-muted">{products.length} product{products.length !== 1 ? "s" : ""} total</p>
+          {supplier.stockTracking && (
+            <p className="mt-1 text-xs text-secondary">
+              Weekly stock is on: give any product a weekly amount and it&apos;ll show as sold out once that many are ordered
+              {nextDeliveryDay ? ` for ${new Date(nextDeliveryDay + "T00:00:00").toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })}` : ""}.
+              Leave it blank for no limit.
+            </p>
+          )}
         </div>
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2">
@@ -185,6 +235,7 @@ export default function SupplierProductsPage() {
           product={editing}
           supplierId={supplier.id}
           supplierName={supplier.name}
+          stockTracking={supplier.stockTracking}
           onSave={handleSave}
           onCancel={() => { setEditing(null); setShowForm(false); }}
         />
@@ -244,6 +295,26 @@ export default function SupplierProductsPage() {
                 <span className="text-[10px] text-muted">{avgRatings[product.id].avg.toFixed(1)} ({avgRatings[product.id].count})</span>
               </button>
             )}
+            {supplier.stockTracking && (
+              <div className="mt-2 flex items-center gap-2">
+                <span className="text-[10px] font-semibold uppercase tracking-wide text-muted">Weekly stock</span>
+                <input
+                  type="number"
+                  min={0}
+                  placeholder="—"
+                  value={stockDrafts[product.id] ?? (product.weeklyStock ?? "")}
+                  onChange={(e) => setStockDrafts((prev) => ({ ...prev, [product.id]: e.target.value }))}
+                  onBlur={() => handleSaveWeeklyStock(product)}
+                  onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+                  className="w-16 rounded border border-primary/20 bg-surface px-2 py-1 text-center text-sm outline-none focus:border-secondary"
+                />
+                {product.weeklyStock != null && stockDrafts[product.id] === undefined && (
+                  <span className={`text-[10px] ${weeklyRemaining(product) === 0 ? "font-semibold text-red-600" : "text-muted"}`}>
+                    {weeklyRemaining(product) === 0 ? "Sold out this week" : `${weeklyRemaining(product)} of ${product.weeklyStock} left`}
+                  </span>
+                )}
+              </div>
+            )}
             <div className="mt-3 flex items-center justify-between border-t border-primary/5 pt-3">
               <div className="flex items-center gap-2">
                 <span className="font-semibold text-primary">£{product.price.toFixed(2)}</span>
@@ -287,6 +358,9 @@ export default function SupplierProductsPage() {
               <th className="px-4 py-3 font-semibold text-primary">Category</th>
               <th className="px-4 py-3 font-semibold text-primary">Locality</th>
               <th className="px-4 py-3 font-semibold text-primary text-right">Price</th>
+              {supplier.stockTracking && (
+                <th className="px-4 py-3 font-semibold text-primary text-center">Weekly Stock</th>
+              )}
               <th className="px-4 py-3 font-semibold text-primary text-center">
                 <select
                   value={stockFilters.size === 2 ? "all" : stockFilters.has("in_stock") ? "in_stock" : "out_of_stock"}
@@ -323,12 +397,12 @@ export default function SupplierProductsPage() {
           <tbody>
             {products.length === 0 && (
               <tr>
-                <td colSpan={8} className="px-4 py-8 text-center text-muted">No products yet. Add your first product!</td>
+                <td colSpan={supplier.stockTracking ? 9 : 8} className="px-4 py-8 text-center text-muted">No products yet. Add your first product!</td>
               </tr>
             )}
             {filteredProducts.length === 0 && products.length > 0 && (
               <tr>
-                <td colSpan={8} className="px-4 py-8 text-center text-muted">No products match the selected category.</td>
+                <td colSpan={supplier.stockTracking ? 9 : 8} className="px-4 py-8 text-center text-muted">No products match the selected category.</td>
               </tr>
             )}
             {filteredProducts.map((product) => {
@@ -360,6 +434,25 @@ export default function SupplierProductsPage() {
                   </span>
                 </td>
                 <td className="px-4 py-3 text-right font-medium text-primary">£{product.price.toFixed(2)}</td>
+                {supplier.stockTracking && (
+                  <td className="px-4 py-3 text-center">
+                    <input
+                      type="number"
+                      min={0}
+                      placeholder="—"
+                      value={stockDrafts[product.id] ?? (product.weeklyStock ?? "")}
+                      onChange={(e) => setStockDrafts((prev) => ({ ...prev, [product.id]: e.target.value }))}
+                      onBlur={() => handleSaveWeeklyStock(product)}
+                      onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+                      className="w-16 rounded border border-primary/20 bg-surface px-2 py-1 text-center text-sm outline-none focus:border-secondary"
+                    />
+                    {product.weeklyStock != null && stockDrafts[product.id] === undefined && (
+                      <p className={`mt-1 text-[10px] ${weeklyRemaining(product) === 0 ? "font-semibold text-red-600" : "text-muted"}`}>
+                        {weeklyRemaining(product) === 0 ? "Sold out this week" : `${weeklyRemaining(product)} of ${product.weeklyStock} left`}
+                      </p>
+                    )}
+                  </td>
+                )}
                 <td className="px-4 py-3 text-center">
                   <button
                     onClick={() => handleToggleStock(product)}
@@ -428,7 +521,7 @@ export default function SupplierProductsPage() {
       </div>
 
       <p className="mt-4 text-xs text-muted">
-        New products, and changes to a product&apos;s name or price, require admin approval before they go live. Other edits - stock, description, allergens, ingredients, photo and tags - update straight away.
+        New products, and changes to a product&apos;s name or price, require admin approval before they go live. Other edits - stock{supplier.stockTracking ? ", weekly stock" : ""}, description, allergens, ingredients, photo and tags - update straight away.
       </p>
 
       {/* Reviews Modal */}
@@ -484,12 +577,14 @@ function SupplierProductForm({
   product,
   supplierId,
   supplierName,
+  stockTracking,
   onSave,
   onCancel,
 }: {
   product: Product | null;
   supplierId: string;
   supplierName: string;
+  stockTracking: boolean;
   onSave: (p: Product) => void;
   onCancel: () => void;
 }) {
@@ -505,6 +600,7 @@ function SupplierProductForm({
       image: "",
       category: "",
       inStock: true,
+      weeklyStock: null,
       refrigerated: false,
       locality: "Local" as Locality,
       lat: null,
@@ -673,6 +769,22 @@ function SupplierProductForm({
               </button>
             </div>
           </div>
+          {stockTracking && (
+            <div>
+              <label className="block text-sm font-medium text-primary mb-1">Weekly stock (optional)</label>
+              <p className="text-xs text-muted mb-2">
+                How many you can supply each delivery week. Once that many are ordered the item shows as sold out until the next delivery day, then the same amount is available again. Leave blank for no limit.
+              </p>
+              <input
+                type="number"
+                min={0}
+                placeholder="No limit"
+                value={form.weeklyStock ?? ""}
+                onChange={(e) => setForm({ ...form, weeklyStock: e.target.value === "" ? null : Math.max(0, Math.floor(Number(e.target.value)) || 0) })}
+                className="w-full rounded-lg border border-primary/20 bg-surface px-3 py-2 text-sm outline-none focus:border-secondary"
+              />
+            </div>
+          )}
           <div>
             <label className="block text-sm font-medium text-primary mb-2">Refrigeration</label>
             <p className="text-xs text-muted mb-2">Does this product need to be kept in the fridge? (Used by us for packing - not shown to customers.)</p>

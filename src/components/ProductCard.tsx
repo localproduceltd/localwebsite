@@ -9,10 +9,17 @@ import { LOCALITY_COLORS } from "@/lib/locality";
 import { PRODUCT_TAGS } from "@/lib/categories";
 
 export default function ProductCard({ product }: { product: Product }) {
-  const { addItem, items, updateQuantity } = useCart();
+  const { addItem, items, updateQuantity, remainingStock } = useCart();
   const [justAdded, setJustAdded] = useState(false);
 
   const cartItem = items.find((i) => i.productId === product.id);
+  // Weekly stock: 0 left = sold out until next delivery day (distinct from the
+  // supplier's manual Out of Stock toggle)
+  const remaining = remainingStock(product.id);
+  const soldOutWeekly = product.inStock && remaining === 0;
+  const unavailable = !product.inStock || soldOutWeekly;
+  const lowStock = product.inStock && remaining != null && remaining > 0 && remaining <= 5;
+  const atLimit = remaining != null && (cartItem?.quantity ?? 0) >= remaining;
 
   const handleAdd = () => {
     addItem(product.id);
@@ -69,15 +76,19 @@ export default function ProductCard({ product }: { product: Product }) {
         </div>
         <div className="flex items-center justify-between">
           <span className="text-xs font-medium text-secondary">{product.supplierName || product.category}</span>
-          {!product.inStock && (
+          {unavailable ? (
             <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-600">
-              Out of Stock
+              {soldOutWeekly ? "Sold Out This Week" : "Out of Stock"}
             </span>
-          )}
+          ) : lowStock ? (
+            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
+              Only {remaining} left
+            </span>
+          ) : null}
         </div>
-        {!product.inStock ? (
+        {unavailable ? (
           <div className="mt-3 flex w-full items-center justify-center rounded-lg border-2 border-muted/30 bg-muted/10 py-2 text-sm font-semibold text-muted">
-            Out of Stock
+            {soldOutWeekly ? "Sold Out This Week" : "Out of Stock"}
           </div>
         ) : cartItem && !justAdded ? (
           <div className="mt-3 flex items-center justify-between rounded-lg bg-primary/10 px-3 py-1.5">
@@ -90,7 +101,9 @@ export default function ProductCard({ product }: { product: Product }) {
             <span className="text-sm font-semibold text-primary">{cartItem.quantity}</span>
             <button
               onClick={() => updateQuantity(product.id, 1)}
-              className="flex h-8 w-8 items-center justify-center rounded-full bg-secondary/20 text-primary transition hover:bg-secondary/40"
+              disabled={atLimit}
+              title={atLimit ? `Only ${remaining} available this week` : undefined}
+              className="flex h-8 w-8 items-center justify-center rounded-full bg-secondary/20 text-primary transition hover:bg-secondary/40 disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <Plus size={14} />
             </button>

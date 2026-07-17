@@ -15,7 +15,7 @@ interface ProductDetailModalProps {
 }
 
 export default function ProductDetailModal({ product, onClose }: ProductDetailModalProps) {
-  const { addItem, updateQuantity, items } = useCart();
+  const { addItem, updateQuantity, items, remainingStock } = useCart();
   const [productReviews, setProductReviews] = useState<Array<{ stars: number; comment?: string; createdAt: string }>>([]);
   const [showAllReviews, setShowAllReviews] = useState(false);
   const [justAdded, setJustAdded] = useState(false);
@@ -33,6 +33,13 @@ export default function ProductDetailModal({ product, onClose }: ProductDetailMo
   const cartItem = items.find((i) => i.productId === product.id);
   const colors = LOCALITY_COLORS[product.locality] ?? LOCALITY_COLORS["Local"];
   const avgRating = (product.ratingCount ?? 0) > 0 ? { avg: product.avgRating ?? 0, count: product.ratingCount ?? 0 } : null;
+  // Weekly stock: 0 left = sold out until next delivery day (distinct from the
+  // supplier's manual Out of Stock toggle)
+  const remaining = remainingStock(product.id);
+  const soldOutWeekly = product.inStock && remaining === 0;
+  const unavailable = !product.inStock || soldOutWeekly;
+  const lowStock = product.inStock && remaining != null && remaining > 0 && remaining <= 5;
+  const atLimit = remaining != null && (cartItem?.quantity ?? 0) >= remaining;
 
   return (
     <div
@@ -121,16 +128,20 @@ export default function ProductDetailModal({ product, onClose }: ProductDetailMo
               <span className="text-3xl font-bold text-primary">£{product.price.toFixed(2)}</span>
               <span className="ml-2 text-sm text-muted">/ {product.unit}</span>
             </div>
-            {!product.inStock && (
-              <span className="rounded-full bg-red-100 px-3 py-1 text-xs font-semibold text-red-600">Out of Stock</span>
-            )}
+            {unavailable ? (
+              <span className="rounded-full bg-red-100 px-3 py-1 text-xs font-semibold text-red-600">
+                {soldOutWeekly ? "Sold Out This Week" : "Out of Stock"}
+              </span>
+            ) : lowStock ? (
+              <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-700">Only {remaining} left</span>
+            ) : null}
           </div>
 
           {/* Add to Cart */}
           <div className="mt-6">
-            {!product.inStock ? (
+            {unavailable ? (
               <button disabled className="w-full rounded-lg py-3 text-sm font-semibold text-white bg-primary opacity-50 cursor-not-allowed">
-                Unavailable
+                {soldOutWeekly ? "Sold out - back next week" : "Unavailable"}
               </button>
             ) : cartItem ? (
               <div className="flex items-center justify-between rounded-lg bg-primary/10 px-4 py-3">
@@ -143,7 +154,9 @@ export default function ProductDetailModal({ product, onClose }: ProductDetailMo
                 <span className="text-lg font-semibold text-primary">{cartItem.quantity}</span>
                 <button
                   onClick={() => updateQuantity(product.id, 1)}
-                  className="flex h-10 w-10 items-center justify-center rounded-full bg-secondary/20 text-primary transition hover:bg-secondary/40"
+                  disabled={atLimit}
+                  title={atLimit ? `Only ${remaining} available this week` : undefined}
+                  className="flex h-10 w-10 items-center justify-center rounded-full bg-secondary/20 text-primary transition hover:bg-secondary/40 disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   <Plus size={16} />
                 </button>

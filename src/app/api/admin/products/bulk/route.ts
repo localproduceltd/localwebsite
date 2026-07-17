@@ -90,6 +90,7 @@ export async function POST(request: NextRequest) {
         image: item.image!,
         category: item.category!,
         inStock: item.inStock ?? true,
+        weeklyStock: item.weeklyStock ?? null,
         refrigerated: item.refrigerated ?? false,
         locality: (item.locality as Locality) ?? "Local",
         lat: item.lat ?? null,

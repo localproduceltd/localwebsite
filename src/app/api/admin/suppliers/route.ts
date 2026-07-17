@@ -72,6 +72,7 @@ export async function POST(request: NextRequest) {
       email: body.email ?? null,
       instagram: body.instagram ?? null,
       featured: body.featured ?? false,
+      stockTracking: body.stockTracking ?? false,
       onHoliday: body.onHoliday ?? false,
       holidayUntil: body.holidayUntil ?? null,
       holidayMessage: body.holidayMessage ?? null,

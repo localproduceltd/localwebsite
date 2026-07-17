@@ -1219,6 +1219,7 @@ function ProductForm({
       image: "",
       category: "",
       inStock: true,
+      weeklyStock: null,
       refrigerated: false,
       locality: "Local" as Locality,
       lat: null,
@@ -1493,6 +1494,23 @@ function ProductForm({
                 Out of Stock
               </button>
             </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-primary mb-1">Weekly stock (optional)</label>
+            <input
+              type="number"
+              min={0}
+              placeholder="No limit"
+              value={form.weeklyStock ?? ""}
+              onChange={(e) => setForm({ ...form, weeklyStock: e.target.value === "" ? null : Math.max(0, Math.floor(Number(e.target.value)) || 0) })}
+              className="w-full rounded-lg border border-primary/20 bg-surface px-3 py-2 text-sm outline-none focus:border-secondary"
+            />
+            <p className="mt-1 text-xs text-muted">
+              {(suppliers.find((s) => s.id === form.supplierId)?.stockTracking ?? false)
+                ? "Cap per delivery week - the item shows as sold out once this many are ordered, and resets each delivery day."
+                : "Only applies once stock tracking is switched on for this supplier (Suppliers tab). Kept but ignored until then."}
+            </p>
           </div>
 
           <div>

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { stripe } from "@/lib/stripe";
 import { auth } from "@clerk/nextjs/server";
-import { canModifyOrder, getSuppliersHolidayInfo, isSupplierOnHoliday } from "@/lib/data";
+import { canModifyOrder, getOrder, getSuppliersHolidayInfo, isSupplierOnHoliday, checkStockForItems } from "@/lib/data";
 
 interface CartItem {
   productId: string;
@@ -54,6 +54,27 @@ export async function POST(request: NextRequest) {
         { error: `Cannot checkout: ${names} ${holidaySuppliers.length === 1 ? "is" : "are"} currently on holiday. Please remove their items from your cart.` },
         { status: 400 }
       );
+    }
+
+    // Weekly stock gate: top-up items count against the same delivery day as
+    // the original order (its existing lines are already in the ordered totals).
+    const order = await getOrder(orderId);
+    if (order?.deliveryDay) {
+      const stockViolations = await checkStockForItems(
+        items.map((i) => ({ productId: i.productId, quantity: i.quantity })),
+        order.deliveryDay
+      );
+      if (stockViolations.length > 0) {
+        const parts = stockViolations.map((v) =>
+          v.remaining > 0
+            ? `only ${v.remaining} of "${v.productName}" ${v.remaining === 1 ? "is" : "are"} left for this delivery`
+            : `"${v.productName}" is sold out for this delivery`
+        );
+        return NextResponse.json(
+          { error: `Sorry - ${parts.join(", and ")}. Please adjust your basket and try again.`, stockViolations },
+          { status: 400 }
+        );
+      }
     }
 
     // Create line items for Stripe (no delivery fee for top-ups)

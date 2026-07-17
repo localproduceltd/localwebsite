@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useState, useEffect, useCallback, useRef, type ReactNode } from "react";
 import { useUser } from "@clerk/nextjs";
-import { type Product, getApprovedProducts, saveBasket, getSavedBasketByEmail } from "@/lib/data";
+import { type Product, getApprovedProducts, saveBasket, getSavedBasketByEmail, getActiveDeliveryDays, getOrderedQuantities } from "@/lib/data";
 
 const CART_STORAGE_KEY = "local-produce-cart";
 const TOPUP_STORAGE_KEY = "local-produce-topup";
@@ -30,6 +30,10 @@ interface CartContextType {
   totalPrice: number;
   getProduct: (productId: string) => Product | undefined;
   products: Product[];
+  // Units still available this delivery week, or null if the product's stock
+  // isn't tracked (the default). 0 = sold out for this week. Counted from paid
+  // orders only - items in other people's baskets don't reserve anything.
+  remainingStock: (productId: string) => number | null;
   topUpOrder: TopUpOrder | null;
   setTopUpOrder: (order: TopUpOrder | null) => void;
   clearTopUpOrder: () => void;
@@ -61,6 +65,8 @@ export function CartProvider({ children }: { children: ReactNode }) {
   const { isSignedIn, user } = useUser();
   const [items, setItems] = useState<CartItem[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
+  // productId -> units already ordered for the next delivery day
+  const [orderedQty, setOrderedQty] = useState<Record<string, number>>({});
   const [topUpOrder, setTopUpOrder] = useState<TopUpOrder | null>(null);
   const initialized = useRef(false);
   // Server-sync bookkeeping. For signed-in users, the server is the single source
@@ -130,6 +136,32 @@ export function CartProvider({ children }: { children: ReactNode }) {
     getApprovedProducts().then(setProducts).catch(console.error);
   }, []);
 
+  // Load what's already been ordered for the next delivery day, so tracked
+  // products can show "sold out this week" / "only N left". If no delivery day
+  // is open yet, nothing is ordered against the next one - counts stay empty
+  // and the full weekly_stock is available.
+  useEffect(() => {
+    (async () => {
+      try {
+        const days = await getActiveDeliveryDays();
+        if (days.length > 0) {
+          setOrderedQty(await getOrderedQuantities(days[0].deliveryDate));
+        }
+      } catch (e) {
+        console.error("Failed to load ordered quantities:", e);
+      }
+    })();
+  }, []);
+
+  const remainingStock = useCallback(
+    (productId: string): number | null => {
+      const p = products.find((x) => x.id === productId);
+      if (!p || !p.supplierStockTracking || p.weeklyStock == null) return null;
+      return Math.max(0, p.weeklyStock - (orderedQty[productId] ?? 0));
+    },
+    [products, orderedQty]
+  );
+
   const clearTopUpOrder = useCallback(() => setTopUpOrder(null), []);
 
   const addItem = useCallback((productId: string, product?: Product) => {
@@ -139,9 +171,13 @@ export function CartProvider({ children }: { children: ReactNode }) {
     if (prod) {
       fireAddToCartEvent(prod, 1);
     }
-    
+
+    const remaining = remainingStock(productId);
     setItems((prev) => {
       const existing = prev.find((i) => i.productId === productId);
+      // Never let the basket exceed what's left this week (checkout re-checks
+      // server-side; this just stops the obvious case early)
+      if (remaining != null && (existing?.quantity ?? 0) >= remaining) return prev;
       if (existing) {
         return prev.map((i) =>
           i.productId === productId ? { ...i, quantity: i.quantity + 1 } : i
@@ -149,23 +185,27 @@ export function CartProvider({ children }: { children: ReactNode }) {
       }
       return [...prev, { productId, quantity: 1 }];
     });
-  }, [products]);
+  }, [products, remainingStock]);
 
   const addItems = useCallback((newItems: Array<{ productId: string; quantity: number }>) => {
     userAddedThisSession.current = true;
     setItems((prev) => {
       const updated = [...prev];
       for (const newItem of newItems) {
+        const remaining = remainingStock(newItem.productId);
         const existing = updated.find((i) => i.productId === newItem.productId);
+        const current = existing?.quantity ?? 0;
+        const allowed = remaining == null ? newItem.quantity : Math.max(0, Math.min(newItem.quantity, remaining - current));
+        if (allowed === 0) continue;
         if (existing) {
-          existing.quantity += newItem.quantity;
+          existing.quantity += allowed;
         } else {
-          updated.push({ productId: newItem.productId, quantity: newItem.quantity });
+          updated.push({ productId: newItem.productId, quantity: allowed });
         }
       }
       return updated;
     });
-  }, []);
+  }, [remainingStock]);
 
   const removeItem = useCallback((productId: string) => {
     setItems((prev) => prev.filter((i) => i.productId !== productId));
@@ -180,17 +220,23 @@ export function CartProvider({ children }: { children: ReactNode }) {
         fireAddToCartEvent(prod, delta);
       }
     }
-    
+
+    const remaining = remainingStock(productId);
     setItems((prev) =>
       prev
-        .map((i) =>
-          i.productId === productId
-            ? { ...i, quantity: Math.max(0, i.quantity + delta) }
-            : i
-        )
+        .map((i) => {
+          if (i.productId !== productId) return i;
+          let quantity = Math.max(0, i.quantity + delta);
+          // Cap increases at what's left this week (never force-shrink an
+          // existing basket - the checkout gate handles that with a message)
+          if (delta > 0 && remaining != null && quantity > remaining) {
+            quantity = Math.max(i.quantity, remaining);
+          }
+          return { ...i, quantity };
+        })
         .filter((i) => i.quantity > 0)
     );
-  }, [products]);
+  }, [products, remainingStock]);
 
   const clearCart = useCallback(() => setItems([]), []);
 
@@ -291,6 +337,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
         totalPrice,
         getProduct,
         products,
+        remainingStock,
         topUpOrder,
         setTopUpOrder,
         clearTopUpOrder,

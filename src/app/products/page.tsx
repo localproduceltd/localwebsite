@@ -17,7 +17,7 @@ export default function ProductsPage() {
   const [category, setCategory] = useState("All");
   const [selectedLocalities, setSelectedLocalities] = useState<Set<Locality>>(new Set());
   const [selectedTags, setSelectedTags] = useState<Set<string>>(new Set());
-  const { addItem, updateQuantity, items, products } = useCart();
+  const { addItem, updateQuantity, items, products, remainingStock } = useCart();
   const [justAdded, setJustAdded] = useState<string | null>(null);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [showLocalityInfo, setShowLocalityInfo] = useState(false);
@@ -347,11 +347,17 @@ export default function ProductsPage() {
         <div className="mt-8 grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-4 xl:grid-cols-5">
           {filtered.map((product) => {
             const colors = LOCALITY_COLORS[product.locality] ?? LOCALITY_COLORS["Local"];
+            // Weekly stock: 0 left = sold out until next delivery day (distinct
+            // from the supplier's manual Out of Stock toggle)
+            const remaining = remainingStock(product.id);
+            const soldOutWeekly = product.inStock && remaining === 0;
+            const unavailable = !product.inStock || soldOutWeekly;
+            const lowStock = product.inStock && remaining != null && remaining > 0 && remaining <= 5;
             return (
               <div
                 key={product.id}
                 className={`group flex flex-col overflow-hidden rounded-xl bg-surface shadow-sm transition hover:shadow-md ${
-                  !product.inStock ? "opacity-60 grayscale" : ""
+                  unavailable ? "opacity-60 grayscale" : ""
                 }`}
               >
                 <div 
@@ -393,11 +399,15 @@ export default function ProductsPage() {
                 <div className="flex flex-1 flex-col p-2.5 sm:p-3">
                   <div className="flex items-center justify-between">
                     <p className="text-xs font-medium text-secondary">{product.supplierName}</p>
-                    {!product.inStock && (
+                    {unavailable ? (
                       <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-600">
-                        Out of Stock
+                        {soldOutWeekly ? "Sold Out This Week" : "Out of Stock"}
                       </span>
-                    )}
+                    ) : lowStock ? (
+                      <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
+                        Only {remaining} left
+                      </span>
+                    ) : null}
                   </div>
                   <h3 
                     className="mt-1 text-sm font-semibold text-primary sm:text-base cursor-pointer hover:text-secondary transition"
@@ -432,14 +442,15 @@ export default function ProductsPage() {
                   <div className="mt-auto pt-1">
                   {(() => {
                     const cartItem = items.find(i => i.productId === product.id);
-                    if (!product.inStock) {
+                    if (unavailable) {
                       return (
                         <div className="mt-2 flex w-full items-center justify-center rounded-lg border-2 border-muted/30 bg-muted/10 py-1.5 text-xs font-semibold text-muted sm:mt-3 sm:py-2 sm:text-sm">
-                          Out of Stock
+                          {soldOutWeekly ? "Sold Out This Week" : "Out of Stock"}
                         </div>
                       );
                     }
                     if (cartItem && justAdded !== product.id) {
+                      const atLimit = remaining != null && cartItem.quantity >= remaining;
                       return (
                         <div className="mt-2 flex items-center justify-between rounded-lg bg-primary/10 px-2 py-1 sm:mt-3 sm:px-3 sm:py-1.5">
                           <button
@@ -451,7 +462,9 @@ export default function ProductsPage() {
                           <span className="text-xs font-semibold text-primary sm:text-sm">{cartItem.quantity}</span>
                           <button
                             onClick={() => updateQuantity(product.id, 1)}
-                            className="flex h-8 w-8 items-center justify-center rounded-full bg-secondary/20 text-primary transition hover:bg-secondary/40"
+                            disabled={atLimit}
+                            title={atLimit ? `Only ${remaining} available this week` : undefined}
+                            className="flex h-8 w-8 items-center justify-center rounded-full bg-secondary/20 text-primary transition hover:bg-secondary/40 disabled:opacity-40 disabled:cursor-not-allowed"
                           >
                             <Plus size={14} />
                           </button>
