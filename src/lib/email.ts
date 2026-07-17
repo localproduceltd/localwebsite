@@ -101,6 +101,12 @@ interface OrderConfirmationData {
   isTopUp?: boolean;
   cutoffDay?: string;
   cutoffTime?: string;
+  // Promo code applied on Stripe's checkout page. total is the pre-discount
+  // total from the cart; the email shows the discount line and charges total
+  // minus discountAmount, matching what actually went on the card.
+  discountCode?: string;
+  couponName?: string;
+  discountAmount?: number;
 }
 
 export async function sendOrderConfirmation(data: OrderConfirmationData) {
@@ -115,9 +121,14 @@ export async function sendOrderConfirmation(data: OrderConfirmationData) {
 
   const intro = data.isTopUp
     ? `Good news - we've added those to your box for delivery. Here's everything that's coming and who it's from.`
-    : `Lovely to have your order. We're only a few weeks old, so every single box matters - thank you for giving us a go. Here's what's coming and who it's from.`;
+    : `Lovely to have your order. We're still small and new, so every single box matters - thank you for giving us a go.`;
 
-  const deliveryWindowText = data.deliveryWindow === "morning" ? "9am - 1pm" : data.deliveryWindow === "afternoon" ? "1pm - 5pm" : data.deliveryWindow === "any" ? "we'll confirm the day before" : "";
+  // "any" customers don't have a window yet - they get their slot the day before.
+  const arrivalSuffix =
+    data.deliveryWindow === "morning" ? `, between <strong>9am and 1pm</strong>`
+    : data.deliveryWindow === "afternoon" ? `, between <strong>1pm and 5pm</strong>`
+    : data.deliveryWindow === "any" ? ` - we'll confirm your time the day before`
+    : "";
 
   // Group items by producer so the people behind the food come first.
   const groups = new Map<string, typeof data.items>();
@@ -142,6 +153,12 @@ export async function sendOrderConfirmation(data: OrderConfirmationData) {
   const instruction = deliveryInstruction(data.deliveryOption, data.safePlace);
   const bottleReturn = data.bottleDepositPaid === false && data.items.some(i => i.productName.toLowerCase().includes("glass bottle"));
 
+  // Show the code the customer typed; referral rewards applied without a code
+  // fall back to the coupon's name. Total is what actually went on the card.
+  const discountAmount = data.discountAmount ?? 0;
+  const discountLabel = data.discountCode || data.couponName || "";
+  const chargedTotal = data.total - discountAmount;
+
   const { error } = await resend.emails.send({
     from: FROM_EMAIL,
     to: data.customerEmail,
@@ -151,8 +168,15 @@ export async function sendOrderConfirmation(data: OrderConfirmationData) {
         <p style="margin: 0 0 12px;">Hi ${name},</p>
         <p style="margin: 0 0 12px;">${intro}</p>
 
+        ${!data.isTopUp && data.cutoffDay ? `
+        <p style="margin: 14px 0 8px; font-size: 14px; background: #f4f9fd; border-radius: 8px; padding: 12px 16px; color: #0369a1;">💡 Want to add anything to your order? You can keep adding to your box right up until <strong>${data.cutoffDay}${cutoffTimeText}</strong> - just head to your account and tap <a href="https://www.localproduce.ltd/account" style="color: ${BRAND}; font-weight: bold;">Add to your order</a>.</p>
+        <p style="margin: 8px 0 14px;">The day before your delivery we'll email to confirm your box, and you'll get another email when we're about an hour away - so you'll always know we're on our way.</p>
+        ` : ""}
+
+        ${!data.isTopUp ? `<p style="margin: 0 0 12px;">Here's what's coming and who it's from.</p>` : ""}
+
         <div style="background: #fbf3f6; border-radius: 8px; padding: 14px 16px; margin: 16px 0;">
-          <p style="margin: 0; font-size: 15px;"><strong style="color: ${BRAND};">Arriving ${data.deliveryDay}</strong>${deliveryWindowText ? `, between <strong>${deliveryWindowText}</strong>` : ""}</p>
+          <p style="margin: 0; font-size: 15px;"><strong style="color: ${BRAND};">Arriving ${data.deliveryDay}</strong>${arrivalSuffix}</p>
           ${data.address ? `<p style="margin: 6px 0 0; font-size: 14px; color: #6b6b6b;">${data.address}</p>` : ""}
         </div>
 
@@ -163,7 +187,8 @@ export async function sendOrderConfirmation(data: OrderConfirmationData) {
           ${data.deliveryFee ? `<div style="display: flex; justify-content: space-between; margin: 4px 0; color: #777; font-size: 14px;"><span>Delivery</span><span>£${data.deliveryFee.toFixed(2)}</span></div>` : ""}
           ${data.boxDepositPaid ? `<div style="display: flex; justify-content: space-between; margin: 4px 0; color: #777; font-size: 14px;"><span>Cool box deposit (you get this back)</span><span>£10.00</span></div>` : ""}
           ${data.bottleDepositPaid ? `<div style="display: flex; justify-content: space-between; margin: 4px 0; color: #777; font-size: 14px;"><span>Bottle deposit (you get this back)</span><span>£1.00</span></div>` : ""}
-          <div style="display: flex; justify-content: space-between; font-weight: bold; font-size: 17px; margin-top: 6px;"><span>Total</span><span>£${data.total.toFixed(2)}</span></div>
+          ${discountAmount > 0 ? `<div style="display: flex; justify-content: space-between; margin: 4px 0; color: ${GREEN}; font-size: 14px; font-weight: bold;"><span>Discount${discountLabel ? ` (${discountLabel})` : ""}</span><span>-£${discountAmount.toFixed(2)}</span></div>` : ""}
+          <div style="display: flex; justify-content: space-between; font-weight: bold; font-size: 17px; margin-top: 6px;"><span>Total</span><span>£${chargedTotal.toFixed(2)}</span></div>
         </div>
 
         ${instruction ? `
@@ -175,13 +200,8 @@ export async function sendOrderConfirmation(data: OrderConfirmationData) {
 
         ${bottleReturn ? `<p style="margin: 12px 0; font-size: 14px; color: #4a4a4a;">🍼 You've got glass bottles this week - please leave the empties out for us to collect on your next delivery.</p>` : ""}
 
-        ${!data.isTopUp && data.cutoffDay ? `
-        <p style="margin: 14px 0 8px; font-size: 14px; background: #f4f9fd; border-radius: 8px; padding: 12px 16px; color: #0369a1;">💡 Want to add anything to your order? You can keep adding to your box right up until <strong>${data.cutoffDay}${cutoffTimeText}</strong> - just head to your account and tap <a href="https://www.localproduce.ltd/account" style="color: ${BRAND}; font-weight: bold;">Add to your order</a>.</p>
-        <p style="margin: 8px 0 14px;">The day before your delivery we'll email to confirm your box, and you'll get another email when we're about an hour away - so you'll always know we're on our way.</p>
-        ` : ""}
-
-        <p style="margin: 16px 0 4px;">If you have any suggestions on the order and process, or anything that could make our site and process better, please tap the 🥕 carrot on the website to leave feedback - it helps.</p>
-        <p style="margin: 4px 0 2px;">Thanks again,</p>
+        <p style="margin: 16px 0 4px;">If anything about ordering could be better, tap the 🥕 carrot on the website and tell us - it really helps.</p>
+        <p style="margin: 4px 0 2px;">Speak soon,</p>
         ${SIGNOFF}
     `),
   });

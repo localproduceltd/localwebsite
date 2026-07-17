@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { stripe } from "@/lib/stripe";
+import { stripe, DISCOUNT_EXPAND, extractSessionDiscount } from "@/lib/stripe";
 import { addItemsToOrder, getOrder, getSupplier, isTopUpSessionProcessed, markTopUpSessionProcessed, parseItemsFromMetadata, rollbackTopUpSession, type OrderItem } from "@/lib/data";
 import { sendOrderConfirmation, sendSupplierNewOrder } from "@/lib/email";
 import { auth, clerkClient } from "@clerk/nextjs/server";
@@ -28,8 +28,8 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // Retrieve the session from Stripe
-    const session = await stripe.checkout.sessions.retrieve(sessionId);
+    // Retrieve the session from Stripe (discount expanded so the email can show it)
+    const session = await stripe.checkout.sessions.retrieve(sessionId, { expand: DISCOUNT_EXPAND });
 
     if (session.payment_status !== "paid") {
       return NextResponse.json({ error: "Payment not completed" }, { status: 400 });
@@ -88,6 +88,7 @@ export async function POST(request: NextRequest) {
       
       // Send customer confirmation email for the top-up
       try {
+        const { discountCode, couponName, discountAmount } = extractSessionDiscount(session);
         await sendOrderConfirmation({
           customerEmail,
           customerName: customerName || "there",
@@ -101,6 +102,9 @@ export async function POST(request: NextRequest) {
           })),
           total: topUpTotal,
           isTopUp: true,
+          discountCode,
+          couponName,
+          discountAmount,
         });
       } catch (emailError) {
         console.error("Failed to send top-up confirmation email:", emailError);

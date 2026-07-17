@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { stripe } from "@/lib/stripe";
+import { stripe, DISCOUNT_EXPAND, extractSessionDiscount } from "@/lib/stripe";
 import { createOrder, getOrderByStripeSession, parseItemsFromMetadata, updateCustomerDeliveryDetails, type DeliveryWindow, type DeliveryOption, type OrderItem, setCustomerOutstandingBox, getActiveDeliveryDays, markBasketConverted } from "@/lib/data";
 import { sendOrderConfirmation } from "@/lib/email";
 import { auth, clerkClient } from "@clerk/nextjs/server";
@@ -28,8 +28,8 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // Retrieve the session from Stripe
-    const session = await stripe.checkout.sessions.retrieve(sessionId);
+    // Retrieve the session from Stripe (discount expanded so we can store/show it)
+    const session = await stripe.checkout.sessions.retrieve(sessionId, { expand: DISCOUNT_EXPAND });
 
     if (session.payment_status !== "paid") {
       return NextResponse.json({ error: "Payment not completed" }, { status: 400 });
@@ -56,6 +56,10 @@ export async function POST(request: NextRequest) {
     const boxDepositPaid = metadata.boxDepositPaid === "true";
     const bottleDepositPaid = metadata.bottleDepositPaid === "true";
 
+    // Any promo code applied on Stripe's checkout page - stored on the order
+    // and shown on the confirmation email (same as the webhook path).
+    const { discountCode, couponName, discountAmount } = extractSessionDiscount(session);
+
     // Create the order with stripe_session_id for idempotency
     const order = await createOrder({
       userId: metadata.userId,
@@ -71,6 +75,9 @@ export async function POST(request: NextRequest) {
       boxDepositPaid,
       bottleDepositPaid,
       stripeSessionId: sessionId,
+      discountCode,
+      couponName,
+      discountAmount,
       address: metadata.addressLine1 ? {
         addressLine1: metadata.addressLine1,
         addressLine2: metadata.addressLine2 || undefined,
@@ -159,6 +166,9 @@ export async function POST(request: NextRequest) {
           total,
           cutoffDay: cutoffFormatted,
           cutoffTime: thisDelivery?.cutoffTime,
+          discountCode,
+          couponName,
+          discountAmount,
         });
       } catch (emailError) {
         console.error("Failed to send customer confirmation email:", emailError);
