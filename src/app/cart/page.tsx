@@ -699,22 +699,6 @@ export default function CartPage() {
             </p>
           </div>
 
-          {/* Finding-you instructions live with the address so returning
-              customers can edit them from the saved-details summary. The
-              safe place (WHERE we leave it) has its own section below. */}
-          <div>
-            <label className="block text-sm font-medium text-primary mb-1">
-              Delivery instructions <span className="text-muted font-normal">(optional)</span>
-            </label>
-            <textarea
-              placeholder="Anything that helps the driver find you - e.g. &quot;second gate on the left&quot;, &quot;flat above the shop&quot;, &quot;park on the lane&quot;"
-              value={deliveryInstructions}
-              onChange={(e) => setDeliveryInstructions(e.target.value)}
-              rows={2}
-              className="w-full rounded-lg border border-primary/20 bg-white px-4 py-2.5 text-base sm:text-sm outline-none transition focus:border-secondary resize-none"
-            />
-          </div>
-
           {postcodeError && (
             <p className="text-sm text-red-600">{postcodeError}</p>
           )}
@@ -1023,28 +1007,45 @@ export default function CartPage() {
         </div>
       )}
 
-      {/* Safe Place - only for the leave-it options (WHERE we leave it -
-          quoted back in customer emails). Prefilled from the saved profile;
-          any change saves back as their new default at checkout. The
-          finding-you delivery instructions live up in Delivery Address. */}
-      {!topUpOrder && deliveryCheck?.inZone && needsSafePlace && (
+      {/* Safe Place + delivery instructions - once an option is picked. The
+          safe place (WHERE we leave it - quoted back in customer emails) only
+          applies to the leave-it options; the finding-you instructions (HOW to
+          find the house - driver-facing) apply to everyone. */}
+      {!topUpOrder && deliveryCheck?.inZone && deliveryOption && (
         <div className="mt-6 rounded-xl bg-surface p-6 shadow-sm">
           <div className="flex items-center gap-2">
             <MapPin size={20} className="text-secondary" />
-            <h2 className="text-lg font-semibold text-primary">Safe Place</h2>
+            <h2 className="text-lg font-semibold text-primary">{needsSafePlace ? "Safe Place" : "Finding You"}</h2>
           </div>
-          <p className="mt-1 text-sm text-muted">
-            {usingSavedDetails && safePlace.trim()
-              ? "Your usual safe place - click to change it if this week's different."
-              : "Where exactly should we leave your order?"}
-          </p>
-          <textarea
-            value={safePlace}
-            onChange={(e) => setSafePlace(e.target.value)}
-            placeholder="e.g. In the porch, Behind the side gate, By the back door, In the garage..."
-            className="mt-4 w-full rounded-lg border border-primary/20 bg-white px-4 py-3 text-sm outline-none focus:border-secondary"
-            rows={3}
-          />
+          {needsSafePlace && (
+            <>
+              <p className="mt-1 text-sm text-muted">
+                {usingSavedDetails && safePlace.trim()
+                  ? "Your usual safe place - click to change it if this week's different."
+                  : "Where exactly should we leave your order?"}
+              </p>
+              <textarea
+                value={safePlace}
+                onChange={(e) => setSafePlace(e.target.value)}
+                placeholder="e.g. In the porch, Behind the side gate, By the back door, In the garage..."
+                className="mt-4 w-full rounded-lg border border-primary/20 bg-white px-4 py-3 text-sm outline-none focus:border-secondary"
+                rows={3}
+              />
+            </>
+          )}
+
+          <div className={needsSafePlace ? "mt-4" : "mt-1"}>
+            <label className="block text-sm font-medium text-primary mb-1">
+              Delivery instructions <span className="text-muted font-normal">(optional)</span>
+            </label>
+            <textarea
+              placeholder="Anything that helps the driver find you - e.g. &quot;second gate on the left&quot;, &quot;flat above the shop&quot;, &quot;park on the lane&quot;"
+              value={deliveryInstructions}
+              onChange={(e) => setDeliveryInstructions(e.target.value)}
+              rows={2}
+              className="w-full rounded-lg border border-primary/20 bg-white px-4 py-2.5 text-base sm:text-sm outline-none transition focus:border-secondary resize-none"
+            />
+          </div>
 
           {/* Box Deposit Info - only when borrowing a Local cool box */}
           {deliveryOption === "local_coolbox" && (
