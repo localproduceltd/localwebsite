@@ -202,7 +202,7 @@ export default function SupplierProductsPage() {
             <p className="mt-1 text-xs text-secondary">
               Weekly stock is on: give any product a weekly amount and it&apos;ll show as sold out once that many are ordered
               {nextDeliveryDay ? ` for ${new Date(nextDeliveryDay + "T00:00:00").toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })}` : ""}.
-              Leave it blank for no limit.
+              Leave it at NA for no limit.
             </p>
           )}
         </div>
@@ -301,7 +301,7 @@ export default function SupplierProductsPage() {
                 <input
                   type="number"
                   min={0}
-                  placeholder="—"
+                  placeholder="NA"
                   value={stockDrafts[product.id] ?? (product.weeklyStock ?? "")}
                   onChange={(e) => setStockDrafts((prev) => ({ ...prev, [product.id]: e.target.value }))}
                   onBlur={() => handleSaveWeeklyStock(product)}
@@ -439,7 +439,7 @@ export default function SupplierProductsPage() {
                     <input
                       type="number"
                       min={0}
-                      placeholder="—"
+                      placeholder="NA"
                       value={stockDrafts[product.id] ?? (product.weeklyStock ?? "")}
                       onChange={(e) => setStockDrafts((prev) => ({ ...prev, [product.id]: e.target.value }))}
                       onBlur={() => handleSaveWeeklyStock(product)}
@@ -773,12 +773,12 @@ function SupplierProductForm({
             <div>
               <label className="block text-sm font-medium text-primary mb-1">Weekly stock (optional)</label>
               <p className="text-xs text-muted mb-2">
-                How many you can supply each delivery week. Once that many are ordered the item shows as sold out until the next delivery day, then the same amount is available again. Leave blank for no limit.
+                How many you can supply each delivery week. Once that many are ordered the item shows as sold out until the next delivery day, then the same amount is available again. Leave it at NA for no limit.
               </p>
               <input
                 type="number"
                 min={0}
-                placeholder="No limit"
+                placeholder="NA"
                 value={form.weeklyStock ?? ""}
                 onChange={(e) => setForm({ ...form, weeklyStock: e.target.value === "" ? null : Math.max(0, Math.floor(Number(e.target.value)) || 0) })}
                 className="w-full rounded-lg border border-primary/20 bg-surface px-3 py-2 text-sm outline-none focus:border-secondary"
