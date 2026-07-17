@@ -1,16 +1,9 @@
 "use client";
 
 import { useState, useEffect, useMemo, useCallback } from "react";
-import { type Order, type OrderItem, type DeliveryStockTracking, type OrderItemRefund, type OrderItemCheckin, type RefundPaidBy, type RefundReasonType, type SupplierProductFlag, getOrders, getDeliveryStockTracking, upsertDeliveryStockTracking, getRefundsForDeliveryDay, getOrderItemCheckins, toggleOrderItemCheckin, getSupplierProductFlags, resolveSupplierProductFlag, createSupplierProductFlag, getCompletedCheckins, setCheckinComplete, reopenCheckin } from "@/lib/data";
-import { Package, Clock, CheckCircle, XCircle, Calendar, ChevronDown, ChevronRight, Truck, AlertTriangle, FileText, Mail, Download, Send, Users, Eye } from "lucide-react";
+import { type Order, type OrderItem, type DeliveryStockTracking, type OrderItemRefund, type OrderItemCheckin, type RefundPaidBy, type RefundReasonType, type SupplierProductFlag, refundReasonConfig, getOrders, getDeliveryStockTracking, upsertDeliveryStockTracking, getRefundsForDeliveryDay, getOrderItemCheckins, toggleOrderItemCheckin, getSupplierProductFlags, resolveSupplierProductFlag, createSupplierProductFlag, removeSupplierProductFlag, getCompletedCheckins, setCheckinComplete, reopenCheckin } from "@/lib/data";
+import { Package, Clock, CheckCircle, XCircle, Calendar, ChevronDown, ChevronRight, Truck, AlertTriangle, FileText, Mail, Download, Send, Users, Eye, Flag, PoundSterling } from "lucide-react";
 import { ChilledTag, chilledRowClass } from "@/components/ChilledTag";
-
-const refundReasonConfig: Record<RefundReasonType, { label: string; itemArrived: boolean; defaultPaidBy: RefundPaidBy }> = {
-  didnt_arrive: { label: "Didn't arrive", itemArrived: false, defaultPaidBy: "supplier" },
-  quality: { label: "Quality issue", itemArrived: true, defaultPaidBy: "supplier" },
-  damaged: { label: "Damaged in transit", itemArrived: true, defaultPaidBy: "50-50" },
-  other: { label: "Other", itemArrived: true, defaultPaidBy: "local" },
-};
 
 interface StockIssue {
   type: "shortage" | "flagged";
@@ -26,7 +19,8 @@ interface StockIssue {
 
 interface ReviewModalState {
   issue: StockIssue;
-  selectedOrders: Set<string>;
+  // orderId -> quantity to refund (1..their remaining line quantity)
+  selectedQtys: Map<string, number>;
   reasonType: RefundReasonType;
   paidBy: RefundPaidBy;
   notes: string;
@@ -108,6 +102,7 @@ export default function AdminStockPage() {
   const [productRefrigerated, setProductRefrigerated] = useState<Map<string, boolean>>(new Map());
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [expandedSuppliers, setExpandedSuppliers] = useState<Set<string>>(new Set());
+  const [expandedRefunds, setExpandedRefunds] = useState<Set<string>>(new Set());
   
   const [stockTracking, setStockTracking] = useState<Map<string, DeliveryStockTracking>>(new Map());
   const [orderCheckins, setOrderCheckins] = useState<Map<string, OrderItemCheckin>>(new Map());
@@ -168,6 +163,57 @@ export default function AdminStockPage() {
   const isOrderItemCheckedIn = useCallback((orderId: string, supplierId: string, productName: string) => {
     return orderCheckins.has(`${orderId}-${supplierId}-${productName}`);
   }, [orderCheckins]);
+
+  // Quantity of this order's line already refunded as "never arrived / not
+  // coming" (itemArrived = false). These units are no longer expected in the
+  // crate, so they come off what we check in and count towards.
+  const notArrivedRefundedQty = useCallback((orderId: string, supplierId: string, productName: string) => {
+    const orderRefunds = refunds.get(orderId) || [];
+    return orderRefunds
+      .filter(r => r.productName === productName && !r.itemArrived && (!r.supplierId || r.supplierId === supplierId))
+      .reduce((sum, r) => sum + r.quantityRefunded, 0);
+  }, [refunds]);
+
+  // Total not-arrived refunded quantity for a supplier's product across the
+  // day's orders. expected-to-arrive = ordered - this.
+  const productRefundedQty = useCallback((supplier: SupplierSummary, productName: string) => {
+    let total = 0;
+    for (const orderEntry of supplier.orders) {
+      if (orderEntry.items.some(i => i.productName === productName)) {
+        total += notArrivedRefundedQty(orderEntry.orderId, supplier.supplierId, productName);
+      }
+    }
+    return total;
+  }, [notArrivedRefundedQty]);
+
+  // Customers still on the hook for this product (not yet fully refunded),
+  // with their remaining quantities, plus the total quantity already refunded
+  // (any reason - a refunded line shouldn't be refunded twice).
+  const buildAffectedOrders = useCallback((orders: Order[], supplierId: string, productName: string) => {
+    const affectedOrders: StockIssue["affectedOrders"] = [];
+    let totalRefundedQty = 0;
+    for (const order of orders) {
+      if (order.status === "cancelled") continue;
+      for (const orderItem of order.items) {
+        if (orderItem.supplierId !== supplierId || orderItem.productName !== productName) continue;
+        const orderRefunds = (refunds.get(order.id) || []).filter(r => r.productName === productName);
+        const refundedQty = orderRefunds.reduce((sum, r) => sum + r.quantityRefunded, 0);
+        totalRefundedQty += refundedQty;
+        const remaining = orderItem.quantity - refundedQty;
+        if (remaining > 0) {
+          affectedOrders.push({
+            orderId: order.id,
+            orderNumber: order.orderNumber,
+            customerName: order.customerName,
+            customerEmail: order.customerEmail,
+            quantity: remaining,
+            price: orderItem.price,
+          });
+        }
+      }
+    }
+    return { affectedOrders, totalRefundedQty };
+  }, [refunds]);
 
   const toggleExpand = useCallback((key: string) => {
     setExpandedSuppliers((prev) => {
@@ -263,11 +309,25 @@ export default function AdminStockPage() {
 
   const handleMarkAllArrived = async (
     deliveryDay: string,
-    supplierId: string,
-    items: Array<{ productName: string; quantity: number }>
+    supplier: SupplierSummary
   ) => {
-    for (const item of items) {
-      await upsertDeliveryStockTracking(deliveryDay, supplierId, item.productName, item.quantity, item.quantity, null);
+    // Open flags that aren't yet covered by refunds mean some units are known
+    // NOT to be coming - "mark all arrived" would contradict that and hide the
+    // issue. Make Josie handle (refund/dismiss) those first.
+    const uncoveredFlags = supplier.items.filter(item => {
+      const flag = productFlags.get(`${deliveryDay}-${supplier.supplierId}-${item.productName}`);
+      if (!flag || flag.resolved) return false;
+      const flagQty = Math.min(flag.quantityUnavailable ?? item.quantity, item.quantity);
+      return productRefundedQty(supplier, item.productName) < flagQty;
+    });
+    if (uncoveredFlags.length > 0) {
+      alert(`These items are flagged as won't arrive and haven't been refunded yet:\n\n${uncoveredFlags.map(i => i.productName).join(", ")}\n\nReview them in the issues box first (refund or dismiss), then mark the rest arrived.`);
+      return;
+    }
+    for (const item of supplier.items) {
+      // Expected = ordered minus units already refunded as not coming.
+      const expected = Math.max(0, item.quantity - productRefundedQty(supplier, item.productName));
+      await upsertDeliveryStockTracking(deliveryDay, supplier.supplierId, item.productName, item.quantity, expected, null);
     }
     const tracking = await getDeliveryStockTracking(deliveryDay);
     setStockTracking(prev => {
@@ -278,7 +338,7 @@ export default function AdminStockPage() {
       return next;
     });
     // Marking everything arrived in full also completes check-in for this supplier.
-    await markCheckinComplete(deliveryDay, supplierId);
+    await markCheckinComplete(deliveryDay, supplier.supplierId);
   };
 
   // Whether a supplier's check-in is marked complete for a delivery day.
@@ -293,25 +353,72 @@ export default function AdminStockPage() {
   };
 
   // "Done checking in" - completes as-is, locking in any shortages. Warns first.
+  // Anything untouched counts as 0 arrived: a no-show must flag, not slip
+  // through as "not checked".
   const handleDoneCheckin = async (deliveryDay: string, supplier: SupplierSummary) => {
     const shortItems: string[] = [];
-    const notChecked: string[] = [];
     for (const item of supplier.items) {
       const t = stockTracking.get(`${deliveryDay}-${supplier.supplierId}-${item.productName}`);
-      const arrived = t?.quantityArrived;
-      if (arrived === null || arrived === undefined) notChecked.push(item.productName);
-      else if (arrived < item.quantity) shortItems.push(item.productName);
+      const arrived = t?.quantityArrived ?? 0;
+      const expected = Math.max(0, item.quantity - productRefundedQty(supplier, item.productName));
+      if (arrived < expected) shortItems.push(`${item.productName} (${arrived} of ${expected} arrived)`);
     }
 
     let msg = `Mark ${supplier.supplierName}'s check-in as complete?`;
     if (shortItems.length > 0) {
-      msg += `\n\nShort: ${shortItems.join(", ")}.\nThis will raise refund issues for the affected customers.`;
-    }
-    if (notChecked.length > 0) {
-      msg += `\n\nNot checked in yet: ${notChecked.join(", ")}.\nThese won't raise an issue - tick them in first if they arrived.`;
+      msg += `\n\nShort:\n${shortItems.map(s => `• ${s}`).join("\n")}\n\nThese will be flagged as not arrived and raise refund issues for the affected customers. If something's actually here, cancel and tick it in first.`;
+    } else {
+      msg += `\n\nEverything has arrived in full.`;
     }
     if (!confirm(msg)) return;
     await markCheckinComplete(deliveryDay, supplier.supplierId);
+  };
+
+  // Admin "flag as won't arrive" from the top stock list - e.g. a supplier
+  // texts the day before. Same flag the supplier portal creates, so it rides
+  // the same issue-queue rails.
+  const handleAdminFlag = async (deliveryDay: string, supplier: SupplierSummary, item: { productName: string; quantity: number }) => {
+    const input = prompt(
+      `How many "${item.productName}" won't arrive?\n\nOrdered: ${item.quantity}. Leave as ${item.quantity} if the whole line isn't coming.`,
+      String(item.quantity)
+    );
+    if (input === null) return;
+    const qty = parseInt(input, 10);
+    if (isNaN(qty) || qty < 1 || qty > item.quantity) {
+      alert(`Please enter a number between 1 and ${item.quantity}.`);
+      return;
+    }
+    try {
+      await createSupplierProductFlag(deliveryDay, supplier.supplierId, item.productName, "admin", qty >= item.quantity ? null : qty);
+      const flags = await getSupplierProductFlags(deliveryDay);
+      setProductFlags(prev => {
+        const next = new Map(prev);
+        for (const f of flags) next.set(`${f.deliveryDay}-${f.supplierId}-${f.productName}`, f);
+        return next;
+      });
+    } catch (error) {
+      alert(`Error: ${error instanceof Error ? error.message : "Failed to flag item"}`);
+    }
+  };
+
+  // Undo a flag (mis-click, or the supplier found some after all). Blocked once
+  // refunds have gone out against it - those aren't reversible from here.
+  const handleUnflag = async (deliveryDay: string, supplier: SupplierSummary, productName: string) => {
+    if (productRefundedQty(supplier, productName) > 0) {
+      alert("Customers have already been refunded against this flag, so it can't be removed. Use Reopen/Review if something else needs fixing.");
+      return;
+    }
+    if (!confirm(`Remove the "won't arrive" flag on ${productName}?`)) return;
+    try {
+      await removeSupplierProductFlag(deliveryDay, supplier.supplierId, productName);
+      setProductFlags(prev => {
+        const next = new Map(prev);
+        next.delete(`${deliveryDay}-${supplier.supplierId}-${productName}`);
+        return next;
+      });
+    } catch (error) {
+      alert(`Error: ${error instanceof Error ? error.message : "Failed to remove flag"}`);
+    }
   };
 
   const handleReopenCheckin = async (deliveryDay: string, supplierId: string) => {
@@ -355,102 +462,98 @@ export default function AdminStockPage() {
     });
   };
 
-  // Build issue queue for a delivery day
+  // Build issue queue for a delivery day.
+  // Before check-in is complete, only flags ("won't arrive") raise issues.
+  // Once complete, the actual count is ground truth: shortfall = ordered -
+  // arrived, with anything untouched counting as 0 arrived. Refunded
+  // quantities always count towards covering a shortfall, so handled issues
+  // drop out and only the uncovered remainder shows.
   const getIssuesForDay = useCallback((deliveryDay: string, orders: Order[], supplierSummaries: SupplierSummary[]): StockIssue[] => {
     const issues: StockIssue[] = [];
-    
+
     for (const supplier of supplierSummaries) {
       for (const item of supplier.items) {
         const trackingKey = `${deliveryDay}-${supplier.supplierId}-${item.productName}`;
         const tracking = stockTracking.get(trackingKey);
         const flag = productFlags.get(trackingKey);
 
-        // A resolved flag means this product has been dismissed/handled for the
-        // day (a dismissed shortage, or a "won't arrive" flag that's been
-        // refunded out). Skip it so it doesn't reappear as a shortage.
+        // A resolved flag = dismissed for the day. Skip so it doesn't reappear.
         if (flag && flag.resolved) continue;
 
-        // Check for supplier flag (won't arrive)
-        const isFlagged = flag && !flag.resolved;
-
-        // Check for shortage (arrived < ordered). Only count it once the
-        // supplier's check-in is marked complete - otherwise an in-progress
-        // count looks short while you're still ticking bags in.
+        const isFlagged = !!(flag && !flag.resolved);
         const supplierComplete = isSupplierComplete(deliveryDay, supplier.supplierId);
-        const hasShortage = supplierComplete &&
-                           tracking?.quantityArrived !== null &&
-                           tracking?.quantityArrived !== undefined &&
-                           tracking.quantityArrived < item.quantity;
+        const arrived = tracking?.quantityArrived ?? 0;
 
-        if (!isFlagged && !hasShortage) continue;
-        
-        // Flagged: use the quantity the supplier said they can't supply (may be
-        // partial), capped at what was ordered. Falls back to the whole line if
-        // no quantity was recorded. Shortage: ordered minus what arrived.
-        const shortfall = isFlagged
-          ? Math.min(flag?.quantityUnavailable ?? item.quantity, item.quantity)
-          : item.quantity - (tracking?.quantityArrived ?? 0);
-        
-        // Count total refunded quantity for this product across all orders
-        let totalRefundedQty = 0;
-        
-        // Find affected orders (customers who ordered this product)
-        const affectedOrders: StockIssue["affectedOrders"] = [];
-        for (const order of orders) {
-          if (order.status === "cancelled") continue;
-          for (const orderItem of order.items) {
-            if (orderItem.supplierId === supplier.supplierId && orderItem.productName === item.productName) {
-              // Check if already refunded for this product
-              const orderRefunds = refunds.get(order.id) || [];
-              const productRefunds = orderRefunds.filter(r => r.productName === item.productName);
-              const alreadyRefunded = productRefunds.length > 0;
-              
-              if (alreadyRefunded) {
-                // Sum up refunded quantities
-                totalRefundedQty += productRefunds.reduce((sum, r) => sum + r.quantityRefunded, 0);
-              } else {
-                affectedOrders.push({
-                  orderId: order.id,
-                  orderNumber: order.orderNumber,
-                  customerName: order.customerName,
-                  customerEmail: order.customerEmail,
-                  quantity: orderItem.quantity,
-                  price: orderItem.price,
-                });
-              }
-            }
-          }
+        let shortfall: number;
+        if (supplierComplete) {
+          // Counted: the real gap, whatever flags said.
+          shortfall = item.quantity - arrived;
+        } else if (isFlagged) {
+          // Not counted yet, but flagged ahead of time (supplier portal or
+          // admin). Partial quantity if recorded, whole line otherwise.
+          shortfall = Math.min(flag!.quantityUnavailable ?? item.quantity, item.quantity);
+        } else {
+          // Still checking in - low counts aren't shortages yet.
+          continue;
         }
-        
-        // Issue is handled if refunds cover the shortfall
+        if (shortfall <= 0) continue;
+
+        const { affectedOrders, totalRefundedQty } = buildAffectedOrders(orders, supplier.supplierId, item.productName);
+
+        // Issue is handled once refunds cover the shortfall
         if (totalRefundedQty >= shortfall) continue;
-        
-        // No affected orders left = all refunded, but shortfall not fully covered
-        // This shouldn't happen normally, but skip if no one left to refund
         if (affectedOrders.length === 0) continue;
-        
+
         issues.push({
           type: isFlagged ? "flagged" : "shortage",
           deliveryDay,
           supplierId: supplier.supplierId,
           supplierName: supplier.supplierName,
           productName: item.productName,
-          shortfall,
+          // Show the uncovered remainder, not the original gap.
+          shortfall: shortfall - totalRefundedQty,
           orderedQty: item.quantity,
-          arrivedQty: tracking?.quantityArrived ?? null,
+          arrivedQty: supplierComplete ? arrived : (tracking?.quantityArrived ?? null),
           affectedOrders,
         });
       }
     }
-    
+
     return issues;
-  }, [stockTracking, productFlags, refunds, isSupplierComplete]);
+  }, [stockTracking, productFlags, isSupplierComplete, buildAffectedOrders]);
 
   // Handle opening the review modal for an issue
   const openReviewModal = (issue: StockIssue) => {
     setReviewModal({
       issue,
-      selectedOrders: new Set(),
+      selectedQtys: new Map(),
+      reasonType: "didnt_arrive",
+      paidBy: "supplier",
+      notes: "",
+    });
+    setRefundError(null);
+  };
+
+  // "Missing" straight from a customer's bag row: same review modal, scoped to
+  // this product with that customer pre-selected at their remaining quantity.
+  const openMissingModal = (deliveryDay: string, supplier: SupplierSummary, orders: Order[], orderId: string, productName: string, remainingQty: number) => {
+    const { affectedOrders } = buildAffectedOrders(orders, supplier.supplierId, productName);
+    if (affectedOrders.length === 0) return;
+    const tracking = stockTracking.get(`${deliveryDay}-${supplier.supplierId}-${productName}`);
+    const ordered = supplier.items.find(i => i.productName === productName)?.quantity ?? remainingQty;
+    setReviewModal({
+      issue: {
+        type: "shortage",
+        deliveryDay,
+        supplierId: supplier.supplierId,
+        supplierName: supplier.supplierName,
+        productName,
+        shortfall: remainingQty,
+        orderedQty: ordered,
+        arrivedQty: tracking?.quantityArrived ?? null,
+        affectedOrders,
+      },
+      selectedQtys: new Map([[orderId, remainingQty]]),
       reasonType: "didnt_arrive",
       paidBy: "supplier",
       notes: "",
@@ -460,28 +563,29 @@ export default function AdminStockPage() {
 
   // Handle refunding selected orders
   const handleRefundSelected = async () => {
-    if (!reviewModal || reviewModal.selectedOrders.size === 0) return;
-    
+    if (!reviewModal || reviewModal.selectedQtys.size === 0) return;
+
     setRefundLoading(true);
     setRefundError(null);
-    
-    const { issue, selectedOrders, reasonType, paidBy, notes } = reviewModal;
+
+    const { issue, selectedQtys, reasonType, paidBy, notes } = reviewModal;
     const reasonConfig = refundReasonConfig[reasonType];
-    
+
     try {
-      for (const orderId of selectedOrders) {
+      for (const [orderId, qty] of selectedQtys) {
         const orderInfo = issue.affectedOrders.find(o => o.orderId === orderId);
         if (!orderInfo) continue;
-        
-        const refundAmount = orderInfo.quantity * orderInfo.price;
-        
+
+        const quantity = Math.min(qty, orderInfo.quantity);
+        const refundAmount = quantity * orderInfo.price;
+
         const response = await fetch("/api/refund-order-item", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             orderId,
             productName: issue.productName,
-            quantity: orderInfo.quantity,
+            quantity,
             refundAmount,
             reasonType,
             refundReason: notes || null,
@@ -490,24 +594,24 @@ export default function AdminStockPage() {
             supplierId: issue.supplierId,
           }),
         });
-        
+
         if (!response.ok) {
           const data = await response.json();
           throw new Error(data.error || "Failed to process refund");
         }
       }
-      
-      // If flagged issue and all affected orders refunded, resolve the flag
-      if (issue.type === "flagged" && selectedOrders.size === issue.affectedOrders.length) {
-        await resolveSupplierProductFlag(issue.deliveryDay, issue.supplierId, issue.productName);
-      }
-      
+
+      // Flags are NOT auto-resolved here: the queue clears via the refunded
+      // quantities, the row shows "handled", and if check-in later reveals the
+      // line even shorter than flagged, the remainder still surfaces.
+      // (Resolved is reserved for explicit dismissals.)
+
       // Reload data to reflect changes
       const deliveryDays = [...new Set(orderList.map(o => o.deliveryDay).filter(Boolean))];
       await loadTrackingData(deliveryDays);
-      
+
       setReviewModal(null);
-      alert(`✅ Refunded ${selectedOrders.size} order${selectedOrders.size !== 1 ? "s" : ""}`);
+      alert(`✅ Refunded ${selectedQtys.size} order${selectedQtys.size !== 1 ? "s" : ""}`);
     } catch (error) {
       setRefundError(error instanceof Error ? error.message : "Failed to process refunds");
     } finally {
@@ -572,31 +676,40 @@ export default function AdminStockPage() {
 
   // Calculate stock and bags pills for a supplier
   const getSupplierPills = (deliveryDay: string, supplier: SupplierSummary) => {
-    // Stock: X/Y where Y = distinct products, X = products with quantityArrived >= quantityOrdered
+    // Stock: X/Y where Y = distinct products, X = products where arrived covers
+    // what's still expected (ordered minus not-coming refunds)
     const distinctProducts = supplier.items.length;
     let arrivedProducts = 0;
     let hasAnyArrival = false;
     for (const item of supplier.items) {
       const tracking = stockTracking.get(`${deliveryDay}-${supplier.supplierId}-${item.productName}`);
+      const expected = Math.max(0, item.quantity - productRefundedQty(supplier, item.productName));
       if (tracking?.quantityArrived !== null && tracking?.quantityArrived !== undefined) {
         hasAnyArrival = true;
-        if (tracking.quantityArrived >= item.quantity) {
+        if (tracking.quantityArrived >= expected) {
           arrivedProducts++;
         }
+      } else if (expected === 0) {
+        // Whole line refunded out - nothing left to count for it.
+        arrivedProducts++;
       }
     }
-    
-    // Bags: X/Y where Y = total order-line-items, X = checked in
-    const totalBagItems = supplier.orders.reduce((sum, o) => sum + o.items.length, 0);
+
+    // Bags: X/Y where Y = order-line-items still expected (fully-refunded lines
+    // drop out - they can't be ticked), X = checked in
+    let totalBagItems = 0;
     let checkedInBagItems = 0;
     for (const orderEntry of supplier.orders) {
       for (const item of orderEntry.items) {
+        const remaining = item.quantity - notArrivedRefundedQty(orderEntry.orderId, supplier.supplierId, item.productName);
+        if (remaining <= 0) continue;
+        totalBagItems++;
         if (isOrderItemCheckedIn(orderEntry.orderId, supplier.supplierId, item.productName)) {
           checkedInBagItems++;
         }
       }
     }
-    
+
     return {
       stock: { arrived: arrivedProducts, total: distinctProducts, hasAnyArrival },
       bags: { checkedIn: checkedInBagItems, total: totalBagItems },
@@ -710,6 +823,84 @@ export default function AdminStockPage() {
                   );
                 })()}
 
+                {/* REFUNDS THIS WEEK */}
+                {(() => {
+                  const dayRefunds = orders.flatMap(o => (refunds.get(o.id) || []).map(r => ({ refund: r, order: o })));
+                  if (dayRefunds.length === 0) return null;
+                  const totalRefunds = dayRefunds.reduce((sum, { refund }) => sum + refund.refundAmount, 0);
+                  const isRefundsOpen = expandedRefunds.has(deliveryDay);
+
+                  // Group by supplier (falling back to the order line's supplier name)
+                  const bySupplier = new Map<string, { supplierName: string; rows: typeof dayRefunds; total: number }>();
+                  for (const entry of dayRefunds) {
+                    const supplierId = entry.refund.supplierId || "unknown";
+                    if (!bySupplier.has(supplierId)) {
+                      const name = supplierSummaries.find(s => s.supplierId === supplierId)?.supplierName
+                        ?? entry.order.items.find(i => i.supplierId === supplierId)?.supplierName
+                        ?? "Unknown supplier";
+                      bySupplier.set(supplierId, { supplierName: name, rows: [], total: 0 });
+                    }
+                    const group = bySupplier.get(supplierId)!;
+                    group.rows.push(entry);
+                    group.total += entry.refund.refundAmount;
+                  }
+                  const groups = Array.from(bySupplier.values()).sort((a, b) => a.supplierName.localeCompare(b.supplierName));
+                  const paidByLabel = (p: RefundPaidBy) => p === "supplier" ? "Supplier pays" : p === "50-50" ? "50-50" : "Local pays";
+
+                  return (
+                    <div className="rounded-xl bg-surface shadow-sm overflow-hidden">
+                      <button
+                        onClick={() => setExpandedRefunds(prev => {
+                          const next = new Set(prev);
+                          if (next.has(deliveryDay)) next.delete(deliveryDay);
+                          else next.add(deliveryDay);
+                          return next;
+                        })}
+                        className="flex w-full items-center justify-between px-3 sm:px-6 py-3 sm:py-4 text-left hover:bg-primary/5 transition"
+                      >
+                        <div className="flex items-center gap-2">
+                          {isRefundsOpen ? <ChevronDown size={16} className="text-muted" /> : <ChevronRight size={16} className="text-muted" />}
+                          <PoundSterling size={18} className="text-red-500" />
+                          <h3 className="font-bold text-primary">Refunds</h3>
+                          <span className="text-xs text-muted">({dayRefunds.length})</span>
+                        </div>
+                        <span className="font-semibold text-red-600">£{totalRefunds.toFixed(2)}</span>
+                      </button>
+                      {isRefundsOpen && (
+                        <div className="divide-y divide-primary/5 border-t border-primary/5">
+                          {groups.map((group) => (
+                            <div key={group.supplierName}>
+                              <div className="px-3 sm:px-6 py-2 bg-primary/5 flex items-center justify-between">
+                                <span className="text-sm font-semibold text-primary">{group.supplierName}</span>
+                                <span className="text-sm font-semibold text-red-600">£{group.total.toFixed(2)}</span>
+                              </div>
+                              {group.rows.map(({ refund, order }) => (
+                                <div key={refund.id} className="px-3 sm:px-6 py-2 flex items-start justify-between gap-3 text-sm">
+                                  <div className="min-w-0">
+                                    <p className="text-primary">
+                                      {refund.productName}
+                                      <span className="text-muted"> × {refund.quantityRefunded}</span>
+                                    </p>
+                                    <p className="text-xs text-muted">
+                                      #{order.orderNumber} · {order.customerName || order.customerEmail?.split("@")[0] || "Customer"}
+                                      {" · "}{refundReasonConfig[refund.reasonType]?.label || refund.reasonType}
+                                      {refund.refundReason && <span> - {refund.refundReason}</span>}
+                                    </p>
+                                  </div>
+                                  <div className="flex-shrink-0 text-right">
+                                    <p className="font-medium text-red-600">£{refund.refundAmount.toFixed(2)}</p>
+                                    <p className={`text-[10px] font-semibold ${refund.paidBy === "local" ? "text-muted" : "text-amber-700"}`}>{paidByLabel(refund.paidBy)}</p>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+
                 {/* SUPPLIERS SECTION */}
                 <div className="rounded-xl bg-surface shadow-sm overflow-hidden">
                   <div className="flex items-center justify-between border-b border-primary/5 px-3 sm:px-6 py-3 sm:py-4">
@@ -795,7 +986,7 @@ export default function AdminStockPage() {
                                     ) : (
                                       <>
                                         <button
-                                          onClick={() => handleMarkAllArrived(deliveryDay, supplier.supplierId, supplier.items)}
+                                          onClick={() => handleMarkAllArrived(deliveryDay, supplier)}
                                           className="rounded border border-primary/10 px-3 py-2 sm:border-0 sm:px-0 sm:py-0 text-xs font-medium text-secondary hover:text-secondary/80 transition"
                                         >
                                           Mark all arrived
@@ -816,31 +1007,41 @@ export default function AdminStockPage() {
                                     const trackingKey = `${deliveryDay}-${supplier.supplierId}-${item.productName}`;
                                     const tracking = stockTracking.get(trackingKey);
                                     const flag = productFlags.get(trackingKey);
-                                    const isFlagged = flag && !flag.resolved;
-                                    const arrived = tracking?.quantityArrived;
+                                    const isFlagged = !!(flag && !flag.resolved);
+                                    const arrived = tracking?.quantityArrived ?? 0;
                                     const hasOverride = tracking?.quantityArrivedOverride !== null && tracking?.quantityArrivedOverride !== undefined;
                                     const computedDiffers = hasOverride && tracking?.quantityArrivedComputed !== tracking?.quantityArrivedOverride;
                                     const supplierComplete = isSupplierComplete(deliveryDay, supplier.supplierId);
-                                    const isUnder = arrived !== null && arrived !== undefined && arrived < item.quantity;
-                                    const hasShortage = isUnder && supplierComplete;
-                                    const inProgress = isUnder && !supplierComplete;
-                                    const isComplete = arrived !== null && arrived !== undefined && arrived >= item.quantity && !isFlagged;
+                                    const refunded = productRefundedQty(supplier, item.productName);
+                                    const expected = Math.max(0, item.quantity - refunded);
+                                    const flagQty = isFlagged ? Math.min(flag!.quantityUnavailable ?? item.quantity, item.quantity) : 0;
+                                    const flagCovered = isFlagged && refunded >= flagQty;
+                                    const flagOpen = isFlagged && !flagCovered;
+                                    const hasShortage = supplierComplete && arrived < expected;
+                                    const isComplete = supplierComplete && arrived >= expected;
+                                    const affectsList = supplier.orders
+                                      .filter(o => o.items.some(i => i.productName === item.productName))
+                                      .map(o => o.boxNumber != null ? `Box ${o.boxNumber}` : `#${o.orderNumber}`)
+                                      .join(", ");
 
                                     return (
-                                      <div key={`${item.productName}|${item.unit}`} className={`rounded-xl border border-primary/10 bg-surface p-3 shadow-sm ${isFlagged ? 'bg-red-50' : isComplete ? 'bg-green-50' : hasShortage ? 'bg-amber-50' : item.refrigerated ? chilledRowClass : ''}`}>
+                                      <div key={`${item.productName}|${item.unit}`} className={`rounded-xl border border-primary/10 bg-surface p-3 shadow-sm ${flagOpen ? 'bg-red-50' : isComplete ? 'bg-green-50' : hasShortage ? 'bg-amber-50' : item.refrigerated ? chilledRowClass : ''}`}>
                                         <div className="flex items-center gap-2 flex-wrap">
                                           <span className="font-bold text-primary">{item.productName}</span>
                                           {item.refrigerated && <ChilledTag />}
-                                          {isFlagged && (
+                                          {flagOpen && (
                                             <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-bold text-red-700 uppercase">
-                                              Won&apos;t arrive
+                                              {flagQty >= item.quantity ? "Won't arrive" : `${flagQty} of ${item.quantity} won't arrive`}
                                             </span>
                                           )}
                                         </div>
                                         {item.unit && <span className="block text-xs text-muted">{item.unit}</span>}
                                         <div className="mt-2 flex items-center justify-between text-sm">
                                           <span className="text-muted">Ordered</span>
-                                          <span className="font-semibold text-primary">{item.quantity}</span>
+                                          <span className="font-semibold text-primary">
+                                            {item.quantity}
+                                            {refunded > 0 && <span className="ml-1 text-xs font-normal text-muted">({refunded} refunded, expect {expected})</span>}
+                                          </span>
                                         </div>
                                         <div className="mt-2 flex items-center justify-between text-sm">
                                           <span className="text-muted">Arrived</span>
@@ -849,60 +1050,72 @@ export default function AdminStockPage() {
                                               type="number"
                                               min="0"
                                               max={item.quantity * 2}
-                                              value={arrived ?? ""}
-                                              placeholder="—"
-                                              disabled={isFlagged}
+                                              value={arrived}
+                                              disabled={flagOpen}
                                               onChange={(e) => {
                                                 const val = e.target.value === "" ? null : parseInt(e.target.value);
                                                 handleArrivalUpdate(deliveryDay, supplier.supplierId, item.productName, item.quantity, val, tracking?.arrivalNotes ?? null);
                                               }}
-                                              className={`w-20 min-h-[44px] rounded border border-primary/20 px-2 py-1 text-center text-sm focus:border-secondary focus:outline-none ${isFlagged ? 'bg-gray-100 text-gray-400' : ''}`}
+                                              className={`w-20 min-h-[44px] rounded border border-primary/20 px-2 py-1 text-center text-sm focus:border-secondary focus:outline-none ${flagOpen ? 'bg-gray-100 text-gray-400' : ''}`}
                                             />
                                             {computedDiffers && (
                                               <span className="text-[10px] text-amber-600" title={`Computed from check-ins: ${tracking?.quantityArrivedComputed}`}>(override)</span>
                                             )}
                                           </div>
                                         </div>
-                                        <div className="mt-2 text-sm">
-                                          {isFlagged ? (
+                                        <div className="mt-2 flex items-center justify-between gap-2 text-sm">
+                                          <div className="min-w-0">
+                                          {flagOpen ? (
                                             <div>
                                               <span className="inline-flex items-center gap-1 text-xs font-semibold text-red-700">
                                                 <XCircle size={12} />
-                                                Flagged by supplier
+                                                Flagged by {flag!.flaggedBy === "admin" ? "you" : "supplier"}
                                               </span>
-                                              <p className="text-[10px] text-red-600 mt-0.5">
-                                                Affects: {supplier.orders
-                                                  .filter(o => o.items.some(i => i.productName === item.productName))
-                                                  .map(o => o.boxNumber != null ? `Box ${o.boxNumber}` : `#${o.orderNumber}`)
-                                                  .join(", ")}
-                                              </p>
+                                              <p className="text-[10px] text-red-600 mt-0.5">Affects: {affectsList}</p>
                                             </div>
-                                          ) : arrived === null || arrived === undefined ? (
-                                            <span className="text-xs text-muted">Not checked</span>
-                                          ) : inProgress ? (
+                                          ) : flagCovered && !supplierComplete ? (
+                                            <span className="inline-flex items-center gap-1 text-xs font-semibold text-green-700">
+                                              <CheckCircle size={12} />
+                                              Flag handled ({refunded} refunded) · checking in ({arrived}/{expected})
+                                            </span>
+                                          ) : !supplierComplete ? (
                                             <span className="inline-flex items-center gap-1 text-xs font-medium text-muted">
                                               <Clock size={12} />
-                                              Checking in ({arrived}/{item.quantity})
+                                              Checking in ({arrived}/{expected})
+                                              {refunded > 0 && <span className="text-muted">· {refunded} refunded</span>}
                                             </span>
                                           ) : hasShortage ? (
                                             <div>
                                               <span className="inline-flex items-center gap-1 text-xs font-semibold text-amber-700">
                                                 <AlertTriangle size={12} />
-                                                Short by {item.quantity - arrived}
+                                                Short by {expected - arrived}
                                               </span>
-                                              <p className="text-[10px] text-amber-600 mt-0.5">
-                                                Affects: {supplier.orders
-                                                  .filter(o => o.items.some(i => i.productName === item.productName))
-                                                  .map(o => o.boxNumber != null ? `Box ${o.boxNumber}` : `#${o.orderNumber}`)
-                                                  .join(", ")}
-                                              </p>
+                                              <p className="text-[10px] text-amber-600 mt-0.5">Affects: {affectsList}</p>
                                             </div>
                                           ) : (
                                             <span className="inline-flex items-center gap-1 text-xs font-semibold text-green-700">
                                               <CheckCircle size={12} />
-                                              Complete
+                                              Complete{refunded > 0 && <span className="font-normal text-muted"> · {refunded} refunded</span>}
                                             </span>
                                           )}
+                                          </div>
+                                          {flagOpen ? (
+                                            <button
+                                              onClick={() => handleUnflag(deliveryDay, supplier, item.productName)}
+                                              className="flex-shrink-0 rounded border border-red-200 px-2 py-1 text-[10px] font-medium text-red-600 hover:bg-red-50 transition"
+                                            >
+                                              Unflag
+                                            </button>
+                                          ) : !isFlagged && !supplierComplete ? (
+                                            <button
+                                              onClick={() => handleAdminFlag(deliveryDay, supplier, item)}
+                                              title="Flag as won't arrive"
+                                              className="flex-shrink-0 inline-flex items-center gap-1 rounded border border-primary/10 px-2 py-1 text-[10px] font-medium text-muted hover:text-red-600 hover:border-red-200 transition"
+                                            >
+                                              <Flag size={11} />
+                                              Flag
+                                            </button>
+                                          ) : null}
                                         </div>
                                       </div>
                                     );
@@ -922,46 +1135,55 @@ export default function AdminStockPage() {
                                       const trackingKey = `${deliveryDay}-${supplier.supplierId}-${item.productName}`;
                                       const tracking = stockTracking.get(trackingKey);
                                       const flag = productFlags.get(trackingKey);
-                                      const isFlagged = flag && !flag.resolved;
-                                      const arrived = tracking?.quantityArrived;
+                                      const isFlagged = !!(flag && !flag.resolved);
+                                      const arrived = tracking?.quantityArrived ?? 0;
                                       const hasOverride = tracking?.quantityArrivedOverride !== null && tracking?.quantityArrivedOverride !== undefined;
                                       const computedDiffers = hasOverride && tracking?.quantityArrivedComputed !== tracking?.quantityArrivedOverride;
                                       const supplierComplete = isSupplierComplete(deliveryDay, supplier.supplierId);
-                                      const isUnder = arrived !== null && arrived !== undefined && arrived < item.quantity;
+                                      const refunded = productRefundedQty(supplier, item.productName);
+                                      const expected = Math.max(0, item.quantity - refunded);
+                                      const flagQty = isFlagged ? Math.min(flag!.quantityUnavailable ?? item.quantity, item.quantity) : 0;
+                                      const flagCovered = isFlagged && refunded >= flagQty;
+                                      const flagOpen = isFlagged && !flagCovered;
                                       // Only a genuine shortage once check-in is marked complete.
-                                      const hasShortage = isUnder && supplierComplete;
-                                      const inProgress = isUnder && !supplierComplete;
-                                      const isComplete = arrived !== null && arrived !== undefined && arrived >= item.quantity && !isFlagged;
+                                      const hasShortage = supplierComplete && arrived < expected;
+                                      const isComplete = supplierComplete && arrived >= expected;
+                                      const affectsList = supplier.orders
+                                        .filter(o => o.items.some(i => i.productName === item.productName))
+                                        .map(o => o.boxNumber != null ? `Box ${o.boxNumber}` : `#${o.orderNumber}`)
+                                        .join(", ");
 
                                       return (
-                                        <tr key={`${item.productName}|${item.unit}`} className={`border-t border-primary/5 ${isFlagged ? 'bg-red-50' : isComplete ? 'bg-green-50' : hasShortage ? 'bg-amber-50' : item.refrigerated ? chilledRowClass : ''}`}>
+                                        <tr key={`${item.productName}|${item.unit}`} className={`border-t border-primary/5 ${flagOpen ? 'bg-red-50' : isComplete ? 'bg-green-50' : hasShortage ? 'bg-amber-50' : item.refrigerated ? chilledRowClass : ''}`}>
                                           <td className="px-3 py-2">
                                             <div className="flex items-center gap-2">
                                               <span className="text-primary">{item.productName}</span>
                                               {item.refrigerated && <ChilledTag />}
-                                              {isFlagged && (
+                                              {flagOpen && (
                                                 <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-bold text-red-700 uppercase">
-                                                  Won&apos;t arrive
+                                                  {flagQty >= item.quantity ? "Won't arrive" : `${flagQty} of ${item.quantity} won't arrive`}
                                                 </span>
                                               )}
                                             </div>
                                             {item.unit && <span className="block text-xs text-muted">{item.unit}</span>}
                                           </td>
-                                          <td className="px-3 py-2 text-center font-semibold text-primary">{item.quantity}</td>
+                                          <td className="px-3 py-2 text-center font-semibold text-primary">
+                                            {item.quantity}
+                                            {refunded > 0 && <span className="block text-[10px] font-normal text-muted">{refunded} refunded · expect {expected}</span>}
+                                          </td>
                                           <td className="px-3 py-2 text-center">
                                             <div className="flex items-center justify-center gap-1">
                                               <input
                                                 type="number"
                                                 min="0"
                                                 max={item.quantity * 2}
-                                                value={arrived ?? ""}
-                                                placeholder="—"
-                                                disabled={isFlagged}
+                                                value={arrived}
+                                                disabled={flagOpen}
                                                 onChange={(e) => {
                                                   const val = e.target.value === "" ? null : parseInt(e.target.value);
                                                   handleArrivalUpdate(deliveryDay, supplier.supplierId, item.productName, item.quantity, val, tracking?.arrivalNotes ?? null);
                                                 }}
-                                                className={`w-16 rounded border border-primary/20 px-2 py-1 text-center text-sm focus:border-secondary focus:outline-none ${isFlagged ? 'bg-gray-100 text-gray-400' : ''}`}
+                                                className={`w-16 rounded border border-primary/20 px-2 py-1 text-center text-sm focus:border-secondary focus:outline-none ${flagOpen ? 'bg-gray-100 text-gray-400' : ''}`}
                                               />
                                               {computedDiffers && (
                                                 <span className="text-[10px] text-amber-600" title={`Computed from check-ins: ${tracking?.quantityArrivedComputed}`}>(override)</span>
@@ -969,45 +1191,60 @@ export default function AdminStockPage() {
                                             </div>
                                           </td>
                                           <td className="px-3 py-2">
-                                            {isFlagged ? (
-                                              <div>
-                                                <span className="inline-flex items-center gap-1 text-xs font-semibold text-red-700">
-                                                  <XCircle size={12} />
-                                                  Flagged by supplier
+                                            <div className="flex items-center justify-between gap-2">
+                                              <div className="min-w-0">
+                                              {flagOpen ? (
+                                                <div>
+                                                  <span className="inline-flex items-center gap-1 text-xs font-semibold text-red-700">
+                                                    <XCircle size={12} />
+                                                    Flagged by {flag!.flaggedBy === "admin" ? "you" : "supplier"}
+                                                  </span>
+                                                  <p className="text-[10px] text-red-600 mt-0.5">Affects: {affectsList}</p>
+                                                </div>
+                                              ) : flagCovered && !supplierComplete ? (
+                                                <span className="inline-flex items-center gap-1 text-xs font-semibold text-green-700">
+                                                  <CheckCircle size={12} />
+                                                  Flag handled ({refunded} refunded) · checking in ({arrived}/{expected})
                                                 </span>
-                                                <p className="text-[10px] text-red-600 mt-0.5">
-                                                  Affects: {supplier.orders
-                                                    .filter(o => o.items.some(i => i.productName === item.productName))
-                                                    .map(o => o.boxNumber != null ? `Box ${o.boxNumber}` : `#${o.orderNumber}`)
-                                                    .join(", ")}
-                                                </p>
-                                              </div>
-                                            ) : arrived === null || arrived === undefined ? (
-                                              <span className="text-xs text-muted">Not checked</span>
-                                            ) : inProgress ? (
-                                              <span className="inline-flex items-center gap-1 text-xs font-medium text-muted">
-                                                <Clock size={12} />
-                                                Checking in ({arrived}/{item.quantity})
-                                              </span>
-                                            ) : hasShortage ? (
-                                              <div>
-                                                <span className="inline-flex items-center gap-1 text-xs font-semibold text-amber-700">
-                                                  <AlertTriangle size={12} />
-                                                  Short by {item.quantity - arrived}
+                                              ) : !supplierComplete ? (
+                                                <span className="inline-flex items-center gap-1 text-xs font-medium text-muted">
+                                                  <Clock size={12} />
+                                                  Checking in ({arrived}/{expected})
+                                                  {refunded > 0 && <span>· {refunded} refunded</span>}
                                                 </span>
-                                                <p className="text-[10px] text-amber-600 mt-0.5">
-                                                  Affects: {supplier.orders
-                                                    .filter(o => o.items.some(i => i.productName === item.productName))
-                                                    .map(o => o.boxNumber != null ? `Box ${o.boxNumber}` : `#${o.orderNumber}`)
-                                                    .join(", ")}
-                                                </p>
+                                              ) : hasShortage ? (
+                                                <div>
+                                                  <span className="inline-flex items-center gap-1 text-xs font-semibold text-amber-700">
+                                                    <AlertTriangle size={12} />
+                                                    Short by {expected - arrived}
+                                                  </span>
+                                                  <p className="text-[10px] text-amber-600 mt-0.5">Affects: {affectsList}</p>
+                                                </div>
+                                              ) : (
+                                                <span className="inline-flex items-center gap-1 text-xs font-semibold text-green-700">
+                                                  <CheckCircle size={12} />
+                                                  Complete{refunded > 0 && <span className="font-normal text-muted"> · {refunded} refunded</span>}
+                                                </span>
+                                              )}
                                               </div>
-                                            ) : (
-                                              <span className="inline-flex items-center gap-1 text-xs font-semibold text-green-700">
-                                                <CheckCircle size={12} />
-                                                Complete
-                                              </span>
-                                            )}
+                                              {flagOpen ? (
+                                                <button
+                                                  onClick={() => handleUnflag(deliveryDay, supplier, item.productName)}
+                                                  className="flex-shrink-0 rounded border border-red-200 px-2 py-0.5 text-[10px] font-medium text-red-600 hover:bg-red-50 transition"
+                                                >
+                                                  Unflag
+                                                </button>
+                                              ) : !isFlagged && !supplierComplete ? (
+                                                <button
+                                                  onClick={() => handleAdminFlag(deliveryDay, supplier, item)}
+                                                  title="Flag as won't arrive (e.g. supplier told you separately)"
+                                                  className="flex-shrink-0 inline-flex items-center gap-1 rounded border border-primary/10 px-2 py-0.5 text-[10px] font-medium text-muted hover:text-red-600 hover:border-red-200 transition"
+                                                >
+                                                  <Flag size={11} />
+                                                  Flag
+                                                </button>
+                                              ) : null}
+                                            </div>
                                           </td>
                                         </tr>
                                       );
@@ -1017,16 +1254,26 @@ export default function AdminStockPage() {
                               </div>
 
                               {/* ORDER CHECK-IN */}
-                              <div className={`rounded-lg border ${supplier.orders.every(o => o.items.every(item => isOrderItemCheckedIn(o.orderId, supplier.supplierId, item.productName))) ? 'border-green-300 bg-green-50' : 'border-primary/10 bg-surface'} overflow-hidden`}>
+                              {(() => {
+                                // "Packable" = still expected in the crate: line quantity minus
+                                // any not-coming refunds. Fully-refunded lines grey out.
+                                const itemRemaining = (orderEntry: SupplierOrderItems, item: { productName: string; quantity: number }) =>
+                                  item.quantity - notArrivedRefundedQty(orderEntry.orderId, supplier.supplierId, item.productName);
+                                const allBagsChecked = supplier.orders.every(o => o.items.every(item =>
+                                  itemRemaining(o, item) <= 0 || isOrderItemCheckedIn(o.orderId, supplier.supplierId, item.productName)
+                                ));
+                                return (
+                              <div className={`rounded-lg border ${allBagsChecked ? 'border-green-300 bg-green-50' : 'border-primary/10 bg-surface'} overflow-hidden`}>
                                 <div className="px-3 py-2 border-b border-primary/10 flex items-center justify-between">
                                   <span className="text-xs font-semibold text-muted uppercase">Order Check-in (per-customer bags)</span>
-                                  {supplier.orders.every(o => o.items.every(item => isOrderItemCheckedIn(o.orderId, supplier.supplierId, item.productName))) && (
+                                  {allBagsChecked && (
                                     <span className="text-xs font-semibold text-green-600">✓ Complete</span>
                                   )}
                                 </div>
                                 <div className="divide-y divide-primary/5">
                                   {supplier.orders.map((orderEntry) => {
-                                    const allItemsChecked = orderEntry.items.every(item => 
+                                    const allItemsChecked = orderEntry.items.every(item =>
+                                      itemRemaining(orderEntry, item) <= 0 ||
                                       isOrderItemCheckedIn(orderEntry.orderId, supplier.supplierId, item.productName)
                                     );
                                     return (
@@ -1041,19 +1288,45 @@ export default function AdminStockPage() {
                                         <div className="px-3 pb-2 space-y-1">
                                           {orderEntry.items.map((item, i) => {
                                             const isItemChecked = isOrderItemCheckedIn(orderEntry.orderId, supplier.supplierId, item.productName);
+                                            const refundedQty = notArrivedRefundedQty(orderEntry.orderId, supplier.supplierId, item.productName);
+                                            const remaining = item.quantity - refundedQty;
+                                            if (remaining <= 0) {
+                                              return (
+                                                <div key={i} className="flex items-center gap-2 pl-2 opacity-60">
+                                                  <XCircle size={18} className="text-red-300 flex-shrink-0" />
+                                                  <span className="text-sm text-red-400 line-through">
+                                                    {formatItemLine(item.productName, item.unit, item.quantity)}
+                                                  </span>
+                                                  <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-bold text-red-600">Refunded</span>
+                                                </div>
+                                              );
+                                            }
                                             return (
-                                              <label key={i} className="flex items-center gap-2 cursor-pointer pl-2">
-                                                <input
-                                                  type="checkbox"
-                                                  checked={isItemChecked}
-                                                  onChange={() => handleOrderCheckIn(deliveryDay, supplier.supplierId, orderEntry.orderId, item.productName, item.quantity)}
-                                                  className="h-5 w-5 rounded border-primary/30 text-green-600 focus:ring-green-500"
-                                                />
-                                                <span className={`text-sm ${isItemChecked ? 'text-green-600 line-through' : 'text-muted'}`}>
-                                                  {formatItemLine(item.productName, item.unit, item.quantity)}
-                                                </span>
-                                                {item.refrigerated && <ChilledTag />}
-                                              </label>
+                                              <div key={i} className="flex items-center gap-2 pl-2">
+                                                <label className="flex flex-1 items-center gap-2 cursor-pointer min-w-0">
+                                                  <input
+                                                    type="checkbox"
+                                                    checked={isItemChecked}
+                                                    onChange={() => handleOrderCheckIn(deliveryDay, supplier.supplierId, orderEntry.orderId, item.productName, remaining)}
+                                                    className="h-5 w-5 rounded border-primary/30 text-green-600 focus:ring-green-500"
+                                                  />
+                                                  <span className={`text-sm ${isItemChecked ? 'text-green-600 line-through' : 'text-muted'}`}>
+                                                    {formatItemLine(item.productName, item.unit, remaining)}
+                                                    {refundedQty > 0 && <span className="ml-1 text-xs text-red-500">({refundedQty} refunded)</span>}
+                                                  </span>
+                                                  {item.refrigerated && <ChilledTag />}
+                                                </label>
+                                                {!isItemChecked && (
+                                                  <button
+                                                    onClick={() => openMissingModal(deliveryDay, supplier, orders, orderEntry.orderId, item.productName, remaining)}
+                                                    title="Not in the crate - flag for refund"
+                                                    className="flex-shrink-0 inline-flex items-center gap-1 rounded border border-primary/10 px-2 py-0.5 text-[10px] font-medium text-muted hover:text-red-600 hover:border-red-200 transition"
+                                                  >
+                                                    <XCircle size={11} />
+                                                    Missing
+                                                  </button>
+                                                )}
+                                              </div>
                                             );
                                           })}
                                         </div>
@@ -1062,6 +1335,8 @@ export default function AdminStockPage() {
                                   })}
                                 </div>
                               </div>
+                                );
+                              })()}
                             </div>
                           )}
                         </div>
@@ -1150,13 +1425,13 @@ export default function AdminStockPage() {
                         {supplier.tracking.map((item) => {
                           const arrived = item.arrived ?? 0;
                           const value = arrived * item.price;
-                          const isShort = item.arrived !== null && arrived < item.ordered;
+                          const isShort = arrived < item.ordered;
                           return (
                             <div key={item.productName} className={`rounded-xl border border-primary/10 bg-surface p-3 shadow-sm ${isShort ? 'bg-amber-50' : ''}`}>
                               <p className="font-bold text-primary">{item.productName}</p>
                               <div className="mt-2 space-y-1 text-sm">
                                 <div className="flex justify-between"><span className="text-muted">Ordered</span><span className="text-primary">{item.ordered}</span></div>
-                                <div className="flex justify-between"><span className="text-muted">Arrived</span><span className={`font-medium ${isShort ? 'text-amber-600' : 'text-green-600'}`}>{item.arrived ?? '—'}</span></div>
+                                <div className="flex justify-between"><span className="text-muted">Arrived</span><span className={`font-medium ${isShort ? 'text-amber-600' : 'text-green-600'}`}>{item.arrived ?? 0}</span></div>
                                 <div className="flex justify-between"><span className="text-muted">Unit Price</span><span className="text-muted">£{item.price.toFixed(2)}</span></div>
                                 <div className="flex justify-between"><span className="text-muted">Value</span><span className="font-medium text-primary">£{value.toFixed(2)}</span></div>
                               </div>
@@ -1189,13 +1464,13 @@ export default function AdminStockPage() {
                           {supplier.tracking.map((item) => {
                             const arrived = item.arrived ?? 0;
                             const value = arrived * item.price;
-                            const isShort = item.arrived !== null && arrived < item.ordered;
+                            const isShort = arrived < item.ordered;
                             return (
                               <tr key={item.productName} className={`border-t border-primary/5 ${isShort ? 'bg-amber-50' : ''}`}>
                                 <td className="px-4 py-2 text-primary">{item.productName}</td>
                                 <td className="px-4 py-2 text-center">{item.ordered}</td>
                                 <td className={`px-4 py-2 text-center font-medium ${isShort ? 'text-amber-600' : 'text-green-600'}`}>
-                                  {item.arrived ?? '—'}
+                                  {item.arrived ?? 0}
                                 </td>
                                 <td className="px-4 py-2 text-right text-muted">£{item.price.toFixed(2)}</td>
                                 <td className="px-4 py-2 text-right font-medium text-primary">£{value.toFixed(2)}</td>
@@ -1339,7 +1614,7 @@ export default function AdminStockPage() {
                             supplier.supplierName,
                             item.productName,
                             item.ordered.toString(),
-                            (item.arrived ?? "—").toString(),
+                            (item.arrived ?? 0).toString(),
                             `£${item.price.toFixed(2)}`,
                             `£${value.toFixed(2)}`,
                             "", "", "", "", ""
@@ -1434,13 +1709,13 @@ export default function AdminStockPage() {
               <div>
                 <div className="flex items-center justify-between mb-2">
                   <label className="text-sm font-medium text-primary">
-                    Select customers to refund ({reviewModal.selectedOrders.size} of {reviewModal.issue.affectedOrders.length})
+                    Select customers to refund ({reviewModal.selectedQtys.size} of {reviewModal.issue.affectedOrders.length})
                   </label>
                   <div className="flex gap-2">
                     <button
                       onClick={() => setReviewModal(prev => prev ? {
                         ...prev,
-                        selectedOrders: new Set(prev.issue.affectedOrders.map(o => o.orderId))
+                        selectedQtys: new Map(prev.issue.affectedOrders.map(o => [o.orderId, o.quantity]))
                       } : null)}
                       className="text-xs text-secondary hover:underline"
                     >
@@ -1449,7 +1724,7 @@ export default function AdminStockPage() {
                     <button
                       onClick={() => setReviewModal(prev => prev ? {
                         ...prev,
-                        selectedOrders: new Set()
+                        selectedQtys: new Map()
                       } : null)}
                       className="text-xs text-muted hover:underline"
                     >
@@ -1458,24 +1733,27 @@ export default function AdminStockPage() {
                   </div>
                 </div>
                 <div className="rounded-lg border border-primary/10 divide-y divide-primary/5 max-h-48 overflow-y-auto">
-                  {reviewModal.issue.affectedOrders.map((order) => (
-                    <label
+                  {reviewModal.issue.affectedOrders.map((order) => {
+                    const selectedQty = reviewModal.selectedQtys.get(order.orderId);
+                    const isSelected = selectedQty !== undefined;
+                    return (
+                    <div
                       key={order.orderId}
-                      className="flex items-center gap-3 px-4 py-2.5 hover:bg-primary/5 cursor-pointer"
+                      className="flex items-center gap-3 px-4 py-2.5 hover:bg-primary/5"
                     >
                       <input
                         type="checkbox"
-                        checked={reviewModal.selectedOrders.has(order.orderId)}
+                        checked={isSelected}
                         onChange={(e) => {
                           setReviewModal(prev => {
                             if (!prev) return null;
-                            const next = new Set(prev.selectedOrders);
-                            if (e.target.checked) next.add(order.orderId);
+                            const next = new Map(prev.selectedQtys);
+                            if (e.target.checked) next.set(order.orderId, order.quantity);
                             else next.delete(order.orderId);
-                            return { ...prev, selectedOrders: next };
+                            return { ...prev, selectedQtys: next };
                           });
                         }}
-                        className="w-4 h-4 rounded border-primary/30 text-secondary focus:ring-secondary"
+                        className="w-4 h-4 rounded border-primary/30 text-secondary focus:ring-secondary cursor-pointer"
                       />
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium text-primary">
@@ -1485,8 +1763,31 @@ export default function AdminStockPage() {
                           {order.quantity} × £{order.price.toFixed(2)} = £{(order.quantity * order.price).toFixed(2)}
                         </p>
                       </div>
-                    </label>
-                  ))}
+                      {isSelected && (
+                        <div className="flex items-center gap-1.5 flex-shrink-0">
+                          <label className="text-xs text-muted">Refund</label>
+                          <input
+                            type="number"
+                            min={1}
+                            max={order.quantity}
+                            value={selectedQty}
+                            onChange={(e) => {
+                              const val = parseInt(e.target.value);
+                              setReviewModal(prev => {
+                                if (!prev) return null;
+                                const next = new Map(prev.selectedQtys);
+                                next.set(order.orderId, isNaN(val) ? 1 : Math.max(1, Math.min(order.quantity, val)));
+                                return { ...prev, selectedQtys: next };
+                              });
+                            }}
+                            className="w-14 rounded border border-primary/20 px-1.5 py-1 text-center text-sm focus:border-secondary focus:outline-none"
+                          />
+                          <span className="text-xs text-muted">of {order.quantity}</span>
+                        </div>
+                      )}
+                    </div>
+                    );
+                  })}
                 </div>
               </div>
 
@@ -1557,12 +1858,11 @@ export default function AdminStockPage() {
 
             <div className="px-6 py-4 border-t border-primary/10 flex items-center justify-between">
               <p className="text-sm text-muted">
-                {reviewModal.selectedOrders.size > 0 && (
+                {reviewModal.selectedQtys.size > 0 && (
                   <>
                     Total refund: <strong className="text-primary">
                       £{reviewModal.issue.affectedOrders
-                        .filter(o => reviewModal.selectedOrders.has(o.orderId))
-                        .reduce((sum, o) => sum + o.quantity * o.price, 0)
+                        .reduce((sum, o) => sum + (reviewModal.selectedQtys.get(o.orderId) ?? 0) * o.price, 0)
                         .toFixed(2)}
                     </strong>
                   </>
@@ -1577,10 +1877,10 @@ export default function AdminStockPage() {
                 </button>
                 <button
                   onClick={handleRefundSelected}
-                  disabled={refundLoading || reviewModal.selectedOrders.size === 0}
+                  disabled={refundLoading || reviewModal.selectedQtys.size === 0}
                   className="rounded-lg bg-secondary px-4 py-2 text-sm font-semibold text-white hover:bg-secondary/90 transition disabled:opacity-50"
                 >
-                  {refundLoading ? "Processing..." : `Refund ${reviewModal.selectedOrders.size} selected`}
+                  {refundLoading ? "Processing..." : `Refund ${reviewModal.selectedQtys.size} selected`}
                 </button>
               </div>
             </div>

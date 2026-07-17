@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo, useCallback } from "react";
-import { type Order, type OrderItem, type OrderItemRefund, type RefundPaidBy, type RefundReasonType, DELIVERY_OPTION_LABELS, getOrders, updateOrderStatus, getCustomerBoxStatuses, getRefundsForDeliveryDay, deleteOrderItemRefund } from "@/lib/data";
+import { type Order, type OrderItem, type OrderItemRefund, type RefundPaidBy, type RefundReasonType, refundReasonConfig, DELIVERY_OPTION_LABELS, getOrders, updateOrderStatus, getCustomerBoxStatuses, getRefundsForDeliveryDay, deleteOrderItemRefund } from "@/lib/data";
 import { Package, Clock, CheckCircle, XCircle, Calendar, ChevronDown, ChevronRight, Home, MapPin, Users, Truck, Search, MoreVertical, Play, Download, ArrowRight, FileText } from "lucide-react";
 import { jsPDF } from "jspdf";
 import Link from "next/link";
@@ -15,13 +15,6 @@ const statusConfig = {
 };
 
 const statusOptions: Order["status"][] = ["ordered", "prepped", "next_hour", "delivered", "cancelled"];
-
-const refundReasonConfig: Record<RefundReasonType, { label: string; itemArrived: boolean; defaultPaidBy: RefundPaidBy }> = {
-  didnt_arrive: { label: "Didn't arrive", itemArrived: false, defaultPaidBy: "supplier" },
-  quality: { label: "Quality issue", itemArrived: true, defaultPaidBy: "supplier" },
-  damaged: { label: "Damaged in transit", itemArrived: true, defaultPaidBy: "50-50" },
-  other: { label: "Other", itemArrived: true, defaultPaidBy: "local" },
-};
 
 function formatDeliveryDate(dateStr: string) {
   if (!dateStr) return "No date";
@@ -302,6 +295,7 @@ export default function AdminDeliveriesPage() {
   
   const [refunds, setRefunds] = useState<Map<string, OrderItemRefund[]>>(new Map());
   const [refundModal, setRefundModal] = useState<{ orderId: string; orderNumber: number; productName: string; price: number; quantity: number; supplierId: string } | null>(null);
+  const [refundQty, setRefundQty] = useState(1);
   const [refundAmount, setRefundAmount] = useState("");
   const [refundReasonType, setRefundReasonType] = useState<RefundReasonType>("didnt_arrive");
   const [refundReason, setRefundReason] = useState("");
@@ -448,7 +442,7 @@ export default function AdminDeliveriesPage() {
         body: JSON.stringify({
           orderId: refundModal.orderId,
           productName: refundModal.productName,
-          quantity: refundModal.quantity,
+          quantity: refundQty,
           refundAmount: amount,
           reasonType: refundReasonType,
           refundReason: refundReason || null,
@@ -912,7 +906,11 @@ export default function AdminDeliveriesPage() {
                                                       </div>
                                                     ) : (
                                                       <button
-                                                        onClick={() => setRefundModal({ orderId: order.id, orderNumber: order.orderNumber, productName: item.productName, price: item.price, quantity: item.quantity, supplierId: supplierGroup.supplierId })}
+                                                        onClick={() => {
+                                                          setRefundModal({ orderId: order.id, orderNumber: order.orderNumber, productName: item.productName, price: item.price, quantity: item.quantity, supplierId: supplierGroup.supplierId });
+                                                          setRefundQty(item.quantity);
+                                                          setRefundAmount((item.quantity * item.price).toFixed(2));
+                                                        }}
                                                         className="text-xs text-muted hover:text-red-600 transition"
                                                       >
                                                         Refund
@@ -1020,18 +1018,40 @@ export default function AdminDeliveriesPage() {
                   {refundModal.quantity} × £{refundModal.price.toFixed(2)} = £{(refundModal.quantity * refundModal.price).toFixed(2)}
                 </p>
               </div>
-              <div>
-                <label className="block text-sm font-medium text-muted mb-1">Refund Amount (£)</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  max={refundModal.quantity * refundModal.price}
-                  value={refundAmount}
-                  onChange={(e) => setRefundAmount(e.target.value)}
-                  placeholder={(refundModal.quantity * refundModal.price).toFixed(2)}
-                  className="w-full rounded-lg border border-primary/20 px-3 py-2 text-sm focus:border-secondary focus:outline-none"
-                />
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-muted mb-1">How many?</label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      min={1}
+                      max={refundModal.quantity}
+                      value={refundQty}
+                      onChange={(e) => {
+                        const val = parseInt(e.target.value);
+                        const qty = isNaN(val) ? 1 : Math.max(1, Math.min(refundModal.quantity, val));
+                        setRefundQty(qty);
+                        // Keep the amount in step with the quantity; still editable after.
+                        setRefundAmount((qty * refundModal.price).toFixed(2));
+                      }}
+                      className="w-full rounded-lg border border-primary/20 px-3 py-2 text-sm text-center focus:border-secondary focus:outline-none"
+                    />
+                    <span className="text-sm text-muted whitespace-nowrap">of {refundModal.quantity}</span>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-muted mb-1">Refund Amount (£)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    max={refundModal.quantity * refundModal.price}
+                    value={refundAmount}
+                    onChange={(e) => setRefundAmount(e.target.value)}
+                    placeholder={(refundQty * refundModal.price).toFixed(2)}
+                    className="w-full rounded-lg border border-primary/20 px-3 py-2 text-sm focus:border-secondary focus:outline-none"
+                  />
+                </div>
               </div>
               <div>
                 <label className="block text-sm font-medium text-muted mb-1">Reason</label>
@@ -1052,7 +1072,7 @@ export default function AdminDeliveriesPage() {
                 </div>
                 {!refundReasonConfig[refundReasonType].itemArrived && (
                   <p className="mt-2 text-xs text-amber-600 bg-amber-50 rounded px-2 py-1">
-                    ⚠️ Item didn&apos;t arrive — supplier won&apos;t be paid for it, so no additional deduction applies.
+                    ⚠️ &quot;Didn&apos;t arrive&quot; means it never reached the warehouse — the supplier isn&apos;t paid for it, so no deduction applies. If it was checked in but missed the customer&apos;s box, use &quot;Missing from box&quot; instead so who-pays works properly.
                   </p>
                 )}
               </div>

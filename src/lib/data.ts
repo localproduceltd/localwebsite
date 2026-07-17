@@ -2311,7 +2311,22 @@ export interface OrderItemCheckin {
 }
 
 export type RefundPaidBy = "local" | "supplier" | "50-50";
-export type RefundReasonType = "didnt_arrive" | "quality" | "damaged" | "other";
+export type RefundReasonType = "didnt_arrive" | "quality" | "damaged" | "missing_from_box" | "other";
+
+// Shared refund reason config (stock + deliveries pages).
+// itemArrived drives the payout maths: false = the item never reached the
+// warehouse (supplier simply isn't paid for it - no separate deduction);
+// true = it arrived and was paid for, so a supplier/50-50 refund is deducted
+// from the payout. "Missing from box" is the post-delivery case: stock was
+// checked in but the customer didn't get it - usually a packing slip, so
+// Local pays by default, but who-pays stays selectable.
+export const refundReasonConfig: Record<RefundReasonType, { label: string; itemArrived: boolean; defaultPaidBy: RefundPaidBy }> = {
+  didnt_arrive: { label: "Didn't arrive", itemArrived: false, defaultPaidBy: "supplier" },
+  quality: { label: "Quality issue", itemArrived: true, defaultPaidBy: "supplier" },
+  damaged: { label: "Damaged in transit", itemArrived: true, defaultPaidBy: "50-50" },
+  missing_from_box: { label: "Missing from box", itemArrived: true, defaultPaidBy: "local" },
+  other: { label: "Other", itemArrived: true, defaultPaidBy: "local" },
+};
 
 export interface OrderItemRefund {
   id: string;
