@@ -1,8 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getOrdersByDeliveryDay, getSuppliers, getOrdersWithTopUps } from "@/lib/data";
 import { sendSupplierOrderSummary } from "@/lib/email";
+import { requireAdmin } from "@/lib/admin-auth";
 
 export async function POST(request: NextRequest) {
+  // Emails every supplier their order summary - admin only, like /api/admin/*
+  const gate = await requireAdmin();
+  if (gate instanceof NextResponse) return gate;
+
   try {
     const { deliveryDate } = await request.json();
 

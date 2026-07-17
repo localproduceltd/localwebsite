@@ -856,7 +856,9 @@ interface SupplierPayoutData {
   finalPayout: number;
 }
 
-export async function sendSupplierPayout(data: SupplierPayoutData) {
+// Rendered separately from the send so the exact email can be previewed and
+// checked without emailing anyone.
+export function renderSupplierPayoutEmail(data: Omit<SupplierPayoutData, "supplierEmail">): { subject: string; html: string } {
   const formattedDate = new Date(data.deliveryDate + "T00:00:00").toLocaleDateString("en-GB", {
     weekday: "long",
     day: "numeric",
@@ -866,12 +868,16 @@ export async function sendSupplierPayout(data: SupplierPayoutData) {
 
   const itemsHtml = data.items
     .map((item) => {
-      const isShort = item.arrived !== null && item.arrived < item.ordered;
+      // Arrivals default to 0 until checked in (zero-default check-in), so an
+      // unrecorded arrival reads as 0 and highlights amber - same as the
+      // payouts modal, and same as what the maths pays out on.
+      const arrived = item.arrived ?? 0;
+      const isShort = arrived < item.ordered;
       return `
         <tr style="${isShort ? 'background: #fef3c7;' : ''}">
           <td style="padding: 8px 12px; border-bottom: 1px solid #eee;">${item.productName}</td>
           <td style="padding: 8px 12px; border-bottom: 1px solid #eee; text-align: center;">${item.ordered}</td>
-          <td style="padding: 8px 12px; border-bottom: 1px solid #eee; text-align: center; font-weight: bold; ${isShort ? 'color: #d97706;' : 'color: #16a34a;'}">${item.arrived ?? '—'}</td>
+          <td style="padding: 8px 12px; border-bottom: 1px solid #eee; text-align: center; font-weight: bold; ${isShort ? 'color: #d97706;' : 'color: #16a34a;'}">${arrived}</td>
           <td style="padding: 8px 12px; border-bottom: 1px solid #eee; text-align: right;">£${item.unitPrice.toFixed(2)}</td>
           <td style="padding: 8px 12px; border-bottom: 1px solid #eee; text-align: right; font-weight: bold;">£${item.arrivedValue.toFixed(2)}</td>
         </tr>
@@ -897,20 +903,19 @@ export async function sendSupplierPayout(data: SupplierPayoutData) {
     `
     : "";
 
-  // Calculate totals
-  const subtotalBeforeCommission = data.arrivedTotal - data.supplierRefundDeduction;
+  // Calculate totals. Floored at zero to match the payouts modal - refund
+  // deductions can never take a payout negative.
+  const subtotalBeforeCommission = Math.max(0, data.arrivedTotal - data.supplierRefundDeduction);
   const commission = subtotalBeforeCommission * 0.2;
   const payout = subtotalBeforeCommission * 0.8;
 
-  const { error } = await resend.emails.send({
-    from: FROM_EMAIL,
-    to: data.supplierEmail,
+  return {
     subject: `Payout Summary for ${formattedDate}`,
     html: `
       <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
         <h1 style="color: #A30E4E;">💰 Your Payout Summary</h1>
         <p>Hi ${data.supplierName},</p>
-        <p>Here's your payout breakdown for <strong>${formattedDate}</strong>.</p>
+        <p>Thanks for this week's produce - here's your payout breakdown for <strong>${formattedDate}</strong>.</p>
         
         <table style="width: 100%; border-collapse: collapse; background: #fff; border: 1px solid #e5e5e5; border-radius: 8px; overflow: hidden; margin: 20px 0;">
           <thead>
@@ -960,14 +965,22 @@ export async function sendSupplierPayout(data: SupplierPayoutData) {
         </div>
         
         <p style="color: #666; font-size: 14px; margin-top: 24px;">
-          Payment will be sent within 7 days. If you have any questions about this payout, please reply to this email.
+          Payment will be sent by bank transfer within 7 days. If anything here doesn't look right, just reply to this email.
         </p>
-        
-        <p style="color: #666; font-size: 14px; margin-top: 30px;">
-          — The Local Produce Team
-        </p>
+
+        ${SIGNOFF}
       </div>
     `,
+  };
+}
+
+export async function sendSupplierPayout(data: SupplierPayoutData) {
+  const { subject, html } = renderSupplierPayoutEmail(data);
+  const { error } = await resend.emails.send({
+    from: FROM_EMAIL,
+    to: data.supplierEmail,
+    subject,
+    html,
   });
 
   if (error) {

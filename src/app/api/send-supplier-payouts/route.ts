@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupplier } from "@/lib/data";
 import { sendSupplierPayout, sendPayoutRunSheet } from "@/lib/email";
+import { requireAdmin } from "@/lib/admin-auth";
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
@@ -29,6 +30,10 @@ interface PayoutSupplier {
 }
 
 export async function POST(request: NextRequest) {
+  // Sends real money-figures to real suppliers - admin only, like /api/admin/*
+  const gate = await requireAdmin();
+  if (gate instanceof NextResponse) return gate;
+
   try {
     const { deliveryDate, suppliers } = await request.json() as {
       deliveryDate: string;

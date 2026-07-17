@@ -932,20 +932,19 @@ export default function AdminStockPage() {
                       const key = `supplier-${deliveryDay}-${supplier.supplierId}`;
                       const isExpanded = expandedSuppliers.has(key);
                       const pills = getSupplierPills(deliveryDay, supplier);
-                      
-                      // Stock pill color
-                      let stockPillClass = "bg-gray-100 text-gray-600"; // grey when nothing arrived
-                      if (pills.stock.hasAnyArrival) {
-                        stockPillClass = pills.stock.arrived === pills.stock.total 
-                          ? "bg-green-100 text-green-700" 
-                          : "bg-amber-100 text-amber-700";
-                      }
-                      
-                      // Bags pill color
-                      const bagsPillClass = pills.bags.checkedIn === pills.bags.total && pills.bags.total > 0
+
+                      // One progress pill covering every check-in job for this
+                      // supplier: product arrivals + per-customer bag ticks.
+                      // Green = all done, amber = started, grey = not started.
+                      const checkedIn = pills.stock.arrived + pills.bags.checkedIn;
+                      const checkInTotal = pills.stock.total + pills.bags.total;
+                      const started = pills.stock.hasAnyArrival || pills.bags.checkedIn > 0;
+                      const checkInPillClass = checkedIn === checkInTotal && checkInTotal > 0
                         ? "bg-green-100 text-green-700"
-                        : "bg-gray-100 text-gray-600";
-                      
+                        : started
+                          ? "bg-amber-100 text-amber-700"
+                          : "bg-gray-100 text-gray-600";
+
                       return (
                         <div key={supplier.supplierId}>
                           <button
@@ -957,11 +956,8 @@ export default function AdminStockPage() {
                               <span className="font-medium text-primary truncate">{supplier.supplierName}</span>
                             </div>
                             <div className="flex items-center gap-2 sm:gap-3 text-sm flex-shrink-0">
-                              <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${stockPillClass}`}>
-                                Stock {pills.stock.arrived}/{pills.stock.total}
-                              </span>
-                              <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${bagsPillClass}`}>
-                                Bags {pills.bags.checkedIn}/{pills.bags.total}
+                              <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${checkInPillClass}`}>
+                                Checked in {checkedIn}/{checkInTotal}
                               </span>
                               <span className="font-semibold text-primary">£{supplier.totalPrice.toFixed(2)}</span>
                             </div>
@@ -1384,7 +1380,10 @@ export default function AdminStockPage() {
           const orderedTotal = supplierTracking.reduce((sum, item) => sum + item.orderedValue, 0);
           const arrivedTotal = supplierTracking.reduce((sum, item) => sum + item.arrivedValue, 0);
           const payout = Math.max(0, (arrivedTotal - supplierRefundDeduction) * 0.8);
-          
+          // Zero-default check-in: no recorded arrivals means every line counts
+          // as 0 and the payout is £0 - flagged below so it can't slip through.
+          const hasAnyArrival = supplierTracking.some(t => t.arrived !== null);
+
           return {
             ...supplier,
             tracking: supplierTracking,
@@ -1393,10 +1392,12 @@ export default function AdminStockPage() {
             orderedTotal,
             arrivedTotal,
             payout,
+            hasAnyArrival,
           };
         });
-        
+
         const totalPayout = payouts.reduce((sum, p) => sum + p.payout, 0);
+        const uncheckedSuppliers = payouts.filter(p => !p.hasAnyArrival);
         
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setPayoutModal(null)}>
@@ -1533,9 +1534,16 @@ export default function AdminStockPage() {
                 </div>
               </div>
               <div className="px-6 py-4 border-t border-primary/10 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-primary/5">
-                <div className="flex items-center gap-4">
-                  <span className="font-bold text-primary">Total Payouts:</span>
-                  <span className="text-xl font-bold text-green-600">£{totalPayout.toFixed(2)}</span>
+                <div className="flex flex-col gap-1">
+                  {uncheckedSuppliers.length > 0 && (
+                    <p className="text-xs font-semibold text-amber-700">
+                      ⚠️ No check-in recorded for {uncheckedSuppliers.map(s => s.supplierName).join(", ")} - their payout will send as £0. Check their stock in first.
+                    </p>
+                  )}
+                  <div className="flex items-center gap-4">
+                    <span className="font-bold text-primary">Total Payouts:</span>
+                    <span className="text-xl font-bold text-green-600">£{totalPayout.toFixed(2)}</span>
+                  </div>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   <button
