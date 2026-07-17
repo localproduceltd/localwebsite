@@ -193,7 +193,7 @@ export default function SupplierProductsPage() {
   const categoriesInUse = Array.from(new Set(products.map((p) => p.category))).sort();
 
   return (
-    <div className="mx-auto max-w-5xl px-4 py-10 sm:px-6 lg:px-8">
+    <div className="mx-auto max-w-6xl px-4 py-10 sm:px-6 lg:px-8">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-primary">Your Products</h1>
@@ -350,18 +350,20 @@ export default function SupplierProductsPage() {
       </div>
 
       {/* Desktop table view */}
-      <div className="mt-8 hidden overflow-hidden rounded-xl bg-surface shadow-sm md:block">
+      {/* overflow-x-auto (not hidden): with the optional Weekly Stock column the
+          table can outgrow narrower windows - scroll it, never clip Actions */}
+      <div className="mt-8 hidden overflow-x-auto rounded-xl bg-surface shadow-sm md:block">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-primary/5 bg-primary/5 text-left">
-              <th className="px-4 py-3 font-semibold text-primary">Product</th>
-              <th className="px-4 py-3 font-semibold text-primary">Category</th>
-              <th className="px-4 py-3 font-semibold text-primary">Locality</th>
-              <th className="px-4 py-3 font-semibold text-primary text-right">Price</th>
+              <th className="px-3 py-3 font-semibold text-primary">Product</th>
+              <th className="px-3 py-3 font-semibold text-primary">Category</th>
+              <th className="px-3 py-3 font-semibold text-primary">Locality</th>
+              <th className="px-3 py-3 font-semibold text-primary text-right">Price</th>
               {supplier.stockTracking && (
-                <th className="px-4 py-3 font-semibold text-primary text-center">Weekly Stock</th>
+                <th className="px-3 py-3 font-semibold text-primary text-center">Weekly Stock</th>
               )}
-              <th className="px-4 py-3 font-semibold text-primary text-center">
+              <th className="px-3 py-3 font-semibold text-primary text-center">
                 <select
                   value={stockFilters.size === 2 ? "all" : stockFilters.has("in_stock") ? "in_stock" : "out_of_stock"}
                   onChange={(e) => {
@@ -375,8 +377,8 @@ export default function SupplierProductsPage() {
                   <option value="out_of_stock">Out of Stock</option>
                 </select>
               </th>
-              <th className="px-4 py-3 font-semibold text-primary text-center">Rating</th>
-              <th className="px-4 py-3 font-semibold text-primary text-center">
+              <th className="px-3 py-3 font-semibold text-primary text-center">Rating</th>
+              <th className="px-3 py-3 font-semibold text-primary text-center">
                 <select
                   value={statusFilters.size === 3 ? "all" : statusFilters.size === 1 ? Array.from(statusFilters)[0] : "all"}
                   onChange={(e) => {
@@ -391,7 +393,7 @@ export default function SupplierProductsPage() {
                   <option value="rejected">Rejected</option>
                 </select>
               </th>
-              <th className="px-4 py-3 font-semibold text-primary text-right">Actions</th>
+              <th className="px-3 py-3 font-semibold text-primary text-right">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -409,7 +411,7 @@ export default function SupplierProductsPage() {
               const localityColors = LOCALITY_COLORS[product.locality] ?? LOCALITY_COLORS["Local"];
               return (
               <tr key={product.id} className={`border-b border-primary/5 last:border-0 ${!product.inStock ? "opacity-50" : ""}`}>
-                <td className="px-4 py-3">
+                <td className="px-3 py-3">
                   <div className="flex items-center gap-3">
                     <div className="h-10 w-10 overflow-hidden rounded-lg bg-secondary/10">
                       {product.image && <img src={product.image} alt="" className="h-full w-full object-cover" />}
@@ -420,12 +422,12 @@ export default function SupplierProductsPage() {
                     </div>
                   </div>
                 </td>
-                <td className="px-4 py-3">
+                <td className="px-3 py-3">
                   <span className="rounded-full bg-secondary/20 px-2.5 py-0.5 text-xs font-medium text-primary">
                     {product.category}
                   </span>
                 </td>
-                <td className="px-4 py-3">
+                <td className="px-3 py-3">
                   <span 
                     className="rounded-full px-2.5 py-0.5 text-xs font-semibold"
                     style={{ background: localityColors.bg, color: localityColors.text, border: `1px solid ${localityColors.border}` }}
@@ -433,9 +435,9 @@ export default function SupplierProductsPage() {
                     {product.locality ?? "—"}
                   </span>
                 </td>
-                <td className="px-4 py-3 text-right font-medium text-primary">£{product.price.toFixed(2)}</td>
+                <td className="px-3 py-3 text-right font-medium text-primary">£{product.price.toFixed(2)}</td>
                 {supplier.stockTracking && (
-                  <td className="px-4 py-3 text-center">
+                  <td className="px-3 py-3 text-center">
                     <input
                       type="number"
                       min={0}
@@ -453,7 +455,7 @@ export default function SupplierProductsPage() {
                     )}
                   </td>
                 )}
-                <td className="px-4 py-3 text-center">
+                <td className="px-3 py-3 text-center">
                   <button
                     onClick={() => handleToggleStock(product)}
                     className={`rounded-full px-2.5 py-1 text-xs font-bold transition ${
@@ -465,7 +467,7 @@ export default function SupplierProductsPage() {
                     {product.inStock ? "In Stock" : "Out of Stock"}
                   </button>
                 </td>
-                <td className="px-4 py-3 text-center">
+                <td className="px-3 py-3 text-center">
                   {avgRatings[product.id] ? (
                     <button
                       onClick={() => avgRatings[product.id].count > 0 && setReviewsModal({ productId: product.id, productName: product.name })}
@@ -483,7 +485,7 @@ export default function SupplierProductsPage() {
                     <span className="text-xs text-muted">—</span>
                   )}
                 </td>
-                <td className="px-4 py-3 text-center">
+                <td className="px-3 py-3 text-center">
                   <div className="flex flex-col items-center gap-1">
                     <span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-bold ${
                       product.status === "approved" ? "bg-green-100 text-green-700" :
@@ -499,7 +501,7 @@ export default function SupplierProductsPage() {
                     )}
                   </div>
                 </td>
-                <td className="px-4 py-3 text-right">
+                <td className="px-3 py-3 text-right">
                   <button
                     onClick={() => { setEditing(product); setShowForm(true); }}
                     className="mr-2 rounded p-1.5 text-muted transition hover:bg-secondary/20 hover:text-primary"
