@@ -10,7 +10,7 @@ import {
 
 /**
  * GET /api/admin/suppliers
- * Returns all suppliers. Optional `?status=launch_live|launch_not_live|archived`.
+ * Returns all suppliers. Optional `?status=launch_live|launch_not_live|onboarding|archived`.
  */
 export async function GET(request: NextRequest) {
   const gate = await requireAdmin();

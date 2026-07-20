@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
-import { type Product, type Supplier, type Locality, type ProductStatus, ALL_LOCALITIES, getProducts, getArchivedProducts, getLiveSuppliers, createProduct, updateProduct, archiveProduct, restoreProduct, permanentlyDeleteProduct, updateProductStatus, getSupplierByProductId } from "@/lib/data";
+import { type Product, type Supplier, type Locality, type ProductStatus, ALL_LOCALITIES, getProducts, getArchivedProducts, getSuppliers, createProduct, updateProduct, archiveProduct, restoreProduct, permanentlyDeleteProduct, updateProductStatus, getSupplierByProductId } from "@/lib/data";
 import { PRODUCT_CATEGORIES, ALLERGENS, PRODUCT_TAGS } from "@/lib/categories";
 import { Plus, Pencil, Trash2, X, Search, ChevronDown, ChevronRight, MapPin, RotateCcw, Archive, Star, Filter, XCircle, Check } from "lucide-react";
 import MapPicker from "@/components/MapPicker";
@@ -64,7 +64,7 @@ export default function AdminProductsPage() {
   useEffect(() => {
     fetchProducts();
     fetchArchivedProducts();
-    getLiveSuppliers().then(setSuppliers).catch(console.error);
+    getSuppliers().then((all) => setSuppliers(all.filter((s) => s.status !== "archived"))).catch(console.error);
   }, []);
 
   const handleDelete = async () => {
@@ -192,6 +192,10 @@ export default function AdminProductsPage() {
       if (supplierFilter === "not_live_only") {
         const supplier = suppliers.find((s) => s.id === p.supplierId);
         return supplier?.status === "launch_not_live";
+      }
+      if (supplierFilter === "onboarding_only") {
+        const supplier = suppliers.find((s) => s.id === p.supplierId);
+        return supplier?.status === "onboarding";
       }
       return p.supplierId === supplierFilter;
     })
@@ -604,6 +608,7 @@ export default function AdminProductsPage() {
                 <option value="all">All Suppliers</option>
                 <option value="live_only">Live Suppliers Only</option>
                 <option value="not_live_only">Not Live Suppliers Only</option>
+                <option value="onboarding_only">Onboarding Suppliers Only</option>
                 <optgroup label="Live">
                   {suppliers.filter((s) => s.status === "launch_live").map((s) => (
                     <option key={s.id} value={s.id}>{s.name}</option>
@@ -611,6 +616,11 @@ export default function AdminProductsPage() {
                 </optgroup>
                 <optgroup label="Not Live">
                   {suppliers.filter((s) => s.status === "launch_not_live").map((s) => (
+                    <option key={s.id} value={s.id}>{s.name}</option>
+                  ))}
+                </optgroup>
+                <optgroup label="Onboarding">
+                  {suppliers.filter((s) => s.status === "onboarding").map((s) => (
                     <option key={s.id} value={s.id}>{s.name}</option>
                   ))}
                 </optgroup>
@@ -1265,6 +1275,11 @@ function ProductForm({
             </optgroup>
             <optgroup label="Not Live">
               {suppliers.filter((s) => s.status === "launch_not_live").map((s) => (
+                <option key={s.id} value={s.id}>{s.name}</option>
+              ))}
+            </optgroup>
+            <optgroup label="Onboarding">
+              {suppliers.filter((s) => s.status === "onboarding").map((s) => (
                 <option key={s.id} value={s.id}>{s.name}</option>
               ))}
             </optgroup>

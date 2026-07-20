@@ -4,7 +4,7 @@ import { BOX_DEPOSIT } from "@/lib/constants";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-export type SupplierStatus = "launch_live" | "launch_not_live" | "archived";
+export type SupplierStatus = "launch_live" | "launch_not_live" | "onboarding" | "archived";
 
 export interface Supplier {
   id: string;

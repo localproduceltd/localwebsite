@@ -34,6 +34,7 @@ const SUPPLIER_CATEGORIES = [
 const STATUS_CONFIG: Record<SupplierStatus, { label: string; color: string; bgColor: string }> = {
   launch_live: { label: "Live", color: "text-green-700", bgColor: "bg-green-100" },
   launch_not_live: { label: "Not Live", color: "text-red-600", bgColor: "bg-red-100" },
+  onboarding: { label: "Onboarding", color: "text-blue-700", bgColor: "bg-blue-100" },
   archived: { label: "Archived", color: "text-gray-500", bgColor: "bg-gray-100" },
 };
 
@@ -62,6 +63,7 @@ export default function AdminSuppliersPage() {
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
     live: true,
     notLive: true,
+    onboarding: true,
     archived: false,
   });
   
@@ -81,6 +83,7 @@ export default function AdminSuppliersPage() {
   
   const liveSuppliers = applyFeaturedFilter(supplierList.filter((s) => s.status === "launch_live"));
   const notLiveSuppliers = applyFeaturedFilter(supplierList.filter((s) => s.status === "launch_not_live"));
+  const onboardingSuppliers = applyFeaturedFilter(supplierList.filter((s) => s.status === "onboarding"));
   const archivedSuppliers = applyFeaturedFilter(supplierList.filter((s) => s.status === "archived"));
   
   // Count incomplete profiles
@@ -192,6 +195,15 @@ export default function AdminSuppliersPage() {
               <span className="inline-block h-2 w-2 rounded-full bg-amber-400"></span>
               {notLiveSuppliers.length} not live
             </span>
+            {onboardingSuppliers.length > 0 && (
+              <>
+                <span className="mx-2">·</span>
+                <span className="inline-flex items-center gap-1">
+                  <span className="inline-block h-2 w-2 rounded-full bg-blue-500"></span>
+                  {onboardingSuppliers.length} onboarding
+                </span>
+              </>
+            )}
           </p>
         </div>
         <button
@@ -315,6 +327,44 @@ export default function AdminSuppliersPage() {
               <p className="col-span-full text-sm text-muted py-4">No suppliers waiting to go live.</p>
             ) : (
               notLiveSuppliers.map((supplier) => (
+                <SupplierCard
+                  key={supplier.id}
+                  supplier={supplier}
+                  supplierUsers={supplierUsers}
+                  onEdit={() => { setEditing(supplier); setShowForm(true); }}
+                  onDelete={() => handleDelete(supplier.id)}
+                  onStatusChange={(status) => handleStatusChange(supplier, status)}
+                  onLinkUser={() => { setLinkingSupplierId(supplier.id); setLinkClerkId(""); }}
+                  onUnlinkUser={handleUnlinkUser}
+                  onToggleFeatured={() => handleToggleFeatured(supplier)}
+                  onToggleStockTracking={() => handleToggleStockTracking(supplier)}
+                />
+              ))
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Onboarding Suppliers Section - demo profiles, hidden from customers entirely */}
+      <div className="mt-6">
+        <button
+          onClick={() => toggleSection("onboarding")}
+          className="flex w-full items-center justify-between rounded-lg bg-surface px-4 py-3 text-left shadow-sm transition hover:bg-surface/80"
+        >
+          <div className="flex items-center gap-3">
+            {expandedSections.onboarding ? <ChevronDown size={20} className="text-blue-600" /> : <ChevronRight size={20} className="text-blue-600" />}
+            <h2 className="text-lg font-semibold text-blue-700">Onboarding</h2>
+            <span className="rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-medium text-blue-700">{onboardingSuppliers.length}</span>
+            <span className="text-xs text-muted">Not shown to customers - demo profiles for suppliers who haven&apos;t signed up yet</span>
+          </div>
+        </button>
+
+        {expandedSections.onboarding && (
+          <div className="mt-4 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+            {onboardingSuppliers.length === 0 ? (
+              <p className="col-span-full text-sm text-muted py-4">No suppliers onboarding.</p>
+            ) : (
+              onboardingSuppliers.map((supplier) => (
                 <SupplierCard
                   key={supplier.id}
                   supplier={supplier}
@@ -513,6 +563,7 @@ function SupplierForm({
             >
               <option value="launch_live">Live</option>
               <option value="launch_not_live">Not Live</option>
+              <option value="onboarding">Onboarding</option>
               <option value="archived">Archived</option>
             </select>
           </div>
@@ -684,6 +735,7 @@ function SupplierCard({
           >
             <option value="launch_live">Live</option>
             <option value="launch_not_live">Not Live</option>
+            <option value="onboarding">Onboarding</option>
             <option value="archived">Archived</option>
           </select>
         </div>
