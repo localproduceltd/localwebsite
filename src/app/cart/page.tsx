@@ -1208,7 +1208,18 @@ export default function CartPage() {
             </p>
           </div>
         )}
-        
+
+        {/* Saved details but no phone: the input lives inside the collapsed
+            address form, so point at the button that reveals it - otherwise
+            "Enter Contact Number" asks for a field the customer can't see */}
+        {!topUpOrder && usingSavedDetails && !showEditDetails && !phone.trim() && (
+          <div className="mt-4 rounded-lg bg-amber-50 border border-amber-200 px-4 py-3">
+            <p className="text-sm font-medium text-amber-800">
+              We don&apos;t have a contact number saved for you - click &quot;Click to edit anything that&apos;s different&quot; in the green box above to add one.
+            </p>
+          </div>
+        )}
+
         <button
           disabled={
             topUpOrder 
