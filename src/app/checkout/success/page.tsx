@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { CheckCircle, Package, ArrowRight } from "lucide-react";
 import { useCart } from "@/lib/cart-context";
+import { gaEvent } from "@/lib/ga";
 
 function CheckoutSuccessContent() {
   const searchParams = useSearchParams();
@@ -28,6 +29,27 @@ function CheckoutSuccessContent() {
         .then((res) => res.json())
         .then((data) => {
           if (data.success) {
+            // Fire GA4 purchase on first confirmation only - refreshes return
+            // alreadyProcessed. Top-ups get a distinct transaction_id so they
+            // don't collide with the original order's purchase event.
+            if (!data.alreadyProcessed && data.total != null) {
+              gaEvent("purchase", {
+                transaction_id: isTopUp
+                  ? `${data.orderNumber}-topup-${sessionId.slice(-8)}`
+                  : String(data.orderNumber),
+                currency: "GBP",
+                value: data.total,
+                items: (data.items ?? []).map(
+                  (item: { productId: string; productName: string; supplierName?: string; price: number; quantity: number }) => ({
+                    item_id: item.productId,
+                    item_name: item.productName,
+                    item_brand: item.supplierName,
+                    price: item.price,
+                    quantity: item.quantity,
+                  })
+                ),
+              });
+            }
             setOrderNumber(data.orderNumber);
             // Clear the cart after successful order
             clearCart();

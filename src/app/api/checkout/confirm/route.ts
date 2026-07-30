@@ -177,7 +177,20 @@ export async function POST(request: NextRequest) {
       // Supplier emails disabled - they receive a summary at cutoff instead
     }
 
-    return NextResponse.json({ success: true, orderId: order.id, orderNumber: order.orderNumber });
+    return NextResponse.json({
+      success: true,
+      orderId: order.id,
+      orderNumber: order.orderNumber,
+      // For the GA4 purchase event on the success page
+      total,
+      items: items.map((item) => ({
+        productId: item.productId,
+        productName: item.productName,
+        supplierName: item.supplierName,
+        price: item.price,
+        quantity: item.quantity,
+      })),
+    });
   } catch (error) {
     console.error("Confirm checkout error:", error);
     return NextResponse.json(

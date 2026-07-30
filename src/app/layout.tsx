@@ -1,11 +1,11 @@
 import type { Metadata } from "next";
 import { Raleway } from "next/font/google";
-import Script from "next/script";
 import "leaflet/dist/leaflet.css";
 import "./globals.css";
 import { ClerkProvider } from "@clerk/nextjs";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
+import GoogleAnalytics from "@/components/GoogleAnalytics";
 import { CartProvider } from "@/lib/cart-context";
 
 const raleway = Raleway({
@@ -35,18 +35,7 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
-        <Script
-          src="https://www.googletagmanager.com/gtag/js?id=G-SL2Y5Z5VNJ"
-          strategy="afterInteractive"
-        />
-        <Script id="google-analytics" strategy="afterInteractive">
-          {`
-            window.dataLayer = window.dataLayer || [];
-            function gtag(){dataLayer.push(arguments);}
-            gtag('js', new Date());
-            gtag('config', 'G-SL2Y5Z5VNJ');
-          `}
-        </Script>
+        <GoogleAnalytics />
       </head>
       <body className={`${raleway.variable} antialiased bg-surface text-foreground`}>
         <ClerkProvider

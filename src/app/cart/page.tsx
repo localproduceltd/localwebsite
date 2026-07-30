@@ -8,6 +8,7 @@ import { useUser } from "@clerk/nextjs";
 import { useCart } from "@/lib/cart-context";
 import { type CustomerProfile, type DeliveryDay, type DeliveryWindow, type DeliveryArea, type SupplierHolidayInfo, type DeliveryOption, getActiveDeliveryDays, getCustomerProfile, getDeliveryArea, submitExpansionRequest, getSuppliersHolidayInfo, isSupplierOnHoliday, saveBasket } from "@/lib/data";
 import { lookupPostcode } from "@/lib/postcode";
+import { gaEvent } from "@/lib/ga";
 import { BOX_DEPOSIT, BOTTLE_DEPOSIT, MINIMUM_ORDER, DELIVERY_FEE } from "@/lib/constants";
 import booleanPointInPolygon from "@turf/boolean-point-in-polygon";
 import { point as turfPoint } from "@turf/helpers";
@@ -287,9 +288,21 @@ export default function CartPage() {
         supplierId: string;
       }>;
 
+    gaEvent("begin_checkout", {
+      currency: "GBP",
+      value: finalTotal,
+      items: orderItems.map((item) => ({
+        item_id: item.productId,
+        item_name: item.productName,
+        item_brand: item.supplierName,
+        price: item.price,
+        quantity: item.quantity,
+      })),
+    });
+
     try {
       const customerEmail = user.primaryEmailAddress?.emailAddress ?? "";
-      
+
       if (topUpOrder) {
         // Top-up checkout - different endpoint
         const response = await fetch("/api/checkout/topup", {

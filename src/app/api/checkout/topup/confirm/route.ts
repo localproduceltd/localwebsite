@@ -145,10 +145,19 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    return NextResponse.json({ 
-      success: true, 
-      orderId: existingOrder.id, 
-      orderNumber: existingOrder.orderNumber 
+    return NextResponse.json({
+      success: true,
+      orderId: existingOrder.id,
+      orderNumber: existingOrder.orderNumber,
+      // For the GA4 purchase event on the success page
+      total: topUpTotal,
+      items: items.map((item) => ({
+        productId: item.productId,
+        productName: item.productName,
+        supplierName: item.supplierName,
+        price: item.price,
+        quantity: item.quantity,
+      })),
     });
   } catch (error) {
     console.error("Top-up confirm error:", error);

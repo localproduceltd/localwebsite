@@ -3,6 +3,7 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef, type ReactNode } from "react";
 import { useUser } from "@clerk/nextjs";
 import { type Product, getApprovedProducts, saveBasket, getSavedBasketByEmail, getActiveDeliveryDays, getOrderedQuantities } from "@/lib/data";
+import { gaEvent } from "@/lib/ga";
 
 const CART_STORAGE_KEY = "local-produce-cart";
 const TOPUP_STORAGE_KEY = "local-produce-topup";
@@ -41,22 +42,20 @@ interface CartContextType {
 
 // GA4 add_to_cart event helper
 function fireAddToCartEvent(product: Product, quantity: number) {
-  if (typeof window !== "undefined" && "gtag" in window) {
-    (window as unknown as { gtag: (...args: unknown[]) => void }).gtag("event", "add_to_cart", {
-      currency: "GBP",
-      value: product.price * quantity,
-      items: [
-        {
-          item_id: product.id,
-          item_name: product.name,
-          item_category: product.category,
-          item_brand: product.supplierName,
-          price: product.price,
-          quantity: quantity,
-        },
-      ],
-    });
-  }
+  gaEvent("add_to_cart", {
+    currency: "GBP",
+    value: product.price * quantity,
+    items: [
+      {
+        item_id: product.id,
+        item_name: product.name,
+        item_category: product.category,
+        item_brand: product.supplierName,
+        price: product.price,
+        quantity: quantity,
+      },
+    ],
+  });
 }
 
 const CartContext = createContext<CartContextType | null>(null);
