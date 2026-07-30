@@ -66,7 +66,7 @@ function deliveryInstruction(option?: string | null, safePlace?: string | null):
   }
 }
 
-// A short one-liner version for the "coming tomorrow" / "on its way" emails.
+// A short one-liner version for the "on its way" emails.
 function deliveryReminderLine(option?: string | null, safePlace?: string | null): string {
   const place = safePlace && safePlace.trim() ? ` (${safePlace.trim()})` : "";
   switch (option) {
@@ -76,6 +76,23 @@ function deliveryReminderLine(option?: string | null, safePlace?: string | null)
       return `You've asked us not to knock - please have your own cool bag or box out${place} with a couple of ice packs in, and we'll fill it. 💚`;
     case "local_coolbox":
       return `We'll leave it all in a Local cool box, packed with ice packs, in your safe place${place}.`;
+    default:
+      return "";
+  }
+}
+
+// The fuller delivery-option paragraph. Shared by the Thursday-morning slot email
+// (sendSlotEmail) and the Thursday-evening "coming tomorrow" prepped email
+// (sendOrderStatusUpdate) so the two stay word-for-word in step and never drift.
+function deliveryOptionLine(option?: string | null, safePlace?: string | null): string {
+  const place = safePlace && safePlace.trim() ? ` (${safePlace.trim()})` : "";
+  switch (option) {
+    case "in":
+      return "You said you'll be in, so we'll see you at the door. If for whatever reason you now won't be in, just leave a cool bag and some ice packs out and we'll drop your order there.";
+    case "own_coolbag":
+      return `You've asked us not to knock - the driver will fill your own cool bag or box${place}, so please have it out with a couple of ice packs in. 💚`;
+    case "local_coolbox":
+      return `You're borrowing a Local cool box - the driver will leave everything in one of our boxes, packed with ice packs${place}.`;
     default:
       return "";
   }
@@ -548,23 +565,10 @@ export async function sendSlotEmail(data: SlotEmailData) {
   const name = firstName(data.customerName);
   const legName = data.leg === "morning" ? "morning" : "afternoon";
   const legWindow = data.leg === "morning" ? "9am-1pm" : "1pm-5pm";
-  const place = data.safePlace && data.safePlace.trim() ? ` (${data.safePlace.trim()})` : "";
 
   // Last line reflects what they chose at checkout - never the generic version.
-  let optionLine: string;
-  switch (data.deliveryOption) {
-    case "in":
-      optionLine = "You said you'll be in, so we'll see you at the door. If for whatever reason you now won't be in, just leave a cool bag and some ice packs out and we'll drop your order there.";
-      break;
-    case "own_coolbag":
-      optionLine = `You've asked us not to knock - the driver will fill your own cool bag or box${place}, so please have it out with a couple of ice packs in. 💚`;
-      break;
-    case "local_coolbox":
-      optionLine = `You're borrowing a Local cool box - the driver will leave everything in one of our boxes, packed with ice packs${place}.`;
-      break;
-    default:
-      optionLine = "";
-  }
+  // Shared with the prepped email so the wording stays identical.
+  const optionLine = deliveryOptionLine(data.deliveryOption, data.safePlace);
 
   const roughTime = data.etaBand
     ? `, so we should be with you roughly <strong>${data.etaBand}</strong>`
@@ -640,21 +644,30 @@ export async function sendOrderStatusUpdate(data: OrderStatusUpdateData) {
 
   if (data.status === "prepped") {
     subject = `Confirming your delivery tomorrow${nm} 🥕`;
-    // Everyone gets the same opening - the "any" customers already heard about
-    // their worked-out slot in the Thursday-morning email, so no special copy.
+    const legName = resolvedSlot === "morning" ? "morning" : resolvedSlot === "afternoon" ? "afternoon" : "";
     const openingLine = `Hi ${name}, just confirming your delivery is booked in for tomorrow, <strong>${data.deliveryDay}</strong>${deliveryWindowText ? `, between <strong>${deliveryWindowText}</strong>` : ""}.`;
-    // Prefer the route build's hour band; fall back to the rough position phrase.
-    // The one-stop-away reminder sits in the same breath as the time, so the
-    // "when" of the delivery reads as one thought.
-    const timingLine = data.etaBand
-      ? `Looking at the route, we should be with you at <strong>roughly ${data.etaBand}</strong> - that can drift a little either way depending on how the run goes.`
-      : positionPhrase;
+    // Give the exact place in the run plus the rough hour band in one sentence,
+    // matching the Thursday-morning slot email. Only fall back to the fuzzy
+    // start/middle/end phrase (or a band-only line) when there's no route row.
+    const bandClause = data.etaBand
+      ? `, so we should be with you <strong>roughly ${data.etaBand}</strong> - that can drift a little either way depending on how the run goes`
+      : "";
+    let timingLine: string;
+    if (data.routeLeg && data.routePosition && data.legSize) {
+      timingLine = `You're stop <strong>${data.routePosition} of ${data.legSize}</strong>${legName ? ` on the ${legName} run` : ""}${bandClause}.`;
+    } else if (data.etaBand) {
+      timingLine = `Looking at the route, we should be with you at <strong>roughly ${data.etaBand}</strong> - that can drift a little either way depending on how the run goes.`;
+    } else {
+      timingLine = positionPhrase;
+    }
     const oneStopLine = "As always, you'll get an email when we're just one stop away.";
+    // Fuller checkout-option paragraph, shared with the slot email.
+    const optionLine = deliveryOptionLine(data.deliveryOption, data.safePlace);
     body = `
         <h1 style="color: ${BRAND}; font-size: 21px; margin: 0 0 14px;">Confirming your delivery${nm} 💚</h1>
         <p style="margin: 0 0 12px;">${openingLine}</p>
         <p style="margin: 0 0 12px;">${timingLine ? `${timingLine} ${oneStopLine}` : oneStopLine}</p>
-        ${reminder ? `<p style="margin: 0 0 12px;">${reminder}</p>` : ""}
+        ${optionLine ? `<p style="margin: 0 0 12px;">${optionLine}</p>` : ""}
         <p style="margin: 12px 0 4px;">Our driver will see you tomorrow,</p>
         ${SIGNOFF}`;
   } else if (data.status === "next_hour") {
