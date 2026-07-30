@@ -1720,12 +1720,12 @@ export default function AdminStockPage() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-primary mb-1">Notes (optional)</label>
+                <label className="block text-sm font-medium text-primary mb-1">Note to customer (optional - included in the refund emails)</label>
                 <input
                   type="text"
                   value={reviewModal.notes}
                   onChange={(e) => setReviewModal(prev => prev ? { ...prev, notes: e.target.value } : null)}
-                  placeholder="Additional notes for the refund..."
+                  placeholder="Shown to the customer (and supplier) alongside the reason..."
                   className="w-full rounded-lg border border-primary/20 px-3 py-2 text-sm focus:border-secondary focus:outline-none"
                 />
               </div>

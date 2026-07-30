@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { stripe } from "@/lib/stripe";
 import { supabase } from "@/lib/supabase";
-import { createOrderItemRefund, type RefundPaidBy, type RefundReasonType } from "@/lib/data";
-import { sendOrderItemRefund } from "@/lib/email";
+import { createOrderItemRefund, refundReasonConfig, type RefundPaidBy, type RefundReasonType } from "@/lib/data";
+import { sendOrderItemRefund, sendSupplierRefundNotice } from "@/lib/email";
 import { requireAdmin } from "@/lib/admin-auth";
 
 export async function POST(request: NextRequest) {
@@ -69,15 +69,19 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    const reason = (reasonType as RefundReasonType) || "other";
+    const arrivedFlag = itemArrived ?? refundReasonConfig[reason]?.itemArrived ?? true;
+    const reasonLabel = refundReasonConfig[reason]?.label ?? "";
+
     // Record the refund in our database
     await createOrderItemRefund(
       orderId,
       productName,
       quantity,
       refundAmount,
-      (reasonType as RefundReasonType) || "other",
+      reason,
       refundReason || null,
-      itemArrived ?? true,
+      arrivedFlag,
       paidBy as RefundPaidBy,
       supplierId || null
     );
@@ -92,10 +96,43 @@ export async function POST(request: NextRequest) {
           productName,
           quantity,
           refundAmount,
+          reasonLabel,
           reason: refundReason || null,
         });
       } catch (emailError) {
         console.error("Failed to send refund email:", emailError);
+        // Don't fail the refund if email fails
+      }
+    }
+
+    // Heads-up to the supplier when the refund costs them something: a
+    // didn't-arrive refund (units drop out of their payout) or a deduction
+    // they're paying all/half of. Local-pays refunds (e.g. packing slips)
+    // don't notify - nothing for the supplier to act on.
+    const costsSupplier = !arrivedFlag || paidBy !== "local";
+    if (supplierId && costsSupplier) {
+      try {
+        const { data: supplier } = await supabase
+          .from("suppliers")
+          .select("name, email")
+          .eq("id", supplierId)
+          .single();
+        if (supplier?.email) {
+          await sendSupplierRefundNotice({
+            supplierEmail: supplier.email,
+            supplierName: supplier.name || "",
+            orderNumber: order.order_number,
+            productName,
+            quantity,
+            refundAmount,
+            reasonLabel,
+            reason: refundReason || null,
+            paidBy: paidBy as RefundPaidBy,
+            itemArrived: arrivedFlag,
+          });
+        }
+      } catch (emailError) {
+        console.error("Failed to send supplier refund notice:", emailError);
         // Don't fail the refund if email fails
       }
     }

@@ -415,10 +415,21 @@ interface OrderItemRefundData {
   productName: string;
   quantity: number;
   refundAmount: number;
-  reason: string | null;
+  reasonLabel?: string; // e.g. "Didn't arrive" - the picked reason type
+  reason: string | null; // optional note, shown to the customer verbatim
+}
+
+// The reason line as the customer sees it - built in one place so the
+// supplier's copy can quote exactly what the customer was told.
+export function refundReasonLine(reasonLabel: string | undefined, reason: string | null): string {
+  // "Other" isn't a customer-facing reason - fall back to just the note.
+  const label = reasonLabel && reasonLabel !== "Other" ? reasonLabel : "";
+  if (label && reason) return `${label} - ${reason}`;
+  return label || reason || "";
 }
 
 export async function sendOrderItemRefund(data: OrderItemRefundData) {
+  const reasonLine = refundReasonLine(data.reasonLabel, data.reason);
   const { error } = await resend.emails.send({
     from: FROM_EMAIL,
     to: data.customerEmail,
@@ -430,16 +441,76 @@ export async function sendOrderItemRefund(data: OrderItemRefundData) {
 
         <div style="background: #f7f7f5; border: 1px solid #e5e5e5; border-radius: 8px; padding: 14px 16px; margin: 16px 0;">
           <p style="margin: 0; font-size: 14px;"><strong>Refunded:</strong> ${data.productName} × ${data.quantity} · £${data.refundAmount.toFixed(2)} back to your card (5-10 days)</p>
-          ${data.reason ? `<p style="margin: 10px 0 0; font-size: 14px;"><strong>Refund reason:</strong> ${data.reason}</p>` : ""}
+          ${reasonLine ? `<p style="margin: 10px 0 0; font-size: 14px;"><strong>Refund reason:</strong> ${reasonLine}</p>` : ""}
         </div>
 
-        <p style="margin: 0 0 12px;">As you know we're still really new, so this is all part of the learning experience for us. I really hope it doesn't take away from your overall experience with Local, and we'll keep striving to do better and better. 💚</p>
+        <p style="margin: 0 0 12px;">We're still new and learning! If you have any feedback, please email us or add it to your order feedback in <a href="https://www.localproduce.ltd/account" style="color: ${BRAND};">my account</a>. 💚</p>
         ${SIGNOFF}
     `),
   });
 
   if (error) {
     console.error("Failed to send order item refund email:", error);
+    throw error;
+  }
+}
+
+interface SupplierRefundNoticeData {
+  supplierEmail: string;
+  supplierName: string;
+  orderNumber: number;
+  productName: string;
+  quantity: number;
+  refundAmount: number;
+  reasonLabel: string;
+  reason: string | null;
+  paidBy: "local" | "supplier" | "50-50";
+  itemArrived: boolean;
+}
+
+// Heads-up to the supplier when a refund on their product costs them
+// something - sent at refund time so Friday's payout email is never a
+// surprise. Local-pays refunds don't trigger this.
+export async function sendSupplierRefundNotice(data: SupplierRefundNoticeData) {
+  const reasonLine = refundReasonLine(data.reasonLabel, data.reason);
+
+  let payoutImpact: string;
+  if (!data.itemArrived) {
+    payoutImpact = `These units weren't checked in as arrived, so they simply won't be included in this week's payout - there's no separate deduction.`;
+  } else if (data.paidBy === "supplier") {
+    payoutImpact = `£${data.refundAmount.toFixed(2)} will be deducted from this week's payout - it'll be itemised on your payout email so everything matches up.`;
+  } else {
+    payoutImpact = `We're splitting this one 50-50, so £${(data.refundAmount / 2).toFixed(2)} will be deducted from this week's payout - it'll be itemised on your payout email so everything matches up.`;
+  }
+
+  const { error } = await resend.emails.send({
+    from: FROM_EMAIL,
+    to: data.supplierEmail,
+    subject: `Customer refund on order #${data.orderNumber} - ${data.productName}`,
+    html: shell(`
+        <h1 style="color: ${BRAND}; font-size: 21px; margin: 0 0 14px;">Customer refund - ${data.productName}</h1>
+        <p style="margin: 0 0 12px;">Hi ${firstName(data.supplierName)},</p>
+        <p style="margin: 0 0 12px;">Just to let you know we've refunded a customer for part of their order this week:</p>
+
+        <div style="background: #f7f7f5; border: 1px solid #e5e5e5; border-radius: 8px; padding: 14px 16px; margin: 16px 0;">
+          <p style="margin: 0; font-size: 14px;"><strong>Refunded:</strong> ${data.productName} × ${data.quantity} · £${data.refundAmount.toFixed(2)} (order #${data.orderNumber})</p>
+        </div>
+
+        <p style="margin: 0 0 12px;">${payoutImpact}</p>
+
+        <p style="margin: 0 0 6px; font-size: 13px; color: #888;">What the customer's email said:</p>
+        <div style="border-left: 3px solid #e5e5e5; padding: 2px 0 2px 14px; margin: 0 0 16px; color: #666; font-size: 14px; font-style: italic;">
+          <p style="margin: 0 0 8px;">Really sorry to let you know we've had to process a refund for part of your order this week.</p>
+          <p style="margin: 0;">Refunded: ${data.productName} × ${data.quantity} · £${data.refundAmount.toFixed(2)} back to your card (5-10 days)${reasonLine ? `<br>Refund reason: ${reasonLine}` : ""}</p>
+        </div>
+
+        <p style="margin: 0 0 12px;">The customer has already been refunded and told the reason above, so there's nothing you need to do - this is just so you're never caught out by the numbers. Any questions, just reply to this email. 💚</p>
+        ${SIGNOFF}
+    `),
+  });
+
+  if (error) {
+    console.error("Failed to send supplier refund notice email:", error);
     throw error;
   }
 }

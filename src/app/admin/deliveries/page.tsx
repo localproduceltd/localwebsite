@@ -1077,7 +1077,7 @@ export default function AdminDeliveriesPage() {
                 )}
               </div>
               <div>
-                <label className="block text-sm font-medium text-muted mb-1">Additional notes (optional)</label>
+                <label className="block text-sm font-medium text-muted mb-1">Note to customer (optional - included in the refund emails)</label>
                 <input
                   type="text"
                   value={refundReason}
