@@ -413,6 +413,7 @@ interface OrderItemRefundData {
   customerName: string;
   orderNumber: number;
   productName: string;
+  supplierName?: string; // shown alongside the product so the customer knows whose it was
   quantity: number;
   refundAmount: number;
   reasonLabel?: string; // e.g. "Didn't arrive" - the picked reason type
@@ -430,6 +431,7 @@ export function refundReasonLine(reasonLabel: string | undefined, reason: string
 
 export async function sendOrderItemRefund(data: OrderItemRefundData) {
   const reasonLine = refundReasonLine(data.reasonLabel, data.reason);
+  const productLine = data.supplierName ? `${data.productName} from ${data.supplierName}` : data.productName;
   const { error } = await resend.emails.send({
     from: FROM_EMAIL,
     to: data.customerEmail,
@@ -440,7 +442,7 @@ export async function sendOrderItemRefund(data: OrderItemRefundData) {
         <p style="margin: 0 0 12px;">Really sorry to let you know we've had to process a refund for part of your order this week.</p>
 
         <div style="background: #f7f7f5; border: 1px solid #e5e5e5; border-radius: 8px; padding: 14px 16px; margin: 16px 0;">
-          <p style="margin: 0; font-size: 14px;"><strong>Refunded:</strong> ${data.productName} × ${data.quantity} · £${data.refundAmount.toFixed(2)} back to your card (5-10 days)</p>
+          <p style="margin: 0; font-size: 14px;"><strong>Refunded:</strong> ${productLine} × ${data.quantity} · £${data.refundAmount.toFixed(2)} back to your card (5-10 days)</p>
           ${reasonLine ? `<p style="margin: 10px 0 0; font-size: 14px;"><strong>Refund reason:</strong> ${reasonLine}</p>` : ""}
         </div>
 
@@ -501,10 +503,10 @@ export async function sendSupplierRefundNotice(data: SupplierRefundNoticeData) {
         <p style="margin: 0 0 6px; font-size: 13px; color: #888;">What the customer's email said:</p>
         <div style="border-left: 3px solid #e5e5e5; padding: 2px 0 2px 14px; margin: 0 0 16px; color: #666; font-size: 14px; font-style: italic;">
           <p style="margin: 0 0 8px;">Really sorry to let you know we've had to process a refund for part of your order this week.</p>
-          <p style="margin: 0;">Refunded: ${data.productName} × ${data.quantity} · £${data.refundAmount.toFixed(2)} back to your card (5-10 days)${reasonLine ? `<br>Refund reason: ${reasonLine}` : ""}</p>
+          <p style="margin: 0;">Refunded: ${data.productName} from ${data.supplierName} × ${data.quantity} · £${data.refundAmount.toFixed(2)} back to your card (5-10 days)${reasonLine ? `<br>Refund reason: ${reasonLine}` : ""}</p>
         </div>
 
-        <p style="margin: 0 0 12px;">The customer has already been refunded and told the reason above, so there's nothing you need to do - this is just so you're never caught out by the numbers. Any questions, just reply to this email. 💚</p>
+        <p style="margin: 0 0 12px;">The customer has already been refunded and told the reason above, this is just an FYI for you. Any questions, let me know.</p>
         ${SIGNOFF}
     `),
   });

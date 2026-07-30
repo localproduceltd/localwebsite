@@ -86,6 +86,17 @@ export async function POST(request: NextRequest) {
       supplierId || null
     );
 
+    // Supplier name goes in the customer's email; email for the supplier notice.
+    let supplier: { name: string | null; email: string | null } | null = null;
+    if (supplierId) {
+      const { data } = await supabase
+        .from("suppliers")
+        .select("name, email")
+        .eq("id", supplierId)
+        .single();
+      supplier = data;
+    }
+
     // Send refund confirmation email
     if (order.customer_email) {
       try {
@@ -94,6 +105,7 @@ export async function POST(request: NextRequest) {
           customerName: order.customer_name || "",
           orderNumber: order.order_number,
           productName,
+          supplierName: supplier?.name || undefined,
           quantity,
           refundAmount,
           reasonLabel,
@@ -112,11 +124,6 @@ export async function POST(request: NextRequest) {
     const costsSupplier = !arrivedFlag || paidBy !== "local";
     if (supplierId && costsSupplier) {
       try {
-        const { data: supplier } = await supabase
-          .from("suppliers")
-          .select("name, email")
-          .eq("id", supplierId)
-          .single();
         if (supplier?.email) {
           await sendSupplierRefundNotice({
             supplierEmail: supplier.email,
