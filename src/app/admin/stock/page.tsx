@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useEffect, useMemo, useCallback } from "react";
-import { type Order, type OrderItem, type DeliveryStockTracking, type OrderItemRefund, type OrderItemCheckin, type RefundPaidBy, type RefundReasonType, type SupplierProductFlag, refundReasonConfig, getOrders, getDeliveryStockTracking, upsertDeliveryStockTracking, getRefundsForDeliveryDay, getOrderItemCheckins, toggleOrderItemCheckin, getSupplierProductFlags, resolveSupplierProductFlag, createSupplierProductFlag, removeSupplierProductFlag, getCompletedCheckins, setCheckinComplete, reopenCheckin } from "@/lib/data";
-import { Package, Clock, CheckCircle, XCircle, Calendar, ChevronDown, ChevronRight, Truck, AlertTriangle, FileText, Mail, Download, Send, Users, Eye, Flag, PoundSterling } from "lucide-react";
+import { type Order, type OrderItemRefund, type OrderItemCheckin, type RefundPaidBy, type RefundReasonType, type SupplierProductFlag, refundReasonConfig, getOrders, getRefundsForDeliveryDay, getOrderItemCheckins, setOrderItemCheckin, getSupplierProductFlags, resolveSupplierProductFlag, createSupplierProductFlag, removeSupplierProductFlag, getCompletedCheckins, setCheckinComplete, reopenCheckin } from "@/lib/data";
+import { CheckCircle, XCircle, Calendar, ChevronDown, ChevronRight, Truck, AlertTriangle, FileText, Mail, Download, Send, Users, Eye, Flag, PoundSterling } from "lucide-react";
 import { ChilledTag, chilledRowClass } from "@/components/ChilledTag";
 
 interface StockIssue {
@@ -104,7 +104,6 @@ export default function AdminStockPage() {
   const [expandedSuppliers, setExpandedSuppliers] = useState<Set<string>>(new Set());
   const [expandedRefunds, setExpandedRefunds] = useState<Set<string>>(new Set());
   
-  const [stockTracking, setStockTracking] = useState<Map<string, DeliveryStockTracking>>(new Map());
   const [orderCheckins, setOrderCheckins] = useState<Map<string, OrderItemCheckin>>(new Map());
   const [refunds, setRefunds] = useState<Map<string, OrderItemRefund[]>>(new Map());
   const [productFlags, setProductFlags] = useState<Map<string, SupplierProductFlag>>(new Map());
@@ -119,47 +118,37 @@ export default function AdminStockPage() {
   const [refundLoading, setRefundLoading] = useState(false);
   const [refundError, setRefundError] = useState<string | null>(null);
 
+  // Flip a bag tick. Updates local state immediately (the ticks ARE the stock
+  // count, so no refetch is needed) and syncs the row to the database behind
+  // the scenes, reverting the tick if that fails.
   const handleOrderCheckIn = async (
-    deliveryDay: string,
     supplierId: string,
     orderId: string,
     productName: string,
     quantity: number
   ) => {
     const checkinKey = `${orderId}-${supplierId}-${productName}`;
-    const isNowChecked = await toggleOrderItemCheckin(orderId, supplierId, productName, quantity);
-    
-    if (isNowChecked) {
-      setOrderCheckins(prev => {
-        const next = new Map(prev);
-        next.set(checkinKey, {
-          id: "",
-          orderId,
-          supplierId,
-          productName,
-          quantity,
-          checkedInAt: new Date().toISOString(),
-        });
-        return next;
-      });
-    } else {
-      setOrderCheckins(prev => {
-        const next = new Map(prev);
-        next.delete(checkinKey);
-        return next;
-      });
-    }
-    
-    const tracking = await getDeliveryStockTracking(deliveryDay);
-    setStockTracking(prev => {
+    const wasChecked = orderCheckins.has(checkinKey);
+
+    const apply = (checked: boolean) => setOrderCheckins(prev => {
       const next = new Map(prev);
-      for (const t of tracking) {
-        next.set(`${t.deliveryDay}-${t.supplierId}-${t.productName}`, t);
+      if (checked) {
+        next.set(checkinKey, { id: "", orderId, supplierId, productName, quantity, checkedInAt: new Date().toISOString() });
+      } else {
+        next.delete(checkinKey);
       }
       return next;
     });
+
+    apply(!wasChecked);
+    try {
+      await setOrderItemCheckin(orderId, supplierId, productName, quantity, !wasChecked);
+    } catch (error) {
+      apply(wasChecked);
+      alert(`Failed to save check-in: ${error instanceof Error ? error.message : "unknown error"}`);
+    }
   };
-  
+
   const isOrderItemCheckedIn = useCallback((orderId: string, supplierId: string, productName: string) => {
     return orderCheckins.has(`${orderId}-${supplierId}-${productName}`);
   }, [orderCheckins]);
@@ -185,6 +174,22 @@ export default function AdminStockPage() {
     }
     return total;
   }, [notArrivedRefundedQty]);
+
+  // Live arrived total for a supplier's product: the sum of each ticked order
+  // line's still-expected quantity. The bag ticks are the single source of
+  // truth, so this always agrees with the checklist below it.
+  const tickedArrivedQty = useCallback((supplier: SupplierSummary, productName: string) => {
+    let total = 0;
+    for (const orderEntry of supplier.orders) {
+      for (const item of orderEntry.items) {
+        if (item.productName !== productName) continue;
+        if (!isOrderItemCheckedIn(orderEntry.orderId, supplier.supplierId, productName)) continue;
+        const remaining = item.quantity - notArrivedRefundedQty(orderEntry.orderId, supplier.supplierId, productName);
+        if (remaining > 0) total += remaining;
+      }
+    }
+    return total;
+  }, [isOrderItemCheckedIn, notArrivedRefundedQty]);
 
   // Customers still on the hook for this product (not yet fully refunded),
   // with their remaining quantities, plus the total quantity already refunded
@@ -224,19 +229,13 @@ export default function AdminStockPage() {
     });
   }, []);
 
-  const loadTrackingData = useCallback(async (deliveryDays: string[]) => {
-    const trackingMap = new Map<string, DeliveryStockTracking>();
+  const loadCheckinData = useCallback(async (deliveryDays: string[]) => {
     const checkinsMap = new Map<string, OrderItemCheckin>();
     const refundsMap = new Map<string, OrderItemRefund[]>();
     const flagsMap = new Map<string, SupplierProductFlag>();
     const completeSet = new Set<string>();
 
     for (const day of deliveryDays) {
-      const tracking = await getDeliveryStockTracking(day);
-      for (const t of tracking) {
-        trackingMap.set(`${t.deliveryDay}-${t.supplierId}-${t.productName}`, t);
-      }
-      
       const checkins = await getOrderItemCheckins(day);
       for (const c of checkins) {
         checkinsMap.set(`${c.orderId}-${c.supplierId}-${c.productName}`, c);
@@ -259,7 +258,6 @@ export default function AdminStockPage() {
         completeSet.add(`${day}-${supplierId}`);
       }
     }
-    setStockTracking(trackingMap);
     setOrderCheckins(checkinsMap);
     setRefunds(refundsMap);
     setProductFlags(flagsMap);
@@ -270,7 +268,7 @@ export default function AdminStockPage() {
     getOrders().then(async (orders) => {
       setOrderList(orders);
       const deliveryDays = [...new Set(orders.map(o => o.deliveryDay).filter(Boolean))];
-      await loadTrackingData(deliveryDays);
+      await loadCheckinData(deliveryDays);
       const productIds = [...new Set(orders.flatMap(o => o.items.map(i => i.productId)))].filter(Boolean);
       if (productIds.length > 0) {
         try {
@@ -286,60 +284,7 @@ export default function AdminStockPage() {
         }
       }
     }).catch(console.error);
-  }, [loadTrackingData]);
-
-  const handleArrivalUpdate = async (
-    deliveryDay: string,
-    supplierId: string,
-    productName: string,
-    quantityOrdered: number,
-    quantityArrived: number | null,
-    arrivalNotes: string | null
-  ) => {
-    await upsertDeliveryStockTracking(deliveryDay, supplierId, productName, quantityOrdered, quantityArrived, arrivalNotes);
-    const tracking = await getDeliveryStockTracking(deliveryDay);
-    setStockTracking(prev => {
-      const next = new Map(prev);
-      for (const t of tracking) {
-        next.set(`${t.deliveryDay}-${t.supplierId}-${t.productName}`, t);
-      }
-      return next;
-    });
-  };
-
-  const handleMarkAllArrived = async (
-    deliveryDay: string,
-    supplier: SupplierSummary
-  ) => {
-    // Open flags that aren't yet covered by refunds mean some units are known
-    // NOT to be coming - "mark all arrived" would contradict that and hide the
-    // issue. Make Josie handle (refund/dismiss) those first.
-    const uncoveredFlags = supplier.items.filter(item => {
-      const flag = productFlags.get(`${deliveryDay}-${supplier.supplierId}-${item.productName}`);
-      if (!flag || flag.resolved) return false;
-      const flagQty = Math.min(flag.quantityUnavailable ?? item.quantity, item.quantity);
-      return productRefundedQty(supplier, item.productName) < flagQty;
-    });
-    if (uncoveredFlags.length > 0) {
-      alert(`These items are flagged as won't arrive and haven't been refunded yet:\n\n${uncoveredFlags.map(i => i.productName).join(", ")}\n\nReview them in the issues box first (refund or dismiss), then mark the rest arrived.`);
-      return;
-    }
-    for (const item of supplier.items) {
-      // Expected = ordered minus units already refunded as not coming.
-      const expected = Math.max(0, item.quantity - productRefundedQty(supplier, item.productName));
-      await upsertDeliveryStockTracking(deliveryDay, supplier.supplierId, item.productName, item.quantity, expected, null);
-    }
-    const tracking = await getDeliveryStockTracking(deliveryDay);
-    setStockTracking(prev => {
-      const next = new Map(prev);
-      for (const t of tracking) {
-        next.set(`${t.deliveryDay}-${t.supplierId}-${t.productName}`, t);
-      }
-      return next;
-    });
-    // Marking everything arrived in full also completes check-in for this supplier.
-    await markCheckinComplete(deliveryDay, supplier.supplierId);
-  };
+  }, [loadCheckinData]);
 
   // Whether a supplier's check-in is marked complete for a delivery day.
   const isSupplierComplete = useCallback(
@@ -353,15 +298,14 @@ export default function AdminStockPage() {
   };
 
   // "Done checking in" - completes as-is, locking in any shortages. Warns first.
-  // Anything untouched counts as 0 arrived: a no-show must flag, not slip
+  // Anything unticked counts as 0 arrived: a no-show must flag, not slip
   // through as "not checked".
   const handleDoneCheckin = async (deliveryDay: string, supplier: SupplierSummary) => {
     const shortItems: string[] = [];
     for (const item of supplier.items) {
-      const t = stockTracking.get(`${deliveryDay}-${supplier.supplierId}-${item.productName}`);
-      const arrived = t?.quantityArrived ?? 0;
+      const arrived = tickedArrivedQty(supplier, item.productName);
       const expected = Math.max(0, item.quantity - productRefundedQty(supplier, item.productName));
-      if (arrived < expected) shortItems.push(`${item.productName} (${arrived} of ${expected} arrived)`);
+      if (arrived < expected) shortItems.push(`${item.productName} (${arrived} of ${expected} ticked in)`);
     }
 
     let msg = `Mark ${supplier.supplierName}'s check-in as complete?`;
@@ -473,16 +417,14 @@ export default function AdminStockPage() {
 
     for (const supplier of supplierSummaries) {
       for (const item of supplier.items) {
-        const trackingKey = `${deliveryDay}-${supplier.supplierId}-${item.productName}`;
-        const tracking = stockTracking.get(trackingKey);
-        const flag = productFlags.get(trackingKey);
+        const flag = productFlags.get(`${deliveryDay}-${supplier.supplierId}-${item.productName}`);
 
         // A resolved flag = dismissed for the day. Skip so it doesn't reappear.
         if (flag && flag.resolved) continue;
 
         const isFlagged = !!(flag && !flag.resolved);
         const supplierComplete = isSupplierComplete(deliveryDay, supplier.supplierId);
-        const arrived = tracking?.quantityArrived ?? 0;
+        const arrived = tickedArrivedQty(supplier, item.productName);
 
         let shortfall: number;
         if (supplierComplete) {
@@ -513,14 +455,14 @@ export default function AdminStockPage() {
           // Show the uncovered remainder, not the original gap.
           shortfall: shortfall - totalRefundedQty,
           orderedQty: item.quantity,
-          arrivedQty: supplierComplete ? arrived : (tracking?.quantityArrived ?? null),
+          arrivedQty: supplierComplete ? arrived : null,
           affectedOrders,
         });
       }
     }
 
     return issues;
-  }, [stockTracking, productFlags, isSupplierComplete, buildAffectedOrders]);
+  }, [productFlags, isSupplierComplete, tickedArrivedQty, buildAffectedOrders]);
 
   // Handle opening the review modal for an issue
   const openReviewModal = (issue: StockIssue) => {
@@ -539,7 +481,6 @@ export default function AdminStockPage() {
   const openMissingModal = (deliveryDay: string, supplier: SupplierSummary, orders: Order[], orderId: string, productName: string, remainingQty: number) => {
     const { affectedOrders } = buildAffectedOrders(orders, supplier.supplierId, productName);
     if (affectedOrders.length === 0) return;
-    const tracking = stockTracking.get(`${deliveryDay}-${supplier.supplierId}-${productName}`);
     const ordered = supplier.items.find(i => i.productName === productName)?.quantity ?? remainingQty;
     setReviewModal({
       issue: {
@@ -550,7 +491,7 @@ export default function AdminStockPage() {
         productName,
         shortfall: remainingQty,
         orderedQty: ordered,
-        arrivedQty: tracking?.quantityArrived ?? null,
+        arrivedQty: null,
         affectedOrders,
       },
       selectedQtys: new Map([[orderId, remainingQty]]),
@@ -608,7 +549,7 @@ export default function AdminStockPage() {
 
       // Reload data to reflect changes
       const deliveryDays = [...new Set(orderList.map(o => o.deliveryDay).filter(Boolean))];
-      await loadTrackingData(deliveryDays);
+      await loadCheckinData(deliveryDays);
 
       setReviewModal(null);
       alert(`✅ Refunded ${selectedQtys.size} order${selectedQtys.size !== 1 ? "s" : ""}`);
@@ -637,7 +578,7 @@ export default function AdminStockPage() {
       
       // Reload data to reflect changes
       const deliveryDays = [...new Set(orderList.map(o => o.deliveryDay).filter(Boolean))];
-      await loadTrackingData(deliveryDays);
+      await loadCheckinData(deliveryDays);
       
       alert("✅ Issue dismissed");
     } catch (error) {
@@ -674,46 +615,22 @@ export default function AdminStockPage() {
     }
   }, [orderList.length, grouped]);
 
-  // Calculate stock and bags pills for a supplier
-  const getSupplierPills = (deliveryDay: string, supplier: SupplierSummary) => {
-    // Stock: X/Y where Y = distinct products, X = products where arrived covers
-    // what's still expected (ordered minus not-coming refunds)
-    const distinctProducts = supplier.items.length;
-    let arrivedProducts = 0;
-    let hasAnyArrival = false;
-    for (const item of supplier.items) {
-      const tracking = stockTracking.get(`${deliveryDay}-${supplier.supplierId}-${item.productName}`);
-      const expected = Math.max(0, item.quantity - productRefundedQty(supplier, item.productName));
-      if (tracking?.quantityArrived !== null && tracking?.quantityArrived !== undefined) {
-        hasAnyArrival = true;
-        if (tracking.quantityArrived >= expected) {
-          arrivedProducts++;
-        }
-      } else if (expected === 0) {
-        // Whole line refunded out - nothing left to count for it.
-        arrivedProducts++;
-      }
-    }
-
-    // Bags: X/Y where Y = order-line-items still expected (fully-refunded lines
-    // drop out - they can't be ticked), X = checked in
-    let totalBagItems = 0;
-    let checkedInBagItems = 0;
+  // Header pill: X/Y order-line ticks for this supplier. Fully-refunded lines
+  // drop out of Y - they can't be ticked.
+  const getSupplierBagCounts = (supplier: SupplierSummary) => {
+    let total = 0;
+    let checkedIn = 0;
     for (const orderEntry of supplier.orders) {
       for (const item of orderEntry.items) {
         const remaining = item.quantity - notArrivedRefundedQty(orderEntry.orderId, supplier.supplierId, item.productName);
         if (remaining <= 0) continue;
-        totalBagItems++;
+        total++;
         if (isOrderItemCheckedIn(orderEntry.orderId, supplier.supplierId, item.productName)) {
-          checkedInBagItems++;
+          checkedIn++;
         }
       }
     }
-
-    return {
-      stock: { arrived: arrivedProducts, total: distinctProducts, hasAnyArrival },
-      bags: { checkedIn: checkedInBagItems, total: totalBagItems },
-    };
+    return { checkedIn, total };
   };
 
   return (
@@ -931,17 +848,14 @@ export default function AdminStockPage() {
                     {supplierSummaries.map((supplier) => {
                       const key = `supplier-${deliveryDay}-${supplier.supplierId}`;
                       const isExpanded = expandedSuppliers.has(key);
-                      const pills = getSupplierPills(deliveryDay, supplier);
+                      const bags = getSupplierBagCounts(supplier);
+                      const supplierDone = isSupplierComplete(deliveryDay, supplier.supplierId);
 
-                      // One progress pill covering every check-in job for this
-                      // supplier: product arrivals + per-customer bag ticks.
-                      // Green = all done, amber = started, grey = not started.
-                      const checkedIn = pills.stock.arrived + pills.bags.checkedIn;
-                      const checkInTotal = pills.stock.total + pills.bags.total;
-                      const started = pills.stock.hasAnyArrival || pills.bags.checkedIn > 0;
-                      const checkInPillClass = checkedIn === checkInTotal && checkInTotal > 0
+                      // Progress pill: green = done (or everything ticked),
+                      // amber = started, grey = not started.
+                      const checkInPillClass = supplierDone || (bags.checkedIn === bags.total && bags.total > 0)
                         ? "bg-green-100 text-green-700"
-                        : started
+                        : bags.checkedIn > 0
                           ? "bg-amber-100 text-amber-700"
                           : "bg-gray-100 text-gray-600";
 
@@ -957,7 +871,7 @@ export default function AdminStockPage() {
                             </div>
                             <div className="flex items-center gap-2 sm:gap-3 text-sm flex-shrink-0">
                               <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${checkInPillClass}`}>
-                                Checked in {checkedIn}/{checkInTotal}
+                                {supplierDone ? "✓ Checked in" : `Checked in ${bags.checkedIn}/${bags.total}`}
                               </span>
                               <span className="font-semibold text-primary">£{supplier.totalPrice.toFixed(2)}</span>
                             </div>
@@ -980,48 +894,36 @@ export default function AdminStockPage() {
                                         </button>
                                       </>
                                     ) : (
-                                      <>
-                                        <button
-                                          onClick={() => handleMarkAllArrived(deliveryDay, supplier)}
-                                          className="rounded border border-primary/10 px-3 py-2 sm:border-0 sm:px-0 sm:py-0 text-xs font-medium text-secondary hover:text-secondary/80 transition"
-                                        >
-                                          Mark all arrived
-                                        </button>
-                                        <button
-                                          onClick={() => handleDoneCheckin(deliveryDay, supplier)}
-                                          className="rounded border border-green-200 px-3 py-2 sm:border-0 sm:px-0 sm:py-0 text-xs font-semibold text-green-600 hover:text-green-700 transition"
-                                        >
-                                          Done checking in
-                                        </button>
-                                      </>
+                                      <button
+                                        onClick={() => handleDoneCheckin(deliveryDay, supplier)}
+                                        className="rounded border border-green-200 px-3 py-2 sm:border-0 sm:px-0 sm:py-0 text-xs font-semibold text-green-600 hover:text-green-700 transition"
+                                      >
+                                        Done checking in
+                                      </button>
                                     )}
                                   </div>
                                 </div>
                                 {/* Mobile card view */}
                                 <div className="sm:hidden space-y-3 p-3">
                                   {supplier.items.map((item) => {
-                                    const trackingKey = `${deliveryDay}-${supplier.supplierId}-${item.productName}`;
-                                    const tracking = stockTracking.get(trackingKey);
-                                    const flag = productFlags.get(trackingKey);
+                                    const flag = productFlags.get(`${deliveryDay}-${supplier.supplierId}-${item.productName}`);
                                     const isFlagged = !!(flag && !flag.resolved);
-                                    const arrived = tracking?.quantityArrived ?? 0;
-                                    const hasOverride = tracking?.quantityArrivedOverride !== null && tracking?.quantityArrivedOverride !== undefined;
-                                    const computedDiffers = hasOverride && tracking?.quantityArrivedComputed !== tracking?.quantityArrivedOverride;
+                                    const arrived = tickedArrivedQty(supplier, item.productName);
                                     const supplierComplete = isSupplierComplete(deliveryDay, supplier.supplierId);
                                     const refunded = productRefundedQty(supplier, item.productName);
                                     const expected = Math.max(0, item.quantity - refunded);
                                     const flagQty = isFlagged ? Math.min(flag!.quantityUnavailable ?? item.quantity, item.quantity) : 0;
                                     const flagCovered = isFlagged && refunded >= flagQty;
                                     const flagOpen = isFlagged && !flagCovered;
-                                    const hasShortage = supplierComplete && arrived < expected;
-                                    const isComplete = supplierComplete && arrived >= expected;
+                                    const allTicked = arrived >= expected;
+                                    const hasShortage = supplierComplete && !allTicked;
                                     const affectsList = supplier.orders
                                       .filter(o => o.items.some(i => i.productName === item.productName))
                                       .map(o => o.boxNumber != null ? `Box ${o.boxNumber}` : `#${o.orderNumber}`)
                                       .join(", ");
 
                                     return (
-                                      <div key={`${item.productName}|${item.unit}`} className={`rounded-xl border border-primary/10 bg-surface p-3 shadow-sm ${flagOpen ? 'bg-red-50' : isComplete ? 'bg-green-50' : hasShortage ? 'bg-amber-50' : item.refrigerated ? chilledRowClass : ''}`}>
+                                      <div key={`${item.productName}|${item.unit}`} className={`rounded-xl border border-primary/10 bg-surface p-3 shadow-sm ${flagOpen ? 'bg-red-50' : allTicked ? 'bg-green-50' : hasShortage ? 'bg-amber-50' : item.refrigerated ? chilledRowClass : ''}`}>
                                         <div className="flex items-center gap-2 flex-wrap">
                                           <span className="font-bold text-primary">{item.productName}</span>
                                           {item.refrigerated && <ChilledTag />}
@@ -1040,24 +942,10 @@ export default function AdminStockPage() {
                                           </span>
                                         </div>
                                         <div className="mt-2 flex items-center justify-between text-sm">
-                                          <span className="text-muted">Arrived</span>
-                                          <div className="flex items-center gap-1">
-                                            <input
-                                              type="number"
-                                              min="0"
-                                              max={item.quantity * 2}
-                                              value={arrived}
-                                              disabled={flagOpen}
-                                              onChange={(e) => {
-                                                const val = e.target.value === "" ? null : parseInt(e.target.value);
-                                                handleArrivalUpdate(deliveryDay, supplier.supplierId, item.productName, item.quantity, val, tracking?.arrivalNotes ?? null);
-                                              }}
-                                              className={`w-20 min-h-[44px] rounded border border-primary/20 px-2 py-1 text-center text-sm focus:border-secondary focus:outline-none ${flagOpen ? 'bg-gray-100 text-gray-400' : ''}`}
-                                            />
-                                            {computedDiffers && (
-                                              <span className="text-[10px] text-amber-600" title={`Computed from check-ins: ${tracking?.quantityArrivedComputed}`}>(override)</span>
-                                            )}
-                                          </div>
+                                          <span className="text-muted">Ticked in</span>
+                                          <span className={`font-semibold ${allTicked && expected > 0 ? 'text-green-600' : 'text-primary'}`}>
+                                            {arrived} of {expected}
+                                          </span>
                                         </div>
                                         <div className="mt-2 flex items-center justify-between gap-2 text-sm">
                                           <div className="min-w-0">
@@ -1072,13 +960,7 @@ export default function AdminStockPage() {
                                           ) : flagCovered && !supplierComplete ? (
                                             <span className="inline-flex items-center gap-1 text-xs font-semibold text-green-700">
                                               <CheckCircle size={12} />
-                                              Flag handled ({refunded} refunded) · checking in ({arrived}/{expected})
-                                            </span>
-                                          ) : !supplierComplete ? (
-                                            <span className="inline-flex items-center gap-1 text-xs font-medium text-muted">
-                                              <Clock size={12} />
-                                              Checking in ({arrived}/{expected})
-                                              {refunded > 0 && <span className="text-muted">· {refunded} refunded</span>}
+                                              Flag handled ({refunded} refunded)
                                             </span>
                                           ) : hasShortage ? (
                                             <div>
@@ -1088,12 +970,14 @@ export default function AdminStockPage() {
                                               </span>
                                               <p className="text-[10px] text-amber-600 mt-0.5">Affects: {affectsList}</p>
                                             </div>
-                                          ) : (
+                                          ) : supplierComplete ? (
                                             <span className="inline-flex items-center gap-1 text-xs font-semibold text-green-700">
                                               <CheckCircle size={12} />
                                               Complete{refunded > 0 && <span className="font-normal text-muted"> · {refunded} refunded</span>}
                                             </span>
-                                          )}
+                                          ) : refunded > 0 ? (
+                                            <span className="text-xs text-muted">{refunded} refunded</span>
+                                          ) : null}
                                           </div>
                                           {flagOpen ? (
                                             <button
@@ -1122,35 +1006,31 @@ export default function AdminStockPage() {
                                     <tr className="text-left text-xs text-muted border-b border-primary/5">
                                       <th className="px-3 py-2 font-medium">Product</th>
                                       <th className="px-3 py-2 font-medium text-center">Ordered</th>
-                                      <th className="px-3 py-2 font-medium text-center">Arrived</th>
+                                      <th className="px-3 py-2 font-medium text-center">Ticked in</th>
                                       <th className="px-3 py-2 font-medium">Status</th>
                                     </tr>
                                   </thead>
                                   <tbody>
                                     {supplier.items.map((item) => {
-                                      const trackingKey = `${deliveryDay}-${supplier.supplierId}-${item.productName}`;
-                                      const tracking = stockTracking.get(trackingKey);
-                                      const flag = productFlags.get(trackingKey);
+                                      const flag = productFlags.get(`${deliveryDay}-${supplier.supplierId}-${item.productName}`);
                                       const isFlagged = !!(flag && !flag.resolved);
-                                      const arrived = tracking?.quantityArrived ?? 0;
-                                      const hasOverride = tracking?.quantityArrivedOverride !== null && tracking?.quantityArrivedOverride !== undefined;
-                                      const computedDiffers = hasOverride && tracking?.quantityArrivedComputed !== tracking?.quantityArrivedOverride;
+                                      const arrived = tickedArrivedQty(supplier, item.productName);
                                       const supplierComplete = isSupplierComplete(deliveryDay, supplier.supplierId);
                                       const refunded = productRefundedQty(supplier, item.productName);
                                       const expected = Math.max(0, item.quantity - refunded);
                                       const flagQty = isFlagged ? Math.min(flag!.quantityUnavailable ?? item.quantity, item.quantity) : 0;
                                       const flagCovered = isFlagged && refunded >= flagQty;
                                       const flagOpen = isFlagged && !flagCovered;
+                                      const allTicked = arrived >= expected;
                                       // Only a genuine shortage once check-in is marked complete.
-                                      const hasShortage = supplierComplete && arrived < expected;
-                                      const isComplete = supplierComplete && arrived >= expected;
+                                      const hasShortage = supplierComplete && !allTicked;
                                       const affectsList = supplier.orders
                                         .filter(o => o.items.some(i => i.productName === item.productName))
                                         .map(o => o.boxNumber != null ? `Box ${o.boxNumber}` : `#${o.orderNumber}`)
                                         .join(", ");
 
                                       return (
-                                        <tr key={`${item.productName}|${item.unit}`} className={`border-t border-primary/5 ${flagOpen ? 'bg-red-50' : isComplete ? 'bg-green-50' : hasShortage ? 'bg-amber-50' : item.refrigerated ? chilledRowClass : ''}`}>
+                                        <tr key={`${item.productName}|${item.unit}`} className={`border-t border-primary/5 ${flagOpen ? 'bg-red-50' : allTicked ? 'bg-green-50' : hasShortage ? 'bg-amber-50' : item.refrigerated ? chilledRowClass : ''}`}>
                                           <td className="px-3 py-2">
                                             <div className="flex items-center gap-2">
                                               <span className="text-primary">{item.productName}</span>
@@ -1168,23 +1048,9 @@ export default function AdminStockPage() {
                                             {refunded > 0 && <span className="block text-[10px] font-normal text-muted">{refunded} refunded · expect {expected}</span>}
                                           </td>
                                           <td className="px-3 py-2 text-center">
-                                            <div className="flex items-center justify-center gap-1">
-                                              <input
-                                                type="number"
-                                                min="0"
-                                                max={item.quantity * 2}
-                                                value={arrived}
-                                                disabled={flagOpen}
-                                                onChange={(e) => {
-                                                  const val = e.target.value === "" ? null : parseInt(e.target.value);
-                                                  handleArrivalUpdate(deliveryDay, supplier.supplierId, item.productName, item.quantity, val, tracking?.arrivalNotes ?? null);
-                                                }}
-                                                className={`w-16 rounded border border-primary/20 px-2 py-1 text-center text-sm focus:border-secondary focus:outline-none ${flagOpen ? 'bg-gray-100 text-gray-400' : ''}`}
-                                              />
-                                              {computedDiffers && (
-                                                <span className="text-[10px] text-amber-600" title={`Computed from check-ins: ${tracking?.quantityArrivedComputed}`}>(override)</span>
-                                              )}
-                                            </div>
+                                            <span className={`font-semibold ${allTicked && expected > 0 ? 'text-green-600' : 'text-primary'}`}>
+                                              {arrived} of {expected}
+                                            </span>
                                           </td>
                                           <td className="px-3 py-2">
                                             <div className="flex items-center justify-between gap-2">
@@ -1200,13 +1066,7 @@ export default function AdminStockPage() {
                                               ) : flagCovered && !supplierComplete ? (
                                                 <span className="inline-flex items-center gap-1 text-xs font-semibold text-green-700">
                                                   <CheckCircle size={12} />
-                                                  Flag handled ({refunded} refunded) · checking in ({arrived}/{expected})
-                                                </span>
-                                              ) : !supplierComplete ? (
-                                                <span className="inline-flex items-center gap-1 text-xs font-medium text-muted">
-                                                  <Clock size={12} />
-                                                  Checking in ({arrived}/{expected})
-                                                  {refunded > 0 && <span>· {refunded} refunded</span>}
+                                                  Flag handled ({refunded} refunded)
                                                 </span>
                                               ) : hasShortage ? (
                                                 <div>
@@ -1216,12 +1076,14 @@ export default function AdminStockPage() {
                                                   </span>
                                                   <p className="text-[10px] text-amber-600 mt-0.5">Affects: {affectsList}</p>
                                                 </div>
-                                              ) : (
+                                              ) : supplierComplete ? (
                                                 <span className="inline-flex items-center gap-1 text-xs font-semibold text-green-700">
                                                   <CheckCircle size={12} />
                                                   Complete{refunded > 0 && <span className="font-normal text-muted"> · {refunded} refunded</span>}
                                                 </span>
-                                              )}
+                                              ) : refunded > 0 ? (
+                                                <span className="text-xs text-muted">{refunded} refunded</span>
+                                              ) : null}
                                               </div>
                                               {flagOpen ? (
                                                 <button
@@ -1303,7 +1165,7 @@ export default function AdminStockPage() {
                                                   <input
                                                     type="checkbox"
                                                     checked={isItemChecked}
-                                                    onChange={() => handleOrderCheckIn(deliveryDay, supplier.supplierId, orderEntry.orderId, item.productName, remaining)}
+                                                    onChange={() => handleOrderCheckIn(supplier.supplierId, orderEntry.orderId, item.productName, remaining)}
                                                     className="h-5 w-5 rounded border-primary/30 text-green-600 focus:ring-green-500"
                                                   />
                                                   <span className={`text-sm ${isItemChecked ? 'text-green-600 line-through' : 'text-muted'}`}>
@@ -1353,22 +1215,21 @@ export default function AdminStockPage() {
         const dayRefunds = dayOrders.flatMap(o => refunds.get(o.id) || []);
         
         const payouts = daySummaries.map(supplier => {
-          const supplierTracking: Array<{ productName: string; ordered: number; arrived: number | null; price: number; orderedValue: number; arrivedValue: number }> = [];
+          const supplierTracking: Array<{ productName: string; ordered: number; arrived: number; price: number; orderedValue: number; arrivedValue: number }> = [];
           for (const item of supplier.items) {
-            const tracking = stockTracking.get(`${payoutModal}-${supplier.supplierId}-${item.productName}`);
-            const arrived = tracking?.quantityArrived ?? null;
+            const arrived = tickedArrivedQty(supplier, item.productName);
             supplierTracking.push({
               productName: item.productName,
               ordered: item.quantity,
               arrived,
               price: item.price,
               orderedValue: item.quantity * item.price,
-              arrivedValue: (arrived ?? 0) * item.price,
+              arrivedValue: arrived * item.price,
             });
           }
-          
+
           const supplierRefunds = dayRefunds.filter(r => r.supplierId === supplier.supplierId);
-          
+
           let supplierRefundDeduction = 0;
           for (const refund of supplierRefunds) {
             if (refund.paidBy === "local") continue;
@@ -1376,13 +1237,15 @@ export default function AdminStockPage() {
             const deduction = refund.paidBy === "supplier" ? refund.refundAmount : refund.refundAmount / 2;
             supplierRefundDeduction += deduction;
           }
-          
+
           const orderedTotal = supplierTracking.reduce((sum, item) => sum + item.orderedValue, 0);
           const arrivedTotal = supplierTracking.reduce((sum, item) => sum + item.arrivedValue, 0);
           const payout = Math.max(0, (arrivedTotal - supplierRefundDeduction) * 0.8);
-          // Zero-default check-in: no recorded arrivals means every line counts
-          // as 0 and the payout is £0 - flagged below so it can't slip through.
-          const hasAnyArrival = supplierTracking.some(t => t.arrived !== null);
+          // Unticked check-in: no ticks at all means every line counts as 0 and
+          // the payout is £0 - flagged below so it can't slip through.
+          const hasAnyArrival = supplier.orders.some(o =>
+            o.items.some(i => isOrderItemCheckedIn(o.orderId, supplier.supplierId, i.productName))
+          );
 
           return {
             ...supplier,
@@ -1712,6 +1575,16 @@ export default function AdminStockPage() {
                   )}
                 </div>
               </div>
+
+              {/* Flag early, refund late: refunds are irreversible (money goes
+                  straight back + customer emailed), so nudge towards waiting
+                  until the crate has actually been checked. */}
+              {reviewModal.issue.type === "flagged" && !isSupplierComplete(reviewModal.issue.deliveryDay, reviewModal.issue.supplierId) && (
+                <div className="rounded-lg bg-blue-50 border border-blue-200 px-4 py-3 text-sm text-blue-800">
+                  <strong>{reviewModal.issue.supplierName} hasn&apos;t finished checking in yet</strong> - flagged items sometimes still turn up.
+                  Refunds go straight back to the customer&apos;s card (with an email) and can&apos;t be reversed, so if in doubt wait until you&apos;ve clicked &quot;Done checking in&quot;.
+                </div>
+              )}
 
               {/* Customer selection */}
               <div>

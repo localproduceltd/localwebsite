@@ -2288,19 +2288,6 @@ export async function submitEmailSignup(email: string): Promise<void> {
 
 // ─── Delivery Tracking ──────────────────────────────────────────────────────
 
-export interface DeliveryStockTracking {
-  id: string;
-  deliveryDay: string;
-  supplierId: string;
-  productName: string;
-  quantityOrdered: number;
-  quantityArrived: number | null; // Final value: override if set, else computed. null = not yet checked.
-  quantityArrivedComputed: number; // Sum from order_item_checkins
-  quantityArrivedOverride: number | null; // Manual override
-  arrivalNotes: string | null;
-  checkedInAt: string | null;
-}
-
 export interface OrderItemCheckin {
   id: string;
   orderId: string;
@@ -2342,120 +2329,9 @@ export interface OrderItemRefund {
   supplierId: string | null;
 }
 
-export async function getDeliveryStockTracking(deliveryDay: string): Promise<DeliveryStockTracking[]> {
-  // Get computed arrivals from check-ins (primary source)
-  const { data: computed, error: computedError } = await supabase
-    .from("computed_stock_arrivals")
-    .select("*")
-    .eq("delivery_day", deliveryDay);
-  if (computedError) {
-    // View might not exist yet, log warning
-    console.warn("computed_stock_arrivals view not available:", computedError);
-  }
-  
-  // Get manual tracking data (override supplement)
-  const { data: overrides, error: overrideError } = await supabase
-    .from("delivery_stock_tracking")
-    .select("*")
-    .eq("delivery_day", deliveryDay);
-  if (overrideError) throw overrideError;
-  
-  // Build a map of override data keyed by supplier_id-product_name.
-  // Store supplier_id/product_name on the value so we don't have to parse the
-  // key string (supplier IDs are UUIDs and contain hyphens themselves).
-  const overrideMap = new Map<string, {
-    id: string;
-    supplier_id: string;
-    product_name: string;
-    quantity_ordered: number;
-    quantity_arrived_override: number | null;
-    arrival_notes: string | null;
-    checked_in_at: string | null;
-  }>();
-  for (const d of overrides ?? []) {
-    overrideMap.set(`${d.supplier_id}-${d.product_name}`, {
-      id: d.id,
-      supplier_id: d.supplier_id,
-      product_name: d.product_name,
-      quantity_ordered: d.quantity_ordered,
-      quantity_arrived_override: d.quantity_arrived_override,
-      arrival_notes: d.arrival_notes,
-      checked_in_at: d.checked_in_at,
-    });
-  }
-
-  // Build a map of computed arrivals keyed by supplier_id-product_name
-  const computedMap = new Map<string, { supplier_id: string; product_name: string; computed_arrived: number }>();
-  for (const c of computed ?? []) {
-    computedMap.set(`${c.supplier_id}-${c.product_name}`, c);
-  }
-
-  // Merge: union of all keys from both sources
-  const allKeys = new Set([...overrideMap.keys(), ...computedMap.keys()]);
-  const results: DeliveryStockTracking[] = [];
-
-  for (const key of allKeys) {
-    const override = overrideMap.get(key);
-    const comp = computedMap.get(key);
-
-    const supplierId = comp?.supplier_id ?? override?.supplier_id ?? "";
-    const productName = comp?.product_name ?? override?.product_name ?? "";
-
-    // quantityArrived is null when nothing has actually been counted yet:
-    // - no override set (or override cleared to null), AND
-    // - no per-order check-ins exist for this item.
-    // This lets the UI distinguish "0 arrived" (real count) from "not checked".
-    const hasOverride = override?.quantity_arrived_override !== null && override?.quantity_arrived_override !== undefined;
-    const hasComputed = comp !== undefined;
-    const quantityArrived: number | null = hasOverride
-      ? (override!.quantity_arrived_override as number)
-      : hasComputed
-        ? comp!.computed_arrived
-        : null;
-
-    results.push({
-      // Use override id if exists, otherwise generate a synthetic id
-      id: override?.id ?? `computed-${key}`,
-      deliveryDay,
-      supplierId,
-      productName,
-      quantityOrdered: override?.quantity_ordered ?? 0,
-      quantityArrived,
-      quantityArrivedComputed: comp?.computed_arrived ?? 0,
-      quantityArrivedOverride: override?.quantity_arrived_override ?? null,
-      arrivalNotes: override?.arrival_notes ?? null,
-      checkedInAt: override?.checked_in_at ?? null,
-    });
-  }
-
-  return results;
-}
-
-export async function upsertDeliveryStockTracking(
-  deliveryDay: string,
-  supplierId: string,
-  productName: string,
-  quantityOrdered: number,
-  quantityArrivedOverride: number | null,
-  arrivalNotes: string | null
-): Promise<void> {
-  // This is for manual override entries only
-  const { error } = await supabase
-    .from("delivery_stock_tracking")
-    .upsert({
-      delivery_day: deliveryDay,
-      supplier_id: supplierId,
-      product_name: productName,
-      quantity_ordered: quantityOrdered,
-      quantity_arrived_override: quantityArrivedOverride,
-      arrival_notes: arrivalNotes,
-      checked_in_at: quantityArrivedOverride !== null ? new Date().toISOString() : null,
-      updated_at: new Date().toISOString(),
-    }, { onConflict: "delivery_day,supplier_id,product_name" });
-  if (error) throw error;
-}
-
 // ─── Order Item Check-ins ───────────────────────────────────────────────────
+// The ticks in order_item_checkins are the single source of truth for what
+// arrived: per-product totals are summed from them client-side.
 
 export async function getOrderItemCheckins(deliveryDay: string): Promise<OrderItemCheckin[]> {
   // Get check-ins for all orders on this delivery day
@@ -2475,57 +2351,34 @@ export async function getOrderItemCheckins(deliveryDay: string): Promise<OrderIt
   }));
 }
 
-export async function toggleOrderItemCheckin(
+// Idempotent set (not a toggle): safe against double-taps and out-of-order
+// responses - the row ends up matching the checkbox the user last saw.
+export async function setOrderItemCheckin(
   orderId: string,
   supplierId: string,
   productName: string,
-  quantity: number
-): Promise<boolean> {
-  // Check if already checked in
-  const { data: existing } = await supabase
-    .from("order_item_checkins")
-    .select("id")
-    .eq("order_id", orderId)
-    .eq("supplier_id", supplierId)
-    .eq("product_name", productName)
-    .single();
-  
-  if (existing) {
-    // Delete the check-in (uncheck)
+  quantity: number,
+  checked: boolean
+): Promise<void> {
+  if (checked) {
     const { error } = await supabase
       .from("order_item_checkins")
-      .delete()
-      .eq("id", existing.id);
-    if (error) throw error;
-    return false; // Now unchecked
-  } else {
-    // Create the check-in (check)
-    const { error } = await supabase
-      .from("order_item_checkins")
-      .insert({
+      .upsert({
         order_id: orderId,
         supplier_id: supplierId,
         product_name: productName,
         quantity: quantity,
-      });
+      }, { onConflict: "order_id,supplier_id,product_name" });
     if (error) throw error;
-    return true; // Now checked
+  } else {
+    const { error } = await supabase
+      .from("order_item_checkins")
+      .delete()
+      .eq("order_id", orderId)
+      .eq("supplier_id", supplierId)
+      .eq("product_name", productName);
+    if (error) throw error;
   }
-}
-
-export async function clearOverrideAndUseCheckins(
-  deliveryDay: string,
-  supplierId: string,
-  productName: string
-): Promise<void> {
-  // Clear the manual override so computed value from check-ins is used
-  const { error } = await supabase
-    .from("delivery_stock_tracking")
-    .update({ quantity_arrived_override: null, updated_at: new Date().toISOString() })
-    .eq("delivery_day", deliveryDay)
-    .eq("supplier_id", supplierId)
-    .eq("product_name", productName);
-  if (error) throw error;
 }
 
 export async function getOrderItemRefunds(orderId: string): Promise<OrderItemRefund[]> {
