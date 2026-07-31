@@ -15,6 +15,7 @@ import {
 import { MapPin, Loader2, Pencil, Save, X, Instagram } from "lucide-react";
 import SupplierDistance from "@/components/SupplierDistance";
 import { LOCALITY_COLORS } from "@/lib/locality";
+import { sortSupplierProducts } from "@/lib/shop-sort";
 import { Star } from "lucide-react";
 import MapPicker from "@/components/MapPicker";
 import ImageUpload from "@/components/ImageUpload";
@@ -322,7 +323,7 @@ export default function YourPageView() {
         <p className="mt-4 text-muted">No approved products to display yet.</p>
       ) : (
         <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-4 xl:grid-cols-5">
-          {products.filter((p) => p.status === "approved").map((product) => {
+          {sortSupplierProducts(products.filter((p) => p.status === "approved")).map((product) => {
             const colors = LOCALITY_COLORS[product.locality] ?? LOCALITY_COLORS["Local"];
             return (
               <div
@@ -349,6 +350,11 @@ export default function YourPageView() {
                     >
                       {product.locality}
                     </span>
+                    {product.featuredAt && (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-accent px-2 py-0.5 text-[10px] font-semibold text-white shadow-sm">
+                        <Star size={9} className="fill-white" /> Featured
+                      </span>
+                    )}
                     {/* Stars overlay */}
                     {avgRatings[product.id] && (
                       <div className="flex items-center gap-0.5 rounded-full px-1.5 py-0.5 backdrop-blur-[2px] ml-0.5" style={{ textShadow: '0 1px 2px rgba(0,0,0,0.3)' }}>
