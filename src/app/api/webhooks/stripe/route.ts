@@ -58,6 +58,15 @@ async function handleTopUpWebhook(
 
     console.log(`Top-up items added to order ${existingOrder.orderNumber} via webhook`);
 
+    // Mark any pending saved basket as converted (top-up went onto an order).
+    if (session.customer_email) {
+      try {
+        await markBasketConverted(session.customer_email);
+      } catch (e) {
+        console.error("Webhook: failed to mark basket converted (top-up):", e);
+      }
+    }
+
     // Any promo code applied on the top-up's Stripe page - shown on the email.
     // The event's session object doesn't carry expanded discounts, so re-retrieve.
     let discountCode: string | undefined;

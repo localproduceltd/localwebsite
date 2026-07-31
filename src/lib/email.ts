@@ -243,7 +243,7 @@ interface SavedBasketReminderData {
   total: number;
 }
 
-// A gentle "you left a basket, come check out" nudge, sent by the Tuesday
+// A gentle "you left a basket, come check out" nudge, sent by the Wednesday
 // basket-reminder cron and the admin Saved Baskets page. The cut-off line
 // names Wednesday explicitly so it reads correctly whichever day it's sent.
 export async function sendSavedBasketReminder(data: SavedBasketReminderData) {

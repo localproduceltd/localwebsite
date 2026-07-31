@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { stripe, DISCOUNT_EXPAND, extractSessionDiscount } from "@/lib/stripe";
-import { addItemsToOrder, getOrder, getSupplier, isTopUpSessionProcessed, markTopUpSessionProcessed, parseItemsFromMetadata, rollbackTopUpSession, type OrderItem } from "@/lib/data";
+import { addItemsToOrder, getOrder, getSupplier, isTopUpSessionProcessed, markTopUpSessionProcessed, markBasketConverted, parseItemsFromMetadata, rollbackTopUpSession, type OrderItem } from "@/lib/data";
 import { sendOrderConfirmation, sendSupplierNewOrder } from "@/lib/email";
 import { auth, clerkClient } from "@clerk/nextjs/server";
 
@@ -77,6 +77,17 @@ export async function POST(request: NextRequest) {
       console.error("Failed to add items to order, rolling back session marker:", addError);
       await rollbackTopUpSession(sessionId);
       throw addError;
+    }
+
+    // Mark any pending saved basket as converted - the items just went onto an
+    // order via top-up, so it must not linger as an open basket (mirrors the
+    // normal checkout path in /api/checkout/confirm).
+    if (session.customer_email) {
+      try {
+        await markBasketConverted(session.customer_email);
+      } catch (e) {
+        console.error("Failed to mark basket converted (top-up):", e);
+      }
     }
 
     // Send emails

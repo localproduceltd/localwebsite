@@ -2782,6 +2782,21 @@ export async function saveBasket(
       .eq("id", existing.id);
     if (error) throw error;
   } else {
+    // Post-checkout race guard: markBasketConverted (normal + top-up checkout)
+    // stamps converted_at on the basket the customer just ordered. A late
+    // debounced save from the browser must not recreate a fresh pending basket
+    // in the seconds after that. If this email converted a basket in the last 5
+    // minutes, skip re-creating one. (A genuinely new shop later saves normally.)
+    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+    const { data: recentlyConverted } = await supabase
+      .from("saved_baskets")
+      .select("id")
+      .eq("customer_email", customerEmail)
+      .gte("converted_at", fiveMinutesAgo)
+      .limit(1)
+      .maybeSingle();
+    if (recentlyConverted) return;
+
     const { error } = await supabase
       .from("saved_baskets")
       .insert({
