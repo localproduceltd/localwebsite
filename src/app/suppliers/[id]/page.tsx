@@ -7,6 +7,7 @@ import { MapPin, ArrowLeft, Check, Plus, Minus, Star, Instagram, Palmtree } from
 import { notFound } from "next/navigation";
 import SupplierDistance from "@/components/SupplierDistance";
 import { LOCALITY_COLORS } from "@/lib/locality";
+import { sortSupplierProducts } from "@/lib/shop-sort";
 import { useCart } from "@/lib/cart-context";
 import { useState, useEffect } from "react";
 import type { Product } from "@/lib/data";
@@ -35,19 +36,10 @@ export default function SupplierDetailPage({ params }: { params: Promise<{ id: s
       }
       setSupplier(sup);
       const prods = await getProductsBySupplier(id);
-      // Sort by popularity/rating with slight variety
+      // Featured picks pinned first, then last-14-days activity, then
+      // all-time popularity for the quiet tail.
       const approved = prods.filter((p) => p.status === "approved");
-      approved.sort((a, b) => {
-        // Primary: order count (desc)
-        const orderDiff = (b.orderCount ?? 0) - (a.orderCount ?? 0);
-        if (Math.abs(orderDiff) > 2) return orderDiff; // Only separate if difference is meaningful
-        // Secondary: rating (desc)
-        const ratingDiff = (b.avgRating ?? 0) - (a.avgRating ?? 0);
-        if (Math.abs(ratingDiff) > 0.3) return ratingDiff;
-        // Tertiary: slight shuffle for variety (deterministic based on id)
-        return a.id.localeCompare(b.id) * (a.id.charCodeAt(0) % 2 === 0 ? 1 : -1);
-      });
-      setProducts(approved);
+      setProducts(sortSupplierProducts(approved));
       setLoading(false);
     })();
   }, [id]);
@@ -159,6 +151,11 @@ export default function SupplierDetailPage({ params }: { params: Promise<{ id: s
                     >
                       {product.locality}
                     </span>
+                    {product.featuredAt && (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-accent px-2 py-0.5 text-[10px] font-semibold text-white shadow-sm">
+                        <Star size={9} className="fill-white" /> Featured
+                      </span>
+                    )}
                     {/* Stars overlay */}
                     {(product.ratingCount ?? 0) > 0 && (
                       <div className="flex items-center gap-0.5 rounded-full px-1.5 py-0.5 backdrop-blur-[2px] ml-0.5" style={{ textShadow: '0 1px 2px rgba(0,0,0,0.3)' }}>

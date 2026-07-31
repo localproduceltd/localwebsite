@@ -20,6 +20,8 @@ import {
   getProductRatings,
   getActiveDeliveryDays,
   getOrderedQuantities,
+  setProductFeatured,
+  MAX_FEATURED_PER_SUPPLIER,
 } from "@/lib/data";
 import { PRODUCT_CATEGORIES, ALLERGENS, PRODUCT_TAGS } from "@/lib/categories";
 import { LOCALITY_COLORS } from "@/lib/locality";
@@ -159,6 +161,28 @@ export default function SupplierProductsPage() {
   const weeklyRemaining = (product: Product): number | null =>
     product.weeklyStock == null ? null : Math.max(0, product.weeklyStock - (orderedQty[product.id] ?? 0));
 
+  const featuredCount = products.filter((p) => p.featuredAt != null).length;
+
+  const handleToggleFeatured = async (product: Product) => {
+    if (!supplier) return;
+    const makeFeatured = product.featuredAt == null;
+    if (makeFeatured && featuredCount >= MAX_FEATURED_PER_SUPPLIER) {
+      alert(`You can feature up to ${MAX_FEATURED_PER_SUPPLIER} products. Un-feature one first to swap in another.`);
+      return;
+    }
+    try {
+      const result = await setProductFeatured(product, makeFeatured);
+      if (!result.ok) {
+        alert(`You can feature up to ${MAX_FEATURED_PER_SUPPLIER} products. Un-feature one first to swap in another.`);
+        return;
+      }
+      await fetchProducts(supplier.id);
+    } catch (e) {
+      console.error("Failed to update featured product:", e);
+      alert("Failed to update featured product. Please try again.");
+    }
+  };
+
   if (!isLoaded || loading) {
     return (
       <div className="flex min-h-[50vh] items-center justify-center">
@@ -198,6 +222,10 @@ export default function SupplierProductsPage() {
         <div>
           <h1 className="text-2xl font-bold text-primary">Your Products</h1>
           <p className="text-sm text-muted">{products.length} product{products.length !== 1 ? "s" : ""} total</p>
+          <p className="mt-1 text-xs text-secondary">
+            <Star size={11} className="mb-0.5 mr-0.5 inline fill-accent text-accent" />
+            Feature up to {MAX_FEATURED_PER_SUPPLIER} products ({featuredCount} of {MAX_FEATURED_PER_SUPPLIER} used) - they pin to the top of your page and get a boost in the shop.
+          </p>
           {supplier.stockTracking && (
             <p className="mt-1 text-xs text-secondary">
               Weekly stock is on: give any product a weekly amount and it&apos;ll show as sold out once that many are ordered
@@ -330,6 +358,15 @@ export default function SupplierProductsPage() {
                 </button>
               </div>
               <div className="flex items-center gap-1">
+                {product.status === "approved" && (
+                  <button
+                    onClick={() => handleToggleFeatured(product)}
+                    title={product.featuredAt ? "Un-feature this product" : "Feature this product"}
+                    className={`rounded p-2 transition hover:bg-accent/10 ${product.featuredAt ? "text-accent" : "text-muted hover:text-accent"}`}
+                  >
+                    <Star size={16} className={product.featuredAt ? "fill-accent" : ""} />
+                  </button>
+                )}
                 <button
                   onClick={() => { setEditing(product); setShowForm(true); }}
                   className="rounded p-2 text-muted transition hover:bg-secondary/20 hover:text-primary"
@@ -502,6 +539,15 @@ export default function SupplierProductsPage() {
                   </div>
                 </td>
                 <td className="px-3 py-3 text-right">
+                  {product.status === "approved" && (
+                    <button
+                      onClick={() => handleToggleFeatured(product)}
+                      title={product.featuredAt ? "Un-feature this product" : "Feature this product"}
+                      className={`mr-2 rounded p-1.5 transition hover:bg-accent/10 ${product.featuredAt ? "text-accent" : "text-muted hover:text-accent"}`}
+                    >
+                      <Star size={14} className={product.featuredAt ? "fill-accent" : ""} />
+                    </button>
+                  )}
                   <button
                     onClick={() => { setEditing(product); setShowForm(true); }}
                     className="mr-2 rounded p-1.5 text-muted transition hover:bg-secondary/20 hover:text-primary"

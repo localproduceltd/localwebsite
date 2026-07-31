@@ -87,6 +87,12 @@ export interface Product {
   avgRating?: number;
   ratingCount?: number;
   orderCount?: number;
+  // Last-14-days activity (from products_with_stats) - drives shop ordering.
+  recentOrderCount?: number;
+  recentRatingCount?: number;
+  // Supplier-starred (max 3 per supplier); pins to the top of their page and
+  // joins the "recent activity" band on the shop. Null = not featured.
+  featuredAt?: string | null;
 }
 
 export type SupplierOrderStatus = "order_placed" | "prepping" | "dropped_at_depot" | "delivered" | "cancelled";
@@ -397,6 +403,9 @@ export async function getApprovedProducts(): Promise<Product[]> {
     avgRating: Number(p.avg_rating) || 0,
     ratingCount: p.rating_count ?? 0,
     orderCount: p.order_count ?? 0,
+    recentOrderCount: p.recent_order_count ?? 0,
+    recentRatingCount: p.recent_rating_count ?? 0,
+    featuredAt: p.featured_at ?? null,
   }));
 }
 
@@ -435,6 +444,9 @@ export async function getProductsBySupplier(supplierId: string, client: Supabase
     avgRating: Number(p.avg_rating) || 0,
     ratingCount: p.rating_count ?? 0,
     orderCount: p.order_count ?? 0,
+    recentOrderCount: p.recent_order_count ?? 0,
+    recentRatingCount: p.recent_rating_count ?? 0,
+    featuredAt: p.featured_at ?? null,
   }));
 }
 
@@ -771,7 +783,33 @@ export async function updateProduct(product: Product, client: SupabaseClient = s
   if (error) throw error;
 }
 
-export type DeleteProductResult = 
+export const MAX_FEATURED_PER_SUPPLIER = 3;
+
+export type SetFeaturedResult = { ok: true } | { ok: false; reason: "limit_reached" };
+
+// Star/unstar a product on the supplier's page. featured_at doubles as the
+// display order (oldest star shows first). Re-checks the per-supplier limit
+// here, not just in the UI, so two tabs can't star a fourth.
+export async function setProductFeatured(product: Product, featured: boolean, client: SupabaseClient = supabase): Promise<SetFeaturedResult> {
+  if (featured) {
+    const { count, error: countError } = await client
+      .from("products")
+      .select("id", { count: "exact", head: true })
+      .eq("supplier_id", product.supplierId)
+      .not("featured_at", "is", null)
+      .is("archived_at", null);
+    if (countError) throw countError;
+    if ((count ?? 0) >= MAX_FEATURED_PER_SUPPLIER) return { ok: false, reason: "limit_reached" };
+  }
+  const { error } = await client
+    .from("products")
+    .update({ featured_at: featured ? new Date().toISOString() : null })
+    .eq("id", product.id);
+  if (error) throw error;
+  return { ok: true };
+}
+
+export type DeleteProductResult =
   | { deleted: true }
   | { deleted: false; reason: "has_outstanding_orders" };
 

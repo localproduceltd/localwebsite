@@ -10,6 +10,7 @@ import { LOCALITY_OPTIONS, getUserOrderedProductIds } from "@/lib/data";
 import type { Locality, Product } from "@/lib/data";
 import { LOCALITY_COLORS } from "@/lib/locality";
 import { PRODUCT_CATEGORIES, PRODUCT_TAGS } from "@/lib/categories";
+import { sortShopProducts } from "@/lib/shop-sort";
 import ProductDetailModal from "@/components/ProductDetailModal";
 
 export default function ProductsPage() {
@@ -89,47 +90,9 @@ export default function ProductsPage() {
       });
     }
 
-    // No search: sort by popularity/ratings first, then locality for unordered items
-    // Split into products with orders/ratings vs without
-    const withActivity = matchingProducts.filter(p => (p.orderCount ?? 0) > 0 || (p.ratingCount ?? 0) > 0);
-    const withoutActivity = matchingProducts.filter(p => !((p.orderCount ?? 0) > 0 || (p.ratingCount ?? 0) > 0));
-
-    // Sort products with activity by: orders (desc), then rating (desc), with slight variety
-    withActivity.sort((a, b) => {
-      const orderDiff = (b.orderCount ?? 0) - (a.orderCount ?? 0);
-      if (Math.abs(orderDiff) > 2) return orderDiff; // Only separate if difference is meaningful
-      const ratingDiff = (b.avgRating ?? 0) - (a.avgRating ?? 0);
-      if (Math.abs(ratingDiff) > 0.3) return ratingDiff;
-      // Slight shuffle for variety (deterministic based on id)
-      return a.id.localeCompare(b.id) * (a.id.charCodeAt(0) % 2 === 0 ? 1 : -1);
-    });
-
-    // For products without activity: group by category, sort by locality, then interleave
-    const byCategory = new Map<string, typeof withoutActivity>();
-    for (const p of withoutActivity) {
-      if (!byCategory.has(p.category)) byCategory.set(p.category, []);
-      byCategory.get(p.category)!.push(p);
-    }
-    // Sort each category by locality priority
-    for (const [, prods] of byCategory) {
-      prods.sort((a, b) => {
-        const localityDiff = (localityPriority[a.locality] ?? 9) - (localityPriority[b.locality] ?? 9);
-        if (localityDiff !== 0) return localityDiff;
-        return a.name.localeCompare(b.name);
-      });
-    }
-    // Round-robin interleave categories to mix it up
-    const categoryArrays = Array.from(byCategory.values());
-    const interleavedRest: typeof withoutActivity = [];
-    const maxLen = Math.max(...categoryArrays.map((arr) => arr.length), 0);
-    for (let i = 0; i < maxLen; i++) {
-      for (const arr of categoryArrays) {
-        if (i < arr.length) interleavedRest.push(arr[i]);
-      }
-    }
-
-    // Popular/rated products first, then interleaved rest
-    return [...withActivity, ...interleavedRest];
+    // No search: recent activity (last 14 days) + featured products on top,
+    // round-robined across suppliers; everything else category-interleaved.
+    return sortShopProducts(matchingProducts);
   })();
 
   return (
