@@ -485,6 +485,18 @@ export default function AccountPage() {
                       <p className="text-xs text-muted">Placed on {order.createdAt}</p>
                     </div>
                     <div className="flex items-center gap-3">
+                      {isDelivered && !isReviewing && (
+                        hasAllRatings ? (
+                          <p className="text-xs text-green-600 font-medium">✓ Review submitted</p>
+                        ) : (
+                          <button
+                            onClick={() => startReview(order.id, order.items)}
+                            className="rounded-lg bg-secondary/20 px-4 py-1.5 text-xs font-semibold text-primary hover:bg-secondary/30"
+                          >
+                            {Object.keys(orderSubmittedRatings).length > 0 ? "Edit Review" : "Leave a Review"}
+                          </button>
+                        )
+                      )}
                       {canModify && (
                         <button
                           onClick={() => handleAddToOrder(order)}
@@ -640,34 +652,21 @@ export default function AccountPage() {
 
                   {/* Order footer */}
                   <div className="flex items-center justify-between border-t border-primary/5 bg-secondary/5 px-6 py-3">
-                    {isDelivered && (
+                    {isDelivered && isReviewing && (
                       <div className="flex items-center gap-3">
-                        {isReviewing ? (
-                          <>
-                            <button
-                              onClick={cancelReview}
-                              className="rounded-lg border border-primary/20 px-3 py-1.5 text-xs font-medium text-muted hover:bg-white"
-                            >
-                              Cancel
-                            </button>
-                            <button
-                              onClick={() => submitReview(order.id)}
-                              disabled={!draftHasAnyStars || submittingReview}
-                              className="rounded-lg bg-primary px-4 py-1.5 text-xs font-semibold text-white hover:bg-secondary disabled:opacity-50"
-                            >
-                              {submittingReview ? "Submitting..." : "Submit Review"}
-                            </button>
-                          </>
-                        ) : hasAllRatings ? (
-                          <p className="text-xs text-green-600 font-medium">✓ Review submitted</p>
-                        ) : (
-                          <button
-                            onClick={() => startReview(order.id, order.items)}
-                            className="rounded-lg bg-secondary/20 px-4 py-1.5 text-xs font-semibold text-primary hover:bg-secondary/30"
-                          >
-                            {Object.keys(orderSubmittedRatings).length > 0 ? "Edit Review" : "Leave a Review"}
-                          </button>
-                        )}
+                        <button
+                          onClick={cancelReview}
+                          className="rounded-lg border border-primary/20 px-3 py-1.5 text-xs font-medium text-muted hover:bg-white"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          onClick={() => submitReview(order.id)}
+                          disabled={!draftHasAnyStars || submittingReview}
+                          className="rounded-lg bg-primary px-4 py-1.5 text-xs font-semibold text-white hover:bg-secondary disabled:opacity-50"
+                        >
+                          {submittingReview ? "Submitting..." : "Submit Review"}
+                        </button>
                       </div>
                     )}
                     <p className="text-sm font-bold text-primary ml-auto">
