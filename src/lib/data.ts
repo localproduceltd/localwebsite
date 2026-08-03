@@ -1572,10 +1572,10 @@ export async function getSupplierOrderCounts(): Promise<Record<string, number>> 
 
 // ─── Feedback ─────────────────────────────────────────────────────────────────
 
-export async function submitFeedback(name: string, message: string, source: "carrie" | "order_review" | "expansion" = "carrie", orderNumber?: number, postcode?: string, pageUrl?: string): Promise<void> {
+export async function submitFeedback(name: string, message: string, source: "carrie" | "order_review" | "expansion" = "carrie", orderNumber?: number, postcode?: string, pageUrl?: string, email?: string): Promise<void> {
   const { error } = await supabase
     .from("feedback")
-    .insert({ name: name || null, message, source, order_number: orderNumber ?? null, postcode: postcode ?? null, page_url: pageUrl ?? null });
+    .insert({ name: name || null, message, source, order_number: orderNumber ?? null, postcode: postcode ?? null, page_url: pageUrl ?? null, email: email ?? null });
   if (error) throw error;
 }
 
@@ -1583,10 +1583,10 @@ export async function submitExpansionRequest(postcode: string, email?: string, n
   const message = email 
     ? `Expansion request for postcode ${postcode}. Contact: ${email}`
     : `Expansion request for postcode ${postcode}`;
-  await submitFeedback(name || "", message, "expansion", undefined, postcode);
+  await submitFeedback(name || "", message, "expansion", undefined, postcode, undefined, email);
 }
 
-export async function getFeedback(): Promise<{ id: string; name: string | null; message: string; created_at: string; source: string; orderNumber: number | null; postcode: string | null; pageUrl: string | null; featured: boolean }[]> {
+export async function getFeedback(): Promise<{ id: string; name: string | null; message: string; created_at: string; source: string; orderNumber: number | null; postcode: string | null; pageUrl: string | null; email: string | null; featured: boolean }[]> {
   const { data, error } = await supabase
     .from("feedback")
     .select("*")
@@ -1601,6 +1601,7 @@ export async function getFeedback(): Promise<{ id: string; name: string | null; 
     orderNumber: f.order_number ?? null,
     postcode: f.postcode ?? null,
     pageUrl: f.page_url ?? null,
+    email: f.email ?? null,
     featured: f.featured ?? false,
   }));
 }

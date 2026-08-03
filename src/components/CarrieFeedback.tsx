@@ -9,6 +9,7 @@ export default function CarrieFeedback() {
   const [showForm, setShowForm] = useState(false);
   const [feedback, setFeedback] = useState("");
   const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
   const [submitted, setSubmitted] = useState(false);
   const formRef = useRef<HTMLDivElement>(null);
 
@@ -26,7 +27,7 @@ export default function CarrieFeedback() {
     if (!feedback.trim()) return;
     try {
       const pageUrl = window.location.pathname + window.location.search;
-      await submitFeedback(name, feedback, "carrie", undefined, undefined, pageUrl);
+      await submitFeedback(name, feedback, "carrie", undefined, undefined, pageUrl, email.trim() || undefined);
     } catch (e) {
       console.error("Failed to save feedback:", e);
     }
@@ -36,6 +37,7 @@ export default function CarrieFeedback() {
       setSubmitted(false);
       setFeedback("");
       setName("");
+      setEmail("");
     }, 2500);
   };
 
@@ -92,6 +94,13 @@ export default function CarrieFeedback() {
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 className="mt-4 w-full rounded-lg border border-primary/20 bg-surface px-3 py-2 text-base sm:text-sm outline-none focus:border-secondary"
+              />
+              <input
+                type="email"
+                placeholder="Your email (optional)"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="mt-2 w-full rounded-lg border border-primary/20 bg-surface px-3 py-2 text-base sm:text-sm outline-none focus:border-secondary"
               />
               <textarea
                 placeholder="Request a local supplier or product, suggest a feature, or tell us how we're doing!"

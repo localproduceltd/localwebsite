@@ -1,10 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { Resend } from "resend";
 import { createSupplierProductFlag, getOrders, getRefundsForDeliveryDay, removeSupplierProductFlag } from "@/lib/data";
+import { sendSupplierFlagAlert } from "@/lib/email";
 import { supabase } from "@/lib/supabase";
-
-const resend = new Resend(process.env.RESEND_API_KEY);
-const FROM_EMAIL = process.env.FROM_EMAIL || "Local Produce <onboarding@resend.dev>";
 
 export async function POST(request: NextRequest) {
   try {
@@ -43,49 +40,20 @@ export async function POST(request: NextRequest) {
     );
     const affectedCount = affectedOrders.length;
 
-    // Format delivery date for email
-    const deliveryDate = new Date(deliveryDay + "T00:00:00");
-    const formattedDate = deliveryDate.toLocaleDateString("en-GB", {
-      weekday: "long",
-      day: "numeric",
-      month: "long",
-      year: "numeric",
-    });
-
-    // Send admin notification email
-    const adminEmail = process.env.ADMIN_EMAIL || "josie@localproduce.ltd";
-    
-    await resend.emails.send({
-      from: FROM_EMAIL,
-      to: adminEmail,
-      subject: `⚠️ ${supplier.name} flagged ${productName} won't arrive`,
-      html: `
-        <div style="font-family: system-ui, -apple-system, sans-serif; max-width: 600px; margin: 0 auto;">
-          <h2 style="color: #dc2626;">Supplier Product Unavailable</h2>
-          
-          <p><strong>${supplier.name}</strong> has flagged that <strong>${qtyUnavailable !== null ? `${qtyUnavailable}x ` : ""}${productName}</strong> won't arrive for the <strong>${formattedDate}</strong> delivery.</p>
-          
-          <div style="background: #fef3c7; border: 1px solid #f59e0b; border-radius: 8px; padding: 16px; margin: 20px 0;">
-            <p style="margin: 0; color: #92400e;">
-              <strong>${affectedCount} customer${affectedCount !== 1 ? "s" : ""}</strong> ordered this product and may need refunds.
-            </p>
-          </div>
-          
-          <p>
-            <a href="${process.env.NEXT_PUBLIC_BASE_URL || "https://www.localproduce.ltd"}/admin/stock"
-               style="display: inline-block; background: #059669; color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: 600;">
-              Review on Stock Tab
-            </a>
-          </p>
-          
-          <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 24px 0;" />
-          
-          <p style="color: #6b7280; font-size: 14px;">
-            Affected orders: ${affectedOrders.map(o => `#${o.orderNumber}`).join(", ") || "None"}
-          </p>
-        </div>
-      `,
-    });
+    // Send admin notification email. A failed send never fails the flag -
+    // the flag itself is already saved and visible on the Stock tab.
+    try {
+      await sendSupplierFlagAlert({
+        supplierName: supplier.name,
+        productName,
+        quantityUnavailable: qtyUnavailable,
+        deliveryDay,
+        affectedCount,
+        affectedOrderNumbers: affectedOrders.map(o => o.orderNumber),
+      });
+    } catch (emailError) {
+      console.error("Supplier flag alert email failed:", emailError);
+    }
 
     return NextResponse.json({
       success: true,

@@ -2,10 +2,9 @@
 
 import { useState, useEffect, useRef, useMemo, Suspense } from "react";
 import dynamic from "next/dynamic";
-import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useCart } from "@/lib/cart-context";
-import { type Supplier, type DeliveryArea, getLiveSuppliers, getCustomerProfile, getDeliveryArea, saveCustomerPostcode } from "@/lib/data";
+import { type Supplier, type DeliveryArea, getLiveSuppliers, getCustomerProfile, getDeliveryArea, saveCustomerPostcode, submitExpansionRequest } from "@/lib/data";
 import { LOCALITY_COLORS } from "@/lib/locality";
 import { MapPin, CheckCircle2, HelpCircle, Loader2, Search, Truck, Store } from "lucide-react";
 import { useAuth, useUser } from "@clerk/nextjs";
@@ -43,6 +42,9 @@ function MapPageContent() {
   const [postcodeInput, setPostcodeInput] = useState("");
   const [checkingPostcode, setCheckingPostcode] = useState(false);
   const [postcodeError, setPostcodeError] = useState("");
+  const [expansionEmail, setExpansionEmail] = useState("");
+  const [submittingExpansion, setSubmittingExpansion] = useState(false);
+  const [expansionSubmitted, setExpansionSubmitted] = useState(false);
   
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
@@ -97,6 +99,7 @@ function MapPageContent() {
     if (!postcodeInput.trim()) return;
     setCheckingPostcode(true);
     setPostcodeError("");
+    setExpansionSubmitted(false);
 
     try {
       const res = await fetch(`https://api.postcodes.io/postcodes/${encodeURIComponent(postcodeInput.trim())}`);
@@ -125,6 +128,19 @@ function MapPageContent() {
     }
 
     setCheckingPostcode(false);
+  };
+
+  const handleExpansionRequest = async () => {
+    if (!customerLocation?.postcode) return;
+    setSubmittingExpansion(true);
+    try {
+      const email = expansionEmail.trim() || user?.primaryEmailAddress?.emailAddress || undefined;
+      await submitExpansionRequest(customerLocation.postcode, email);
+      setExpansionSubmitted(true);
+    } catch (e) {
+      console.error("Failed to submit expansion request:", e);
+    }
+    setSubmittingExpansion(false);
   };
 
   const productsWithCoords = useMemo(
@@ -500,17 +516,39 @@ function MapPageContent() {
 
         {deliveryStatus === "not_covered" && (
           <div className="mt-4 rounded-xl bg-gray-50 border-2 border-gray-200 px-5 py-4">
-            <div className="flex items-center gap-3">
+            <div className="flex items-start gap-3">
               <HelpCircle size={24} className="text-gray-500 flex-shrink-0" />
-              <div>
+              <div className="flex-1">
                 <p className="font-bold text-gray-800">Not in our delivery area yet</p>
-                <p className="text-sm text-gray-600">
-                  {customerLocation?.postcode} isn't covered yet, but we're expanding! 
-                  <Link href="/home" className="ml-1 font-semibold text-secondary hover:underline">
-                    Leave a message with Carrie on the homepage
-                  </Link>
-                  {" "}to request delivery to your postcode.
-                </p>
+                {expansionSubmitted ? (
+                  <div className="mt-2 flex items-center gap-2 text-green-700">
+                    <CheckCircle2 size={16} className="flex-shrink-0" />
+                    <p className="text-sm font-medium">Thanks! We&apos;ve noted your interest in {customerLocation?.postcode} - we&apos;ll email you the moment we deliver to your area.</p>
+                  </div>
+                ) : (
+                  <>
+                    <p className="text-sm text-gray-600">
+                      {customerLocation?.postcode} isn&apos;t covered yet, but we&apos;re expanding. Leave your email and we&apos;ll let you know the moment we reach you.
+                    </p>
+                    <div className="mt-3 flex gap-2">
+                      <input
+                        type="email"
+                        placeholder="Your email (optional)"
+                        value={expansionEmail}
+                        onChange={(e) => setExpansionEmail(e.target.value)}
+                        className="flex-1 rounded-lg border border-gray-300 bg-white px-3 py-2 text-base sm:text-sm outline-none focus:border-secondary"
+                      />
+                      <button
+                        onClick={handleExpansionRequest}
+                        disabled={submittingExpansion}
+                        className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition hover:bg-primary/90 disabled:opacity-50"
+                      >
+                        {submittingExpansion ? <Loader2 size={16} className="animate-spin" /> : <MapPin size={16} />}
+                        Notify me
+                      </button>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
           </div>

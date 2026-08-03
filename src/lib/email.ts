@@ -227,9 +227,6 @@ export async function sendOrderConfirmation(data: OrderConfirmationData) {
     console.error("Failed to send order confirmation email:", error);
     throw error;
   }
-
-  // Also send admin notification
-  await sendAdminOrderNotification(data);
 }
 
 // ─── Saved basket reminder ───────────────────────────────────────────────────
@@ -308,46 +305,63 @@ export async function sendSavedBasketReminder(data: SavedBasketReminderData) {
 
 const ADMIN_EMAIL = "orders@localproduce.ltd";
 
-async function sendAdminOrderNotification(data: OrderConfirmationData) {
-  const subject = data.isTopUp 
-    ? `🛒 Top-up Added - Order #${data.orderNumber}` 
-    : `🛒 New Order #${data.orderNumber} - £${data.total.toFixed(2)}`;
+interface SupplierFlagAlertData {
+  supplierName: string;
+  productName: string;
+  quantityUnavailable: number | null; // null = whole line unavailable
+  deliveryDay: string; // "YYYY-MM-DD"
+  affectedCount: number;
+  affectedOrderNumbers: number[];
+}
+
+// Heads-up to Josie when a supplier flags a product won't arrive - sent by
+// POST /api/supplier-product-flag at flag time. Goes to josie@ (not orders@)
+// so it lands where the refund decision gets made.
+export async function sendSupplierFlagAlert(data: SupplierFlagAlertData) {
+  const adminEmail = process.env.ADMIN_EMAIL || "josie@localproduce.ltd";
+
+  const formattedDate = new Date(data.deliveryDay + "T00:00:00").toLocaleDateString("en-GB", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
 
   const { error } = await resend.emails.send({
     from: FROM_EMAIL,
-    to: ADMIN_EMAIL,
-    subject,
+    to: adminEmail,
+    subject: `⚠️ ${data.supplierName} flagged ${data.productName} won't arrive`,
     html: `
-      <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
-        <h1 style="color: #A30E4E;">${data.isTopUp ? "Top-up Added" : "New Order"} 🎉</h1>
-        <p><strong>Order #${data.orderNumber}</strong></p>
-        <p><strong>Customer:</strong> ${data.customerEmail}</p>
-        <p><strong>Delivery:</strong> ${data.deliveryDay}</p>
-        ${data.address ? `<p><strong>Address:</strong> ${data.address}</p>` : ""}
-        
-        <div style="background: #f9f9f9; padding: 20px; border-radius: 8px; margin: 20px 0;">
-          <h3 style="margin-top: 0; color: #333;">Items</h3>
-          ${data.items.map((item) => `
-            <div style="display: flex; justify-content: space-between; margin: 8px 0;">
-              <span>${item.productName} x${item.quantity}</span>
-              <span>£${(item.price * item.quantity).toFixed(2)}</span>
-            </div>
-          `).join("")}
-          <hr style="border: none; border-top: 1px solid #ddd; margin: 15px 0;">
-          <div style="display: flex; justify-content: space-between; font-weight: bold; font-size: 18px;">
-            <span>Total</span>
-            <span>£${data.total.toFixed(2)}</span>
-          </div>
+      <div style="font-family: system-ui, -apple-system, sans-serif; max-width: 600px; margin: 0 auto;">
+        <h2 style="color: #dc2626;">Supplier Product Unavailable</h2>
+
+        <p><strong>${data.supplierName}</strong> has flagged that <strong>${data.quantityUnavailable !== null ? `${data.quantityUnavailable}x ` : ""}${data.productName}</strong> won't arrive for the <strong>${formattedDate}</strong> delivery.</p>
+
+        <div style="background: #fef3c7; border: 1px solid #f59e0b; border-radius: 8px; padding: 16px; margin: 20px 0;">
+          <p style="margin: 0; color: #92400e;">
+            <strong>${data.affectedCount} customer${data.affectedCount !== 1 ? "s" : ""}</strong> ordered this product and may need refunds.
+          </p>
         </div>
-        
-        <p><a href="https://localproduce.ltd/admin/orders" style="background: #A30E4E; color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; display: inline-block;">View in Admin</a></p>
+
+        <p>
+          <a href="${process.env.NEXT_PUBLIC_BASE_URL || "https://www.localproduce.ltd"}/admin/stock"
+             style="display: inline-block; background: #059669; color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: 600;">
+            Review on Stock Tab
+          </a>
+        </p>
+
+        <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 24px 0;" />
+
+        <p style="color: #6b7280; font-size: 14px;">
+          Affected orders: ${data.affectedOrderNumbers.map((n) => `#${n}`).join(", ") || "None"}
+        </p>
       </div>
     `,
   });
 
   if (error) {
-    console.error("Failed to send admin order notification:", error);
-    // Don't throw - admin notification failure shouldn't break the order flow
+    console.error("Failed to send supplier flag alert email:", error);
+    throw error;
   }
 }
 
@@ -765,12 +779,11 @@ export async function sendOrderStatusUpdate(data: OrderStatusUpdateData) {
         <h1 style="color: ${GREEN}; font-size: 21px; margin: 0 0 14px;">That's delivered - enjoy${nm}!</h1>
         <p style="margin: 0 0 12px;">Hi ${name}, your box from order <strong>#${data.orderNumber}</strong> is on your doorstep.</p>
         <div style="background: #fbf3f6; border-radius: 8px; padding: 16px; margin: 16px 0; text-align: center;">
-          <p style="margin: 0 0 4px; font-weight: bold; color: ${BRAND}; font-size: 15px;">⭐ How did we do?</p>
-          <p style="margin: 0 0 8px; font-size: 14px; color: #5a5a5a;">We're tiny and still learning. A quick word on what you loved or didn't will really help shape what we do next.</p>
-          <p style="margin: 0 0 12px; font-size: 14px; color: #5a5a5a;">You can review individual products and the service as a whole - both are really appreciated.</p>
+          <p style="margin: 0 0 4px; font-weight: bold; color: ${BRAND}; font-size: 15px;">⭐ Got any feedback? Good or bad, we want to hear it!</p>
+          <p style="margin: 0 0 12px; font-size: 14px; color: #5a5a5a;">Every product review goes directly to the producers - and anything about the service comes straight to both me and the producers. It's how we get better!</p>
           <a href="https://www.localproduce.ltd/account" style="display: inline-block; background: ${BRAND}; color: #fff; padding: 10px 22px; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 14px;">Leave a quick review</a>
         </div>
-        <p style="margin: 12px 0 4px;">Thank you for shopping this way - it means the world to the producers, suppliers, and to me.</p>
+        <p style="margin: 12px 0 4px;">And if you enjoyed your Local Produce, please help us spread the word - a mention to a friend or neighbour does more for us at Local than any advert could. 💚</p>
         ${SIGNOFF}`;
   } else {
     subject = `Your order's been cancelled - #${data.orderNumber}`;
@@ -900,8 +913,9 @@ export async function sendSupplierOrderSummary(data: SupplierOrderSummaryData) {
             <span>Your Payout</span>
             <span>£${(data.grandTotal * 0.8).toFixed(2)}</span>
           </div>
+          <p style="margin: 10px 0 0; font-size: 13px; color: #666;">Payout shown assumes everything arrives as ordered - your payout email after delivery reflects what's checked in at the depot (and any refunds), so the final figure can differ.</p>
         </div>
-        
+
         <p style="color: #666; font-size: 14px; margin-top: 30px;">
           — The Local Produce Team
         </p>

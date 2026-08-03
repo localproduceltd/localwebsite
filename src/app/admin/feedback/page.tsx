@@ -13,6 +13,7 @@ interface FeedbackItem {
   orderNumber: number | null;
   postcode: string | null;
   pageUrl: string | null;
+  email: string | null;
   featured: boolean;
 }
 
@@ -114,7 +115,8 @@ export default function AdminFeedbackPage() {
       } else {
         return (
           item.data.message.toLowerCase().includes(q) ||
-          (item.data.name?.toLowerCase().includes(q) ?? false)
+          (item.data.name?.toLowerCase().includes(q) ?? false) ||
+          (item.data.email?.toLowerCase().includes(q) ?? false)
         );
       }
     });
@@ -312,7 +314,12 @@ export default function AdminFeedbackPage() {
                       </p>
                     </div>
                   </div>
-                  <p className="mt-2 font-semibold text-primary">{fb.name || "Anonymous"}</p>
+                  <p className="mt-2 font-semibold text-primary">
+                    {fb.name || "Anonymous"}
+                    {fb.email && (
+                      <a href={`mailto:${fb.email}`} className="ml-2 text-xs font-normal text-secondary hover:underline">{fb.email}</a>
+                    )}
+                  </p>
                   <p className="mt-2 text-sm text-primary/80 leading-relaxed">{fb.message}</p>
                   {item.kind === "carrie" && fb.pageUrl && (
                     <p className="mt-2 text-xs">

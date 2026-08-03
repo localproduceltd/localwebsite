@@ -7,6 +7,14 @@
     {
       "path": "/api/cron/basket-reminder",
       "schedule": "0 13 * * 3"
+    },
+    {
+      "path": "/api/cron/prepped-emails",
+      "schedule": "0 17 * * 4"
+    },
+    {
+      "path": "/api/cron/prepped-emails",
+      "schedule": "0 18 * * 4"
     }
   ]
 }
