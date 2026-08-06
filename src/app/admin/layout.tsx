@@ -7,8 +7,11 @@ import { LayoutDashboard, Package, Users, Calendar, MessageCircleHeart, MapPin, 
 import { SignedIn, useUser } from "@clerk/nextjs";
 import UserAvatar from "@/components/UserAvatar";
 
-// Tabs the "driver" role can see; middleware blocks the rest of /admin for drivers
-const driverLinkHrefs = ["/admin/driver"];
+// Tabs each staff role can see; middleware blocks the rest of /admin for them
+const roleLinkHrefs: Record<string, string[]> = {
+  driver: ["/admin/driver"],
+  packer: ["/admin/stock"],
+};
 
 const adminLinks = [
   { href: "/admin", label: "Dashboard", icon: LayoutDashboard },
@@ -30,8 +33,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const { user } = useUser();
 
   const role = user?.publicMetadata?.role as string | undefined;
-  const links = role === "driver"
-    ? adminLinks.filter((link) => driverLinkHrefs.includes(link.href))
+  const allowedHrefs = role ? roleLinkHrefs[role] : undefined;
+  const links = allowedHrefs
+    ? adminLinks.filter((link) => allowedHrefs.includes(link.href))
     : adminLinks;
 
   const currentPage = links.find(link => link.href === pathname) || links[0];

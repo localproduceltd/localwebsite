@@ -17,11 +17,17 @@ const isDriverAllowedRoute = createRouteMatcher([
   "/admin/driver(.*)",
 ]);
 
+// Admin pages a "packer" role is allowed to use (packing check-ins on Stock).
+const isPackerAllowedRoute = createRouteMatcher([
+  "/admin/stock(.*)",
+]);
+
 export default clerkMiddleware(async (auth, req) => {
   const { sessionClaims } = await auth();
   const role = (sessionClaims?.metadata as { role?: string })?.role;
   const isAdmin = role === "admin";
   const isDriver = role === "driver";
+  const isPacker = role === "packer";
 
   // Redirect root to /home
   if (req.nextUrl.pathname === "/") {
@@ -36,6 +42,10 @@ export default clerkMiddleware(async (auth, req) => {
     if (isDriver) {
       if (!isDriverAllowedRoute(req)) {
         return NextResponse.redirect(new URL("/admin/driver", req.url));
+      }
+    } else if (isPacker) {
+      if (!isPackerAllowedRoute(req)) {
+        return NextResponse.redirect(new URL("/admin/stock", req.url));
       }
     } else {
       return NextResponse.redirect(new URL("/home", req.url));

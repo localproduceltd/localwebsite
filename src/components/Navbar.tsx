@@ -29,7 +29,9 @@ export default function Navbar() {
       ? { href: "/admin", label: "Admin", icon: LayoutDashboard }
       : role === "driver"
         ? { href: "/admin/driver", label: "Driver Run", icon: Navigation }
-        : null;
+        : role === "packer"
+          ? { href: "/admin/stock", label: "Stock", icon: Package }
+          : null;
   const StaffIcon = staffLink?.icon;
 
   if (pathname.startsWith("/admin") || pathname.startsWith("/supplier-portal") || pathname.startsWith("/sign-in") || pathname.startsWith("/sign-up")) return null;

@@ -31,6 +31,12 @@ export default function AuthRedirectPage() {
         return;
       }
 
+      // Packer goes straight to the stock check-ins
+      if (role === "packer") {
+        router.replace("/admin/stock");
+        return;
+      }
+
       // Check if supplier
       const supplierUser = await getSupplierUser(user.id);
       if (supplierUser) {
