@@ -10,16 +10,21 @@ export async function POST(request: NextRequest) {
   if (gate instanceof NextResponse) return gate;
 
   try {
-    const { 
-      orderId, 
-      productName, 
-      quantity, 
+    const {
+      orderId,
+      productName,
+      quantity,
       refundAmount,
       reasonType,
       refundReason,
       itemArrived,
-      paidBy, 
-      supplierId 
+      paidBy,
+      supplierId,
+      // Explicit £ the supplier bears (retail, pre-commission); null/absent =
+      // legacy payout behaviour. fullLineValue = quantity × full unit price,
+      // used only for the supplier notice wording on partial deductions.
+      supplierDeduction,
+      fullLineValue,
     } = await request.json();
 
     if (!orderId || !productName || !refundAmount) {
@@ -72,6 +77,7 @@ export async function POST(request: NextRequest) {
     const reason = (reasonType as RefundReasonType) || "other";
     const arrivedFlag = itemArrived ?? refundReasonConfig[reason]?.itemArrived ?? true;
     const reasonLabel = refundReasonConfig[reason]?.label ?? "";
+    const deduction = typeof supplierDeduction === "number" ? Math.max(0, supplierDeduction) : null;
 
     // Record the refund in our database
     await createOrderItemRefund(
@@ -83,7 +89,8 @@ export async function POST(request: NextRequest) {
       refundReason || null,
       arrivedFlag,
       paidBy as RefundPaidBy,
-      supplierId || null
+      supplierId || null,
+      deduction
     );
 
     // Supplier name goes in the customer's email; email for the supplier notice.
@@ -121,7 +128,7 @@ export async function POST(request: NextRequest) {
     // didn't-arrive refund (units drop out of their payout) or a deduction
     // they're paying all/half of. Local-pays refunds (e.g. packing slips)
     // don't notify - nothing for the supplier to act on.
-    const costsSupplier = !arrivedFlag || paidBy !== "local";
+    const costsSupplier = deduction !== null ? deduction > 0 || !arrivedFlag : (!arrivedFlag || paidBy !== "local");
     if (supplierId && costsSupplier) {
       try {
         if (supplier?.email) {
@@ -136,6 +143,8 @@ export async function POST(request: NextRequest) {
             reason: refundReason || null,
             paidBy: paidBy as RefundPaidBy,
             itemArrived: arrivedFlag,
+            supplierDeduction: deduction,
+            fullLineValue: typeof fullLineValue === "number" ? fullLineValue : null,
           });
         }
       } catch (emailError) {

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo, useCallback } from "react";
-import { type Order, type OrderItemRefund, type OrderItemCheckin, type RefundPaidBy, type RefundReasonType, type SupplierProductFlag, refundReasonConfig, getOrders, getRefundsForDeliveryDay, getOrderItemCheckins, setOrderItemCheckin, getSupplierProductFlags, resolveSupplierProductFlag, createSupplierProductFlag, removeSupplierProductFlag, getCompletedCheckins, setCheckinComplete, reopenCheckin } from "@/lib/data";
+import { type Order, type OrderItemRefund, type OrderItemCheckin, type RefundPaidBy, type RefundReasonType, type SupplierProductFlag, refundReasonConfig, supplierPayoutAdjustment, getOrders, getRefundsForDeliveryDay, getOrderItemCheckins, setOrderItemCheckin, getSupplierProductFlags, resolveSupplierProductFlag, createSupplierProductFlag, removeSupplierProductFlag, getCompletedCheckins, setCheckinComplete, reopenCheckin } from "@/lib/data";
 import { CheckCircle, XCircle, Calendar, ChevronDown, ChevronRight, Truck, AlertTriangle, FileText, Mail, Download, Send, Users, Eye, Flag, PoundSterling } from "lucide-react";
 import { ChilledTag, chilledRowClass } from "@/components/ChilledTag";
 
@@ -23,7 +23,21 @@ interface ReviewModalState {
   selectedQtys: Map<string, number>;
   reasonType: RefundReasonType;
   paidBy: RefundPaidBy;
+  // % of the line price to refund (1-100) - less than 100 when a substitute
+  // or partial make-good means the customer shouldn't get the full amount back
+  refundPercent: number;
+  // % of the full line price docked from the supplier's payout. Null = match
+  // the customer refund (the supplier's who-pays share of it). An explicit %
+  // overrides who-pays for the payout maths.
+  supplierDeductPercent: number | null;
   notes: string;
+}
+
+// The supplier's share of one line's refund under "match refund" (£).
+function matchRefundDeduction(refundAmount: number, paidBy: RefundPaidBy): number {
+  if (paidBy === "local") return 0;
+  if (paidBy === "supplier") return refundAmount;
+  return Math.round(refundAmount * 50) / 100;
 }
 
 function formatDeliveryDate(dateStr: string) {
@@ -471,6 +485,8 @@ export default function AdminStockPage() {
       selectedQtys: new Map(),
       reasonType: "didnt_arrive",
       paidBy: "supplier",
+      refundPercent: 100,
+      supplierDeductPercent: null,
       notes: "",
     });
     setRefundError(null);
@@ -497,6 +513,8 @@ export default function AdminStockPage() {
       selectedQtys: new Map([[orderId, remainingQty]]),
       reasonType: "didnt_arrive",
       paidBy: "supplier",
+      refundPercent: 100,
+      supplierDeductPercent: null,
       notes: "",
     });
     setRefundError(null);
@@ -509,8 +527,9 @@ export default function AdminStockPage() {
     setRefundLoading(true);
     setRefundError(null);
 
-    const { issue, selectedQtys, reasonType, paidBy, notes } = reviewModal;
+    const { issue, selectedQtys, reasonType, paidBy, refundPercent, supplierDeductPercent, notes } = reviewModal;
     const reasonConfig = refundReasonConfig[reasonType];
+    const percent = Math.max(1, Math.min(100, refundPercent || 100));
 
     try {
       for (const [orderId, qty] of selectedQtys) {
@@ -518,7 +537,12 @@ export default function AdminStockPage() {
         if (!orderInfo) continue;
 
         const quantity = Math.min(qty, orderInfo.quantity);
-        const refundAmount = quantity * orderInfo.price;
+        const fullLineValue = Math.round(quantity * orderInfo.price * 100) / 100;
+        // Rounded to the penny - Stripe refunds in whole pence
+        const refundAmount = Math.round(quantity * orderInfo.price * percent) / 100;
+        const supplierDeduction = supplierDeductPercent !== null
+          ? Math.round(quantity * orderInfo.price * Math.max(0, Math.min(100, supplierDeductPercent))) / 100
+          : matchRefundDeduction(refundAmount, paidBy);
 
         const response = await fetch("/api/refund-order-item", {
           method: "POST",
@@ -533,6 +557,8 @@ export default function AdminStockPage() {
             itemArrived: reasonConfig.itemArrived,
             paidBy,
             supplierId: issue.supplierId,
+            supplierDeduction,
+            fullLineValue,
           }),
         });
 
@@ -1230,12 +1256,14 @@ export default function AdminStockPage() {
 
           const supplierRefunds = dayRefunds.filter(r => r.supplierId === supplier.supplierId);
 
+          // Per-refund payout adjustment: positive = deducted, negative = a
+          // credit back for didn't-arrive units the supplier isn't being fully
+          // docked for (they're excluded from the arrived total below).
+          const refundUnitPrice = (productName: string) =>
+            supplier.items.find(i => i.productName === productName)?.price ?? 0;
           let supplierRefundDeduction = 0;
           for (const refund of supplierRefunds) {
-            if (refund.paidBy === "local") continue;
-            if (!refund.itemArrived) continue;
-            const deduction = refund.paidBy === "supplier" ? refund.refundAmount : refund.refundAmount / 2;
-            supplierRefundDeduction += deduction;
+            supplierRefundDeduction += supplierPayoutAdjustment(refund, refundUnitPrice(refund.productName));
           }
 
           const orderedTotal = supplierTracking.reduce((sum, item) => sum + item.orderedValue, 0);
@@ -1305,8 +1333,11 @@ export default function AdminStockPage() {
                         <div className="rounded-xl border border-primary/10 bg-primary/5 p-3 text-sm space-y-1">
                           <div className="flex justify-between"><span className="text-muted">Ordered Total</span><span className="text-muted">£{supplier.orderedTotal.toFixed(2)}</span></div>
                           <div className="flex justify-between"><span className="text-muted">Arrived at Depot</span><span className="font-semibold text-primary">£{supplier.arrivedTotal.toFixed(2)}</span></div>
-                          {supplier.supplierRefundDeduction > 0 && (
-                            <div className="flex justify-between"><span className="text-red-600">Refunded by Supplier</span><span className="font-semibold text-red-600">-£{supplier.supplierRefundDeduction.toFixed(2)}</span></div>
+                          {Math.abs(supplier.supplierRefundDeduction) > 0.005 && (
+                            <div className={`flex justify-between ${supplier.supplierRefundDeduction > 0 ? 'text-red-600' : 'text-green-700'}`}>
+                              <span>{supplier.supplierRefundDeduction > 0 ? 'Refund Deductions' : 'Refund Credits'}</span>
+                              <span className="font-semibold">{supplier.supplierRefundDeduction > 0 ? '-' : '+'}£{Math.abs(supplier.supplierRefundDeduction).toFixed(2)}</span>
+                            </div>
                           )}
                           <div className="flex justify-between"><span className="text-muted">Total Before Commission</span><span className="font-semibold text-primary">£{(supplier.arrivedTotal - supplier.supplierRefundDeduction).toFixed(2)}</span></div>
                           <div className="flex justify-between"><span className="text-muted">Commission (20%)</span><span className="text-muted">-£{((supplier.arrivedTotal - supplier.supplierRefundDeduction) * 0.2).toFixed(2)}</span></div>
@@ -1351,12 +1382,14 @@ export default function AdminStockPage() {
                             <td colSpan={4} className="px-4 py-2 text-right font-medium text-muted">Arrived at Depot:</td>
                             <td className="px-4 py-2 text-right font-semibold text-primary">£{supplier.arrivedTotal.toFixed(2)}</td>
                           </tr>
-                          {supplier.supplierRefundDeduction > 0 && (
+                          {Math.abs(supplier.supplierRefundDeduction) > 0.005 && (
                             <tr>
-                              <td colSpan={4} className="px-4 py-2 text-right font-medium text-red-600">
-                                Refunded by Supplier:
+                              <td colSpan={4} className={`px-4 py-2 text-right font-medium ${supplier.supplierRefundDeduction > 0 ? 'text-red-600' : 'text-green-700'}`}>
+                                {supplier.supplierRefundDeduction > 0 ? 'Refund Deductions:' : 'Refund Credits:'}
                               </td>
-                              <td className="px-4 py-2 text-right font-semibold text-red-600">-£{supplier.supplierRefundDeduction.toFixed(2)}</td>
+                              <td className={`px-4 py-2 text-right font-semibold ${supplier.supplierRefundDeduction > 0 ? 'text-red-600' : 'text-green-700'}`}>
+                                {supplier.supplierRefundDeduction > 0 ? '-' : '+'}£{Math.abs(supplier.supplierRefundDeduction).toFixed(2)}
+                              </td>
                             </tr>
                           )}
                           <tr>
@@ -1374,24 +1407,34 @@ export default function AdminStockPage() {
                         </tfoot>
                       </table>
                       </div>
-                      {supplier.supplierRefunds.filter(r => r.paidBy !== "local" && r.itemArrived).length > 0 && (
-                        <div className="px-4 py-2 bg-red-50 border-t border-red-200">
-                          <p className="text-xs font-semibold text-red-700 mb-1">Refunds deducted from payout:</p>
-                          <ul className="text-xs text-red-600 space-y-0.5">
-                            {supplier.supplierRefunds.filter(r => r.paidBy !== "local" && r.itemArrived).map((r, i) => {
-                              const reasonLabel = refundReasonConfig[r.reasonType]?.label || r.reasonType;
-                              const deduction = r.paidBy === "supplier" ? r.refundAmount : r.refundAmount / 2;
-                              return (
-                                <li key={i}>
-                                  • {r.productName}: £{deduction.toFixed(2)} — {reasonLabel}
-                                  {r.paidBy === "supplier" ? " (Supplier pays)" : " (50-50)"}
-                                  {r.refundReason && <span className="text-red-500"> - {r.refundReason}</span>}
-                                </li>
-                              );
-                            })}
-                          </ul>
-                        </div>
-                      )}
+                      {(() => {
+                        const adjustments = supplier.supplierRefunds
+                          .map(r => ({
+                            refund: r,
+                            adjustment: supplierPayoutAdjustment(r, supplier.items.find(i => i.productName === r.productName)?.price ?? 0),
+                          }))
+                          .filter(a => Math.abs(a.adjustment) > 0.005);
+                        if (adjustments.length === 0) return null;
+                        return (
+                          <div className="px-4 py-2 bg-red-50 border-t border-red-200">
+                            <p className="text-xs font-semibold text-red-700 mb-1">Refund adjustments on payout:</p>
+                            <ul className="text-xs space-y-0.5">
+                              {adjustments.map(({ refund: r, adjustment }, i) => {
+                                const reasonLabel = refundReasonConfig[r.reasonType]?.label || r.reasonType;
+                                return (
+                                  <li key={i} className={adjustment > 0 ? "text-red-600" : "text-green-700"}>
+                                    • {r.productName}: {adjustment > 0 ? `-£${adjustment.toFixed(2)}` : `+£${Math.abs(adjustment).toFixed(2)} credited back`} — {reasonLabel}
+                                    {r.supplierDeduction !== null
+                                      ? ` (supplier docked £${r.supplierDeduction.toFixed(2)})`
+                                      : r.paidBy === "supplier" ? " (Supplier pays)" : " (50-50)"}
+                                    {r.refundReason && <span className="opacity-80"> - {r.refundReason}</span>}
+                                  </li>
+                                );
+                              })}
+                            </ul>
+                          </div>
+                        );
+                      })()}
                     </div>
                   ))}
                 </div>
@@ -1430,19 +1473,13 @@ export default function AdminStockPage() {
                                 orderedValue: t.orderedValue,
                                 arrivedValue: t.arrivedValue,
                               })),
-                              refunds: s.supplierRefunds.map(r => {
-                                let deduction = 0;
-                                if (r.itemArrived && r.paidBy !== "local") {
-                                  deduction = r.paidBy === "supplier" ? r.refundAmount : r.refundAmount / 2;
-                                }
-                                return {
-                                  productName: r.productName,
-                                  amount: r.refundAmount,
-                                  paidBy: r.paidBy,
-                                  reason: r.refundReason,
-                                  deduction,
-                                };
-                              }),
+                              refunds: s.supplierRefunds.map(r => ({
+                                productName: r.productName,
+                                amount: r.refundAmount,
+                                paidBy: r.paidBy,
+                                reason: r.refundReason,
+                                deduction: supplierPayoutAdjustment(r, s.items.find(i => i.productName === r.productName)?.price ?? 0),
+                              })),
                               orderedTotal: s.orderedTotal,
                               arrivedTotal: s.arrivedTotal,
                               supplierRefundDeduction: s.supplierRefundDeduction,
@@ -1492,7 +1529,7 @@ export default function AdminStockPage() {
                           ]);
                         }
                         for (const r of supplier.supplierRefunds) {
-                          const deduction = r.paidBy === "supplier" ? r.refundAmount : r.paidBy === "50-50" ? r.refundAmount / 2 : 0;
+                          const deduction = supplierPayoutAdjustment(r, supplier.items.find(i => i.productName === r.productName)?.price ?? 0);
                           rows.push([
                             supplier.supplierName,
                             r.productName,
@@ -1500,7 +1537,7 @@ export default function AdminStockPage() {
                             `£${r.refundAmount.toFixed(2)}`,
                             r.paidBy === "supplier" ? "Supplier" : r.paidBy === "50-50" ? "50-50" : "Local",
                             r.refundReason || "",
-                            deduction > 0 ? `-£${deduction.toFixed(2)}` : "",
+                            Math.abs(deduction) > 0.005 ? `${deduction > 0 ? "-" : "+"}£${Math.abs(deduction).toFixed(2)}` : "",
                             ""
                           ]);
                         }
@@ -1720,6 +1757,102 @@ export default function AdminStockPage() {
               </div>
 
               <div>
+                <label className="block text-sm font-medium text-primary mb-1">How much of the price?</label>
+                <div className="flex flex-wrap items-center gap-2">
+                  {[100, 75, 50, 25].map((pct) => (
+                    <button
+                      key={pct}
+                      type="button"
+                      onClick={() => setReviewModal(prev => prev ? { ...prev, refundPercent: pct } : null)}
+                      className={`rounded-lg px-3 py-1.5 text-xs font-medium transition ${
+                        reviewModal.refundPercent === pct
+                          ? "bg-primary text-white"
+                          : "border border-primary/20 text-muted hover:bg-primary/5"
+                      }`}
+                    >
+                      {pct === 100 ? "Full price" : `${pct}%`}
+                    </button>
+                  ))}
+                  <div className="flex items-center gap-1">
+                    <input
+                      type="number"
+                      min={1}
+                      max={100}
+                      value={reviewModal.refundPercent}
+                      onChange={(e) => {
+                        const val = parseInt(e.target.value);
+                        setReviewModal(prev => prev ? {
+                          ...prev,
+                          refundPercent: isNaN(val) ? 100 : Math.max(1, Math.min(100, val)),
+                        } : null);
+                      }}
+                      className="w-16 rounded-lg border border-primary/20 px-2 py-1.5 text-center text-xs focus:border-secondary focus:outline-none"
+                    />
+                    <span className="text-xs text-muted">%</span>
+                  </div>
+                </div>
+                {reviewModal.refundPercent < 100 && (
+                  <p className="mt-1.5 text-xs text-muted">
+                    The customer&apos;s email just shows the reduced amount - use the note below to explain (e.g. &quot;we popped a substitute in your box&quot;).
+                  </p>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-primary mb-1">Supplier deduction</label>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setReviewModal(prev => prev ? { ...prev, supplierDeductPercent: null } : null)}
+                    className={`rounded-lg px-3 py-1.5 text-xs font-medium transition ${
+                      reviewModal.supplierDeductPercent === null
+                        ? "bg-primary text-white"
+                        : "border border-primary/20 text-muted hover:bg-primary/5"
+                    }`}
+                  >
+                    Match refund
+                  </button>
+                  {[100, 50].map((pct) => (
+                    <button
+                      key={pct}
+                      type="button"
+                      onClick={() => setReviewModal(prev => prev ? { ...prev, supplierDeductPercent: pct } : null)}
+                      className={`rounded-lg px-3 py-1.5 text-xs font-medium transition ${
+                        reviewModal.supplierDeductPercent === pct
+                          ? "bg-primary text-white"
+                          : "border border-primary/20 text-muted hover:bg-primary/5"
+                      }`}
+                    >
+                      {pct === 100 ? "Full price" : `${pct}%`}
+                    </button>
+                  ))}
+                  <div className="flex items-center gap-1">
+                    <input
+                      type="number"
+                      min={0}
+                      max={100}
+                      value={reviewModal.supplierDeductPercent ?? ""}
+                      placeholder="%"
+                      onChange={(e) => {
+                        const val = parseInt(e.target.value);
+                        setReviewModal(prev => prev ? {
+                          ...prev,
+                          supplierDeductPercent: isNaN(val) ? null : Math.max(0, Math.min(100, val)),
+                        } : null);
+                      }}
+                      className="w-16 rounded-lg border border-primary/20 px-2 py-1.5 text-center text-xs focus:border-secondary focus:outline-none"
+                    />
+                    <span className="text-xs text-muted">%</span>
+                  </div>
+                </div>
+                <p className="mt-1.5 text-xs text-muted">
+                  {reviewModal.supplierDeductPercent === null
+                    ? "The supplier is docked their \"Who pays?\" share of the customer refund - the usual choice."
+                    : `The supplier is docked ${reviewModal.supplierDeductPercent}% of the item price, overriding "Who pays?" - e.g. it was their own stock they substituted.`}
+                </p>
+              </div>
+
+              <div>
                 <label className="block text-sm font-medium text-primary mb-1">Note to customer (optional - included in the refund emails)</label>
                 <input
                   type="text"
@@ -1739,15 +1872,28 @@ export default function AdminStockPage() {
 
             <div className="px-6 py-4 border-t border-primary/10 flex items-center justify-between">
               <p className="text-sm text-muted">
-                {reviewModal.selectedQtys.size > 0 && (
-                  <>
-                    Total refund: <strong className="text-primary">
-                      £{reviewModal.issue.affectedOrders
-                        .reduce((sum, o) => sum + (reviewModal.selectedQtys.get(o.orderId) ?? 0) * o.price, 0)
-                        .toFixed(2)}
-                    </strong>
-                  </>
-                )}
+                {reviewModal.selectedQtys.size > 0 && (() => {
+                  let customerTotal = 0;
+                  let supplierTotal = 0;
+                  for (const o of reviewModal.issue.affectedOrders) {
+                    const qty = reviewModal.selectedQtys.get(o.orderId) ?? 0;
+                    if (!qty) continue;
+                    const refund = Math.round(qty * o.price * reviewModal.refundPercent) / 100;
+                    customerTotal += refund;
+                    supplierTotal += reviewModal.supplierDeductPercent !== null
+                      ? Math.round(qty * o.price * reviewModal.supplierDeductPercent) / 100
+                      : matchRefundDeduction(refund, reviewModal.paidBy);
+                  }
+                  return (
+                    <>
+                      Total refund: <strong className="text-primary">£{customerTotal.toFixed(2)}</strong>
+                      {reviewModal.refundPercent < 100 && (
+                        <span className="text-xs"> ({reviewModal.refundPercent}% of price)</span>
+                      )}
+                      <span className="text-xs"> · Supplier docked: <strong className="text-primary">£{supplierTotal.toFixed(2)}</strong></span>
+                    </>
+                  );
+                })()}
               </p>
               <div className="flex gap-3">
                 <button

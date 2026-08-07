@@ -2366,6 +2366,26 @@ export interface OrderItemRefund {
   refundedAt: string;
   paidBy: RefundPaidBy;
   supplierId: string | null;
+  // Explicit £ the supplier bears for this refund (retail value, pre-commission).
+  // Null on older rows = legacy behaviour (see supplierPayoutAdjustment).
+  supplierDeduction: number | null;
+}
+
+// The £ to subtract from the supplier's arrived total for one refund.
+// Didn't-arrive units are already excluded from the arrived total (never
+// ticked in), so an explicit deduction there nets against the units' value -
+// a deduction below full value comes out as a credit back (negative), e.g.
+// when the supplier substituted the item and shouldn't lose the whole line.
+// unitPrice is the order line's unit price for the refunded product.
+export function supplierPayoutAdjustment(refund: OrderItemRefund, unitPrice: number): number {
+  if (refund.supplierDeduction !== null) {
+    if (refund.itemArrived) return refund.supplierDeduction;
+    return refund.supplierDeduction - refund.quantityRefunded * unitPrice;
+  }
+  // Legacy rows: didn't-arrive is fully docked via the ticks (no adjustment);
+  // arrived refunds deduct the who-pays share.
+  if (!refund.itemArrived || refund.paidBy === "local") return 0;
+  return refund.paidBy === "supplier" ? refund.refundAmount : refund.refundAmount / 2;
 }
 
 // ─── Order Item Check-ins ───────────────────────────────────────────────────
@@ -2438,6 +2458,7 @@ export async function getOrderItemRefunds(orderId: string): Promise<OrderItemRef
     refundedAt: d.refunded_at,
     paidBy: (d.paid_by as RefundPaidBy) || "local",
     supplierId: d.supplier_id,
+    supplierDeduction: d.supplier_deduction === null || d.supplier_deduction === undefined ? null : Number(d.supplier_deduction),
   }));
 }
 
@@ -2468,6 +2489,7 @@ export async function getRefundsForDeliveryDay(deliveryDay: string): Promise<Ord
     refundedAt: d.refunded_at,
     paidBy: (d.paid_by as RefundPaidBy) || "local",
     supplierId: d.supplier_id,
+    supplierDeduction: d.supplier_deduction === null || d.supplier_deduction === undefined ? null : Number(d.supplier_deduction),
   }));
 }
 
@@ -2480,7 +2502,8 @@ export async function createOrderItemRefund(
   refundReason: string | null,
   itemArrived: boolean,
   paidBy: RefundPaidBy,
-  supplierId: string | null
+  supplierId: string | null,
+  supplierDeduction: number | null = null
 ): Promise<void> {
   const { error } = await supabase
     .from("order_item_refunds")
@@ -2494,6 +2517,7 @@ export async function createOrderItemRefund(
       item_arrived: itemArrived,
       paid_by: paidBy,
       supplier_id: supplierId,
+      supplier_deduction: supplierDeduction,
     });
   if (error) throw error;
 }

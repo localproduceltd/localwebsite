@@ -482,6 +482,10 @@ interface SupplierRefundNoticeData {
   reason: string | null;
   paidBy: "local" | "supplier" | "50-50";
   itemArrived: boolean;
+  // Explicit £ the supplier bears; null = legacy behaviour (see below).
+  supplierDeduction?: number | null;
+  // quantity × full unit price - lets the wording say "£X of £Y" on partials.
+  fullLineValue?: number | null;
 }
 
 // Heads-up to the supplier when a refund on their product costs them
@@ -489,9 +493,21 @@ interface SupplierRefundNoticeData {
 // surprise. Local-pays refunds don't trigger this.
 export async function sendSupplierRefundNotice(data: SupplierRefundNoticeData) {
   const reasonLine = refundReasonLine(data.reasonLabel, data.reason);
+  const deduction = data.supplierDeduction ?? null;
 
   let payoutImpact: string;
-  if (!data.itemArrived) {
+  if (deduction !== null) {
+    const ofFull = data.fullLineValue != null && Math.abs(deduction - data.fullLineValue) > 0.005
+      ? ` (rather than the full £${data.fullLineValue.toFixed(2)})`
+      : "";
+    if (!data.itemArrived && deduction === 0) {
+      payoutImpact = `These units weren't checked in as arrived, but you won't be out of pocket - you'll still be paid for them in full in this week's payout.`;
+    } else if (!data.itemArrived) {
+      payoutImpact = `These units weren't checked in as arrived, so £${deduction.toFixed(2)}${ofFull} will come off this week's payout for them - it'll be itemised on your payout email so everything matches up.`;
+    } else {
+      payoutImpact = `£${deduction.toFixed(2)} will be deducted from this week's payout - it'll be itemised on your payout email so everything matches up.`;
+    }
+  } else if (!data.itemArrived) {
     payoutImpact = `These units weren't checked in as arrived, so they simply won't be included in this week's payout - there's no separate deduction.`;
   } else if (data.paidBy === "supplier") {
     payoutImpact = `£${data.refundAmount.toFixed(2)} will be deducted from this week's payout - it'll be itemised on your payout email so everything matches up.`;
@@ -985,18 +1001,22 @@ export function renderSupplierPayoutEmail(data: Omit<SupplierPayoutData, "suppli
     })
     .join("");
 
-  // Only show refunds that affect the supplier (supplier pays or 50-50)
-  const supplierRefunds = data.refunds.filter(r => r.deduction > 0);
+  // Only show refunds that move the payout. A negative deduction is a credit
+  // back: the units weren't ticked in (so dropped out of the arrived total)
+  // but only part of their value is being docked - e.g. a substitute was given.
+  const supplierRefunds = data.refunds.filter(r => Math.abs(r.deduction) > 0.005);
   const refundsHtml = supplierRefunds.length > 0
     ? `
       <div style="background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; padding: 16px; margin: 16px 0;">
-        <h3 style="margin: 0 0 12px 0; color: #dc2626; font-size: 14px;">⚠️ Refunds Deducted From Your Payout</h3>
+        <h3 style="margin: 0 0 12px 0; color: #dc2626; font-size: 14px;">⚠️ Refund Adjustments On Your Payout</h3>
         ${supplierRefunds.map((r) => `
           <div style="font-size: 14px; margin: 8px 0; padding: 8px; background: white; border-radius: 4px;">
             <strong>${r.productName}</strong>: £${r.amount.toFixed(2)} refund
-            (${r.paidBy === 'supplier' ? 'You pay full amount' : '50-50 split'})
+            (${r.paidBy === 'supplier' ? 'You pay full amount' : r.paidBy === '50-50' ? '50-50 split' : 'Partial deduction'})
             ${r.reason ? `<br><span style="color: #666;">Reason: ${r.reason}</span>` : ''}
-            <br><span style="color: #dc2626; font-weight: bold;">Deducted: -£${r.deduction.toFixed(2)}</span>
+            ${r.deduction > 0
+              ? `<br><span style="color: #dc2626; font-weight: bold;">Deducted: -£${r.deduction.toFixed(2)}</span>`
+              : `<br><span style="color: #16a34a; font-weight: bold;">Credited back: +£${Math.abs(r.deduction).toFixed(2)}</span> <span style="color: #666;">(these units aren't in the arrived total above, but you're not being docked their full value)</span>`}
           </div>
         `).join("")}
       </div>
@@ -1043,10 +1063,10 @@ export function renderSupplierPayoutEmail(data: Omit<SupplierPayoutData, "suppli
             <span>Arrived at Depot Total</span>
             <span>£${data.arrivedTotal.toFixed(2)}</span>
           </div>
-          ${data.supplierRefundDeduction > 0 ? `
-            <div style="display: flex; justify-content: space-between; font-size: 14px; color: #dc2626; margin-bottom: 8px;">
-              <span>Refunded by Supplier</span>
-              <span>-£${data.supplierRefundDeduction.toFixed(2)}</span>
+          ${Math.abs(data.supplierRefundDeduction) > 0.005 ? `
+            <div style="display: flex; justify-content: space-between; font-size: 14px; color: ${data.supplierRefundDeduction > 0 ? '#dc2626' : '#16a34a'}; margin-bottom: 8px;">
+              <span>${data.supplierRefundDeduction > 0 ? 'Refund Deductions' : 'Refund Credits'}</span>
+              <span>${data.supplierRefundDeduction > 0 ? '-' : '+'}£${Math.abs(data.supplierRefundDeduction).toFixed(2)}</span>
             </div>
           ` : ''}
           <div style="display: flex; justify-content: space-between; font-size: 14px; margin-bottom: 8px; font-weight: 600;">
