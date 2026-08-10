@@ -3,6 +3,7 @@ import { stripe, DISCOUNT_EXPAND, extractSessionDiscount } from "@/lib/stripe";
 import { createOrder, getOrderByStripeSession, parseItemsFromMetadata, updateCustomerDeliveryDetails, type DeliveryWindow, type DeliveryOption, type OrderItem, setCustomerOutstandingBox, getActiveDeliveryDays, markBasketConverted } from "@/lib/data";
 import { sendOrderConfirmation } from "@/lib/email";
 import { auth, clerkClient } from "@clerk/nextjs/server";
+import { eoAddContact } from "@/lib/emailoctopus";
 import { DELIVERY_FEE } from "@/lib/constants";
 
 export async function POST(request: NextRequest) {
@@ -89,6 +90,17 @@ export async function POST(request: NextRequest) {
       pinLat: metadata.pinLat ? parseFloat(metadata.pinLat) : undefined,
       pinLng: metadata.pinLng ? parseFloat(metadata.pinLng) : undefined,
     });
+
+    // Tag them as a customer in Email Octopus - if the welcome hasn't sent
+    // yet, this flips their branch to the first-order thank-you (fail-soft).
+    if (session.customer_email) {
+      await eoAddContact({
+        email: session.customer_email,
+        firstName: clerkUser.firstName || undefined,
+        lastName: clerkUser.lastName || undefined,
+        tags: ["prospect", "customer"],
+      });
+    }
 
     // Note: has_outstanding_box is set when order is marked delivered, not at checkout
     // This ensures the flag reflects physical possession of a box

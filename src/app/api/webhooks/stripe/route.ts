@@ -4,6 +4,7 @@ import { addItemsToOrder, createOrder, getOrder, getOrderByStripeSession, isTopU
 import { sendOrderConfirmation } from "@/lib/email";
 import { DELIVERY_FEE } from "@/lib/constants";
 import { clerkClient } from "@clerk/nextjs/server";
+import { eoAddContact } from "@/lib/emailoctopus";
 import Stripe from "stripe";
 
 // Resolve a customer's name from their Clerk profile (best-effort).
@@ -217,6 +218,16 @@ export async function POST(request: NextRequest) {
       });
 
       console.log(`Order ${order.orderNumber} created via webhook for session ${sessionId}`);
+
+      // Tag them as a customer in Email Octopus - if the welcome hasn't sent
+      // yet, this flips their branch to the first-order thank-you (fail-soft).
+      if (session.customer_email) {
+        await eoAddContact({
+          email: session.customer_email,
+          firstName: customerName ? customerName.split(" ")[0] : undefined,
+          tags: ["prospect", "customer"],
+        });
+      }
 
       // Mark any saved basket as converted (keyed on email, matching saveBasket)
       if (session.customer_email) {

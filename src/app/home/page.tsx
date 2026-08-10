@@ -5,7 +5,7 @@ import Link from "next/link";
 import Image from "next/image";
 import FadeInImage from "@/components/FadeInImage";
 import { ArrowRight, Star, Loader2, CheckCircle } from "lucide-react";
-import { getApprovedProducts, getActiveSuppliers, getAverageRatings, getActiveDeliveryDays, submitEmailSignup, getAllReviews, isOnHoliday } from "@/lib/data";
+import { getApprovedProducts, getActiveSuppliers, getAverageRatings, getActiveDeliveryDays, getAllReviews, isOnHoliday } from "@/lib/data";
 import type { Product, Supplier, DeliveryDay } from "@/lib/data";
 import HowItWorks from "@/components/HowItWorks";
 import SupplierDistance from "@/components/SupplierDistance";
@@ -27,7 +27,12 @@ export default function Home() {
     if (!signupEmail.trim() || !signupEmail.includes("@")) return;
     setSignupSubmitting(true);
     try {
-      await submitEmailSignup(signupEmail);
+      const res = await fetch("/api/email-signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: signupEmail }),
+      });
+      if (!res.ok) throw new Error("Signup failed");
       setSignupDone(true);
     } catch (error) {
       console.error("Failed to submit email:", error);
