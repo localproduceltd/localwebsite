@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo, useCallback } from "react";
+import { useUser } from "@clerk/nextjs";
 import { type Order, type OrderItemRefund, type OrderItemCheckin, type RefundPaidBy, type RefundReasonType, type SupplierProductFlag, refundReasonConfig, supplierPayoutAdjustment, getOrders, getRefundsForDeliveryDay, getOrderItemCheckins, setOrderItemCheckin, getSupplierProductFlags, resolveSupplierProductFlag, createSupplierProductFlag, removeSupplierProductFlag, getCompletedCheckins, setCheckinComplete, reopenCheckin } from "@/lib/data";
 import { CheckCircle, XCircle, Calendar, ChevronDown, ChevronRight, Truck, AlertTriangle, FileText, Mail, Download, Send, Users, Eye, Flag, PoundSterling } from "lucide-react";
 import { ChilledTag, chilledRowClass } from "@/components/ChilledTag";
@@ -112,6 +113,12 @@ function getSupplierSummaries(orders: Order[], productRefrigerated?: Map<string,
 }
 
 export default function AdminStockPage() {
+  // Packers get the check-in + didn't-arrive refund flow only: the commercial
+  // controls (summaries, payouts, refund reason/who-pays/percent) are hidden
+  // and the refund API rejects any non-didnt_arrive reason from them.
+  const { user } = useUser();
+  const isPacker = (user?.publicMetadata?.role as string | undefined) === "packer";
+
   const [orderList, setOrderList] = useState<Order[]>([]);
   const [productRefrigerated, setProductRefrigerated] = useState<Map<string, boolean>>(new Map());
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
@@ -852,23 +859,26 @@ export default function AdminStockPage() {
                       <h3 className="font-bold text-primary">Suppliers</h3>
                       <span className="text-xs text-muted">({supplierSummaries.length})</span>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => handleSendSupplierSummaries(deliveryDay)}
-                        disabled={sendingSummaries === deliveryDay}
-                        className="inline-flex items-center gap-1.5 rounded-lg bg-secondary/20 px-3 py-1.5 text-xs font-semibold text-secondary hover:bg-secondary/30 transition disabled:opacity-50"
-                      >
-                        <Send size={14} />
-                        {sendingSummaries === deliveryDay ? "Sending..." : "Send Summaries"}
-                      </button>
-                      <button
-                        onClick={() => setPayoutModal(deliveryDay)}
-                        className="inline-flex items-center gap-1.5 rounded-lg bg-primary/10 px-3 py-1.5 text-xs font-semibold text-primary hover:bg-primary/20 transition"
-                      >
-                        <FileText size={14} />
-                        Supplier Payouts
-                      </button>
-                    </div>
+                    {/* Both buttons hit admin-only APIs, so hide them from the packer */}
+                    {!isPacker && (
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => handleSendSupplierSummaries(deliveryDay)}
+                          disabled={sendingSummaries === deliveryDay}
+                          className="inline-flex items-center gap-1.5 rounded-lg bg-secondary/20 px-3 py-1.5 text-xs font-semibold text-secondary hover:bg-secondary/30 transition disabled:opacity-50"
+                        >
+                          <Send size={14} />
+                          {sendingSummaries === deliveryDay ? "Sending..." : "Send Summaries"}
+                        </button>
+                        <button
+                          onClick={() => setPayoutModal(deliveryDay)}
+                          className="inline-flex items-center gap-1.5 rounded-lg bg-primary/10 px-3 py-1.5 text-xs font-semibold text-primary hover:bg-primary/20 transition"
+                        >
+                          <FileText size={14} />
+                          Supplier Payouts
+                        </button>
+                      </div>
+                    )}
                   </div>
                   <div className="divide-y divide-primary/5">
                     {supplierSummaries.map((supplier) => {
@@ -1709,7 +1719,16 @@ export default function AdminStockPage() {
                 </div>
               </div>
 
-              {/* Refund options */}
+              {/* Refund options. Packers get the locked defaults (didn't
+                  arrive, supplier pays, full price) - the API enforces the
+                  reason too, this just keeps the modal simple. */}
+              {isPacker && (
+                <div className="rounded-lg bg-primary/5 px-4 py-3 text-sm text-muted">
+                  These are refunded as <strong className="text-primary">didn&apos;t arrive</strong> - the customer gets the
+                  full price back. For anything else (quality issues, damage), contact Josie.
+                </div>
+              )}
+              {!isPacker && (
               <div className="grid gap-4 sm:grid-cols-2">
                 <div>
                   <label className="block text-sm font-medium text-primary mb-1">Reason</label>
@@ -1755,7 +1774,9 @@ export default function AdminStockPage() {
                   </div>
                 </div>
               </div>
+              )}
 
+              {!isPacker && (
               <div>
                 <label className="block text-sm font-medium text-primary mb-1">How much of the price?</label>
                 <div className="flex flex-wrap items-center gap-2">
@@ -1797,7 +1818,9 @@ export default function AdminStockPage() {
                   </p>
                 )}
               </div>
+              )}
 
+              {!isPacker && (
               <div>
                 <label className="block text-sm font-medium text-primary mb-1">Supplier deduction</label>
                 <div className="flex flex-wrap items-center gap-2">
@@ -1851,6 +1874,7 @@ export default function AdminStockPage() {
                     : `The supplier is docked ${reviewModal.supplierDeductPercent}% of the item price, overriding "Who pays?" - e.g. it was their own stock they substituted.`}
                 </p>
               </div>
+              )}
 
               <div>
                 <label className="block text-sm font-medium text-primary mb-1">Note to customer (optional - included in the refund emails)</label>

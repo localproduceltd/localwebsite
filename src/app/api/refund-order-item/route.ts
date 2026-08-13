@@ -3,10 +3,10 @@ import { stripe } from "@/lib/stripe";
 import { supabase } from "@/lib/supabase";
 import { createOrderItemRefund, refundReasonConfig, type RefundPaidBy, type RefundReasonType } from "@/lib/data";
 import { sendOrderItemRefund, sendSupplierRefundNotice } from "@/lib/email";
-import { requireAdmin } from "@/lib/admin-auth";
+import { requireAdminOrPacker } from "@/lib/admin-auth";
 
 export async function POST(request: NextRequest) {
-  const gate = await requireAdmin();
+  const gate = await requireAdminOrPacker();
   if (gate instanceof NextResponse) return gate;
 
   try {
@@ -29,6 +29,15 @@ export async function POST(request: NextRequest) {
 
     if (!orderId || !productName || !refundAmount) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
+    }
+
+    // Packers can only refund the missing-at-check-in case; quality/damage/
+    // missing-from-box calls stay admin-only.
+    if (gate.role === "packer" && reasonType !== "didnt_arrive") {
+      return NextResponse.json(
+        { error: "Packers can only refund items that didn't arrive - ask Josie for other refund types" },
+        { status: 403 }
+      );
     }
 
     // Get the order to find the Stripe session

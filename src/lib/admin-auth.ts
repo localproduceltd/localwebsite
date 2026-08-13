@@ -38,6 +38,35 @@ export async function requireAdmin(): Promise<{ userId: string } | NextResponse>
 }
 
 /**
+ * Gate for API routes the packer role may also use (didn't-arrive refunds from
+ * the Stock tab). Same contract as `requireAdmin`, but accepts role "admin" or
+ * "packer" and returns the role so callers can apply packer-specific limits.
+ * Mirrors the packer allowance in `src/middleware.ts`.
+ */
+export async function requireAdminOrPacker(): Promise<
+  { userId: string; role: "admin" | "packer" } | NextResponse
+> {
+  const { userId, sessionClaims } = await auth();
+
+  if (!userId) {
+    return NextResponse.json(
+      { error: { code: "unauthorized", message: "Sign in required" } },
+      { status: 401 },
+    );
+  }
+
+  const role = (sessionClaims?.metadata as { role?: string } | undefined)?.role;
+  if (role !== "admin" && role !== "packer") {
+    return NextResponse.json(
+      { error: { code: "forbidden", message: "Admin or packer role required" } },
+      { status: 403 },
+    );
+  }
+
+  return { userId, role };
+}
+
+/**
  * Gate for API routes the driver role may also use (delivery route, box returns).
  * Same contract as `requireAdmin`, but accepts role "admin" or "driver".
  * Mirrors the driver allowance in `src/middleware.ts`.
