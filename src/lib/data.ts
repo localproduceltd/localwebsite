@@ -93,6 +93,8 @@ export interface Product {
   // Supplier-starred (max 3 per supplier); pins to the top of their page and
   // joins the "recent activity" band on the shop. Null = not featured.
   featuredAt?: string | null;
+  // When the product was added - new arrivals join the shop's top band.
+  createdAt?: string;
 }
 
 export type SupplierOrderStatus = "order_placed" | "prepping" | "dropped_at_depot" | "delivered" | "cancelled";
@@ -406,6 +408,7 @@ export async function getApprovedProducts(): Promise<Product[]> {
     recentOrderCount: p.recent_order_count ?? 0,
     recentRatingCount: p.recent_rating_count ?? 0,
     featuredAt: p.featured_at ?? null,
+    createdAt: p.created_at ?? undefined,
   }));
 }
 
@@ -447,6 +450,7 @@ export async function getProductsBySupplier(supplierId: string, client: Supabase
     recentOrderCount: p.recent_order_count ?? 0,
     recentRatingCount: p.recent_rating_count ?? 0,
     featuredAt: p.featured_at ?? null,
+    createdAt: p.created_at ?? undefined,
   }));
 }
 
