@@ -1516,13 +1516,31 @@ export interface SupplierOrderItem {
 }
 
 export async function getSupplierOrders(supplierId: string): Promise<SupplierOrderItem[]> {
-  const { data, error } = await supabase
-    .from("order_items")
-    .select("*, orders(delivery_day, created_at, status, order_number, box_number, user_id, customer_name, customer_email), products(refrigerated)")
-    .eq("supplier_id", supplierId)
-    .order("created_at", { ascending: false, referencedTable: "orders" });
-  if (error) throw error;
-  return data.map((item) => {
+  // PostgREST caps a single request at 1000 rows, so page through the supplier's
+  // whole history. Busy suppliers pass 1000 line items and were silently losing
+  // their newest orders. Ordered by id so paging is stable; the pages that use
+  // this sort by delivery day themselves, and both need the full history (the
+  // dashboard shows all-time totals, the orders page the "Nth order with you"
+  // count and its loyalty milestones).
+  const PAGE_SIZE = 1000;
+  const fetchPage = (from: number) =>
+    supabase
+      .from("order_items")
+      .select("*, orders(delivery_day, created_at, status, order_number, box_number, user_id, customer_name, customer_email), products(refrigerated)")
+      .eq("supplier_id", supplierId)
+      .order("id", { ascending: true })
+      .range(from, from + PAGE_SIZE - 1);
+
+  type Row = NonNullable<Awaited<ReturnType<typeof fetchPage>>["data"]>[number];
+  const rows: Row[] = [];
+  for (let from = 0; ; from += PAGE_SIZE) {
+    const { data, error } = await fetchPage(from);
+    if (error) throw error;
+    if (!data?.length) break;
+    rows.push(...data);
+    if (data.length < PAGE_SIZE) break;
+  }
+  return rows.map((item) => {
     const order = item.orders as { delivery_day: string; created_at: string; status: string; order_number: number; box_number: number | null; user_id: string; customer_name: string | null; customer_email: string | null };
     const product = item.products as { refrigerated: boolean } | null;
     return {
