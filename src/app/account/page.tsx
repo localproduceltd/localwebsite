@@ -30,6 +30,8 @@ import {
   Plus,
   Truck,
   MapPin,
+  Milk,
+  Minus,
 } from "lucide-react";
 import MapPicker from "@/components/MapPicker";
 import MiniMapPreview from "@/components/MiniMapPreview";
@@ -100,6 +102,57 @@ export default function AccountPage() {
   const [showMapPicker, setShowMapPicker] = useState(false);
   const [savingDetails, setSavingDetails] = useState(false);
   const [detailsSaved, setDetailsSaved] = useState(false);
+
+  // ─── Milk bottle deposits ───
+  // Balance is server-side only (the ledger is service-role), so it comes from
+  // /api/bottle-deposit rather than the profile.
+  const [bottles, setBottles] = useState<{ outstandingBottles: number; creditPence: number } | null>(null);
+  const [returnQty, setReturnQty] = useState(1);
+  const [returningBottles, setReturningBottles] = useState(false);
+  const [bottleError, setBottleError] = useState<string | null>(null);
+  const [bottleDone, setBottleDone] = useState(false);
+
+  const loadBottleBalance = async () => {
+    try {
+      const res = await fetch("/api/bottle-deposit");
+      if (!res.ok) return;
+      const data = await res.json();
+      setBottles(data);
+      setReturnQty((q) => Math.min(Math.max(1, q), Math.max(1, data.outstandingBottles)));
+    } catch (e) {
+      console.error("Failed to load bottle deposits:", e);
+    }
+  };
+
+  useEffect(() => {
+    if (!user) return;
+    loadBottleBalance();
+  }, [user]);
+
+  const requestBottleReturn = async () => {
+    setReturningBottles(true);
+    setBottleError(null);
+    try {
+      const res = await fetch("/api/bottle-deposit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ bottles: returnQty }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setBottleError(data.error || "Something went wrong - please try again.");
+        return;
+      }
+      setBottles({ outstandingBottles: data.outstandingBottles, creditPence: data.creditPence });
+      setReturnQty(1);
+      setBottleDone(true);
+      setTimeout(() => setBottleDone(false), 6000);
+    } catch {
+      setBottleError("Something went wrong - please try again.");
+    } finally {
+      setReturningBottles(false);
+    }
+  };
 
   // Populate the form when the profile loads (and re-sync after a save)
   useEffect(() => {
@@ -451,6 +504,92 @@ export default function AccountPage() {
           />
         )}
       </section>
+
+      {/* ─── Milk Bottle Deposits ─── */}
+      {bottles && (bottles.outstandingBottles > 0 || bottles.creditPence > 0) && (
+        <section className="mt-8 rounded-xl bg-surface p-6 shadow-sm">
+          <div className="flex items-center gap-2 mb-4">
+            <Milk size={20} className="text-secondary" />
+            <h2 className="text-lg font-semibold text-primary">Milk Bottle Deposits</h2>
+          </div>
+
+          {bottles.creditPence > 0 && (
+            <div className="mb-4 rounded-lg bg-green-50 px-4 py-3">
+              <p className="text-sm font-semibold text-green-800">
+                £{(bottles.creditPence / 100).toFixed(2)} credit on your account
+              </p>
+              <p className="mt-0.5 text-xs text-green-700">
+                This comes off your next order automatically - nothing to do.
+              </p>
+            </div>
+          )}
+
+          {bottles.outstandingBottles > 0 ? (
+            <>
+              <p className="text-sm text-secondary">
+                You&apos;ve got{" "}
+                <span className="font-semibold text-primary">
+                  {bottles.outstandingBottles} bottle{bottles.outstandingBottles === 1 ? "" : "s"}
+                </span>{" "}
+                out with us, at £1 deposit each. Leave the empties out on your next delivery day and
+                let us know here - we&apos;ll put the £1 back on your account.
+              </p>
+
+              {bottleDone && (
+                <p className="mt-3 rounded-lg bg-green-50 px-4 py-3 text-sm text-green-800">
+                  Lovely - thank you! Just pop the empties out for us on your next delivery.
+                </p>
+              )}
+              {bottleError && (
+                <p className="mt-3 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">{bottleError}</p>
+              )}
+
+              <div className="mt-4 flex flex-wrap items-center gap-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-muted">How many?</span>
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setReturnQty(Math.max(1, returnQty - 1))}
+                      disabled={returnQty <= 1 || returningBottles}
+                      className="w-8 h-8 rounded-lg border border-primary/20 flex items-center justify-center text-primary disabled:opacity-40"
+                      aria-label="One fewer bottle"
+                    >
+                      <Minus size={14} />
+                    </button>
+                    <span className="w-8 text-center font-semibold text-primary">{returnQty}</span>
+                    <button
+                      type="button"
+                      onClick={() => setReturnQty(Math.min(bottles.outstandingBottles, returnQty + 1))}
+                      disabled={returnQty >= bottles.outstandingBottles || returningBottles}
+                      className="w-8 h-8 rounded-lg border border-primary/20 flex items-center justify-center text-primary disabled:opacity-40"
+                      aria-label="One more bottle"
+                    >
+                      <Plus size={14} />
+                    </button>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={requestBottleReturn}
+                  disabled={returningBottles}
+                  className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+                >
+                  {returningBottles && <Loader2 size={14} className="animate-spin" />}
+                  {returningBottles
+                    ? "Just a sec..."
+                    : `I'm returning ${returnQty} bottle${returnQty === 1 ? "" : "s"}`}
+                </button>
+              </div>
+            </>
+          ) : (
+            <p className="text-sm text-secondary">
+              No bottles out with us at the moment.
+            </p>
+          )}
+        </section>
+      )}
 
       {/* ─── Orders Section ─── */}
       <section className="mt-10">

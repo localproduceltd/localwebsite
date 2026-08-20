@@ -5,6 +5,7 @@ import { sendOrderConfirmation } from "@/lib/email";
 import { DELIVERY_FEE } from "@/lib/constants";
 import { clerkClient } from "@clerk/nextjs/server";
 import { eoAddContact } from "@/lib/emailoctopus";
+import { applyBottleCredit } from "@/lib/bottle-deposits";
 import Stripe from "stripe";
 
 // Resolve a customer's name from their Clerk profile (best-effort).
@@ -171,6 +172,7 @@ export async function POST(request: NextRequest) {
       const total = parseFloat(metadata.total);
       const boxDepositPaid = metadata.boxDepositPaid === "true";
       const bottleDepositPaid = metadata.bottleDepositPaid === "true";
+      const bottleDepositQty = bottleDepositPaid ? parseInt(metadata.bottleDepositQty || "0", 10) || 0 : 0;
 
       // Resolve the customer's name from Clerk so the order + emails are personalised
       const customerName = await resolveCustomerName(metadata.userId);
@@ -201,6 +203,7 @@ export async function POST(request: NextRequest) {
         safePlace: metadata.safePlace || undefined,
         boxDepositPaid,
         bottleDepositPaid,
+        bottleDepositQty,
         stripeSessionId: sessionId,
         discountCode,
         couponName,
@@ -218,6 +221,17 @@ export async function POST(request: NextRequest) {
       });
 
       console.log(`Order ${order.orderNumber} created via webhook for session ${sessionId}`);
+
+      // Spend any bottle credit that came off this order. Idempotent - the
+      // /checkout/confirm route may have got here first.
+      const bottleCreditPence = parseInt(metadata.bottleCreditPence || "0", 10) || 0;
+      if (bottleCreditPence > 0) {
+        try {
+          await applyBottleCredit(metadata.userId, order.id, bottleCreditPence);
+        } catch (e) {
+          console.error("Webhook: failed to apply bottle credit:", e);
+        }
+      }
 
       // Tag them as a customer in Email Octopus - if the welcome hasn't sent
       // yet, this flips their branch to the first-order thank-you (fail-soft).

@@ -3,6 +3,7 @@ import { requireAdminOrDriver } from "@/lib/admin-auth";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { getOrder, markOrderDelivered, setCustomerOutstandingBox } from "@/lib/data";
 import { sendOrderStatusUpdate } from "@/lib/email";
+import { recordBottleDeposit } from "@/lib/bottle-deposits";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -58,6 +59,18 @@ export async function POST(request: NextRequest, context: RouteContext) {
       await setCustomerOutstandingBox(order.userId, true, supabaseAdmin);
     } else if (boxCollected) {
       await setCustomerOutstandingBox(order.userId, false, supabaseAdmin);
+    }
+
+    // Milk bottles follow the same rule as the box: the deposit only counts as
+    // outstanding once the bottles are actually at their door. From here the
+    // customer can claim them back from their account page. Best-effort - a
+    // failure must not undo a delivery that's already been marked.
+    if (order.bottleDepositQty > 0) {
+      try {
+        await recordBottleDeposit(order.userId, id, order.bottleDepositQty);
+      } catch (e) {
+        console.error("[admin/orders/[id]/delivered] bottle deposit record failed:", e);
+      }
     }
 
     let emailSent = false;

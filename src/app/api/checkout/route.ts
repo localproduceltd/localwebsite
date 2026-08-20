@@ -3,6 +3,7 @@ import { stripe } from "@/lib/stripe";
 import { auth } from "@clerk/nextjs/server";
 import { type DeliveryWindow, type DeliveryOption, type OrderAddress, getSuppliersHolidayInfo, isSupplierOnHoliday, checkStockForItems } from "@/lib/data";
 import { BOX_DEPOSIT_PENCE, BOTTLE_DEPOSIT_PENCE, DELIVERY_FEE_PENCE } from "@/lib/constants";
+import { getBottleBalance } from "@/lib/bottle-deposits";
 
 interface CartItem {
   productId: string;
@@ -136,12 +137,55 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    // Bottle credit: money owed back for empties the customer has told us are
+    // returned. Read server-side from the ledger - never taken from the browser.
+    // It's only *spent* once the order exists (see /checkout/confirm and the
+    // webhook), so an abandoned checkout doesn't burn it.
+    let bottleCreditPence = 0;
+    try {
+      const { creditPence } = await getBottleBalance(userId);
+      if (creditPence > 0) {
+        // Leave at least £1 to charge - Stripe needs a payable amount, and the
+        // £25 minimum order means this cap never bites in practice.
+        const lineItemTotal = lineItems.reduce(
+          (sum, li) => sum + (li.price_data?.unit_amount ?? 0) * (li.quantity ?? 1),
+          0,
+        );
+        bottleCreditPence = Math.max(0, Math.min(creditPence, lineItemTotal - 100));
+      }
+    } catch (e) {
+      // Never block a checkout over credit - worst case they keep it for next time.
+      console.error("Failed to read bottle credit, continuing without it:", e);
+    }
+
+    let bottleCreditCouponId: string | null = null;
+    if (bottleCreditPence > 0) {
+      try {
+        const coupon = await stripe.coupons.create({
+          amount_off: bottleCreditPence,
+          currency: "gbp",
+          duration: "once",
+          name: "Bottle deposit refund",
+          max_redemptions: 1,
+        });
+        bottleCreditCouponId = coupon.id;
+      } catch (e) {
+        console.error("Failed to create bottle credit coupon, continuing without it:", e);
+        bottleCreditPence = 0;
+      }
+    }
+
     // Create Stripe Checkout Session
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ["card"],
       line_items: lineItems,
       mode: "payment",
-      allow_promotion_codes: true,
+      // Stripe rejects `discounts` and `allow_promotion_codes` together, so an
+      // order paying with bottle credit can't also take a promo code. Only
+      // affects the handful of customers holding credit.
+      ...(bottleCreditCouponId
+        ? { discounts: [{ coupon: bottleCreditCouponId }] }
+        : { allow_promotion_codes: true }),
       success_url: `${request.nextUrl.origin}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${request.nextUrl.origin}/cart`,
       customer_email: customerEmail,
@@ -155,6 +199,7 @@ export async function POST(request: NextRequest) {
         boxDepositPaid: boxDepositPaid ? "true" : "false",
         bottleDepositPaid: bottleDepositPaid ? "true" : "false",
         bottleDepositQty: bottleDepositQty.toString(),
+        bottleCreditPence: bottleCreditPence.toString(),
         addressLine1: address.addressLine1 || "",
         addressLine2: address.addressLine2 || "",
         city: address.city || "",
@@ -164,7 +209,8 @@ export async function POST(request: NextRequest) {
         pinLat: pinLat?.toString() || "",
         pinLng: pinLng?.toString() || "",
         saveProfile: saveProfile === false ? "false" : "true",
-        total: total.toString(),
+        // The client sends the gross total; the credit is ours to apply.
+        total: (total - bottleCreditPence / 100).toFixed(2),
         itemCount: items.length.toString(),
         // Split items across multiple metadata fields to stay under 500 char limit per field
         ...(() => {

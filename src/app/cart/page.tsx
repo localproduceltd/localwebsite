@@ -35,6 +35,9 @@ export default function CartPage() {
   const [hasOwnBottles, setHasOwnBottles] = useState<boolean | null>(null);
   const [bottleDepositQty, setBottleDepositQty] = useState(1);
   const [showBottleInfo, setShowBottleInfo] = useState(false);
+  // Bottle credit owed back for returned empties. Display only - the checkout
+  // route reads the real figure from the ledger server-side.
+  const [bottleCreditPence, setBottleCreditPence] = useState(0);
 
   // Delivery address state
   const [addressForm, setAddressForm] = useState({
@@ -221,6 +224,14 @@ export default function CartPage() {
     setSubmittingExpansion(false);
   };
 
+  useEffect(() => {
+    if (!isSignedIn) return;
+    fetch("/api/bottle-deposit")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => d && setBottleCreditPence(d.creditPence ?? 0))
+      .catch(() => {});
+  }, [isSignedIn]);
+
   // Check if cart contains glass bottles (Alkmonton Dairy)
   const hasGlassBottles = items.some((item) => {
     const product = getProduct(item.productId);
@@ -232,7 +243,14 @@ export default function CartPage() {
   const boxDeposit = needsBoxDeposit && !topUpOrder ? BOX_DEPOSIT : 0;
   const bottleDeposit = hasGlassBottles && hasOwnBottles === false ? BOTTLE_DEPOSIT * bottleDepositQty : 0;
   const deliveryFee = topUpOrder ? 0 : DELIVERY_FEE;
-  const finalTotal = totalPrice + boxDeposit + bottleDeposit + deliveryFee;
+  const grossTotal = totalPrice + boxDeposit + bottleDeposit + deliveryFee;
+  // Leave at least £1 payable, matching the cap the checkout route applies.
+  // Not on top-ups: /api/checkout/topup is a separate flow with no coupon,
+  // so showing credit there would promise a discount that never lands.
+  const bottleCredit = topUpOrder
+    ? 0
+    : Math.max(0, Math.min(bottleCreditPence / 100, grossTotal - 1));
+  const finalTotal = grossTotal - bottleCredit;
   
   // Check minimum order (not required for top-up orders)
   const belowMinimum = !topUpOrder && totalPrice < MINIMUM_ORDER;
@@ -345,7 +363,9 @@ export default function CartPage() {
             boxDepositPaid: needsBoxDeposit,
             bottleDepositPaid: hasGlassBottles && hasOwnBottles === false,
             bottleDepositQty: hasGlassBottles && hasOwnBottles === false ? bottleDepositQty : 0,
-            total: finalTotal,
+            // Gross - the checkout route subtracts the bottle credit itself
+            // from the ledger, so a stale figure here can't change what's stored.
+            total: grossTotal,
             address: addressForm,
             phone: phone.trim(),
             instructions: deliveryInstructions.trim() || undefined,
@@ -1198,11 +1218,24 @@ export default function CartPage() {
             </span>
           </div>
         )}
+        {bottleCredit > 0 && (
+          <div className="flex items-center justify-between border-b border-primary/5 py-4">
+            <span className="text-muted">Bottle Deposit Credit</span>
+            <span className="font-semibold text-green-700">-£{bottleCredit.toFixed(2)}</span>
+          </div>
+        )}
         <div className="flex items-center justify-between pt-4">
           <span className="text-lg font-bold text-primary">Total</span>
           <span className="text-lg font-bold text-primary">£{finalTotal.toFixed(2)}</span>
         </div>
-        <p className="mt-1 text-xs text-muted">Got a promo code? You can enter it at checkout.</p>
+        {bottleCredit > 0 ? (
+          <p className="mt-1 text-xs text-muted">
+            Your £{bottleCredit.toFixed(2)} bottle credit comes off this order. Promo codes can&apos;t be
+            used on an order paying with credit.
+          </p>
+        ) : (
+          <p className="mt-1 text-xs text-muted">Got a promo code? You can enter it at checkout.</p>
+        )}
         
         {/* Minimum order warning */}
         {belowMinimum && (

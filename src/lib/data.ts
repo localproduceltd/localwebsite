@@ -141,6 +141,7 @@ export interface Order {
   safePlace: string | null;
   boxDepositPaid: boolean;
   bottleDepositPaid: boolean;
+  bottleDepositQty: number;
   // Box outcome recorded by the driver at delivery (null = not recorded)
   boxLeft: boolean | null;
   boxCollected: boolean | null;
@@ -559,6 +560,7 @@ export async function getOrders(userId?: string): Promise<Order[]> {
     safePlace: o.safe_place ?? null,
     boxDepositPaid: o.box_deposit_paid ?? false,
     bottleDepositPaid: o.bottle_deposit_paid ?? false,
+    bottleDepositQty: o.bottle_deposit_qty ?? 0,
     boxLeft: o.box_left ?? null,
     boxCollected: o.box_collected ?? null,
     address: o.address_line1 ? {
@@ -1076,6 +1078,7 @@ export async function getOrdersByDeliveryDay(deliveryDate: string): Promise<Orde
     safePlace: o.safe_place ?? null,
     boxDepositPaid: o.box_deposit_paid ?? false,
     bottleDepositPaid: o.bottle_deposit_paid ?? false,
+    bottleDepositQty: o.bottle_deposit_qty ?? 0,
     boxLeft: o.box_left ?? null,
     boxCollected: o.box_collected ?? null,
     address: o.address_line1 ? {
@@ -1118,6 +1121,7 @@ export interface CreateOrderOptions {
   safePlace?: string;
   boxDepositPaid: boolean;
   bottleDepositPaid: boolean;
+  bottleDepositQty?: number;
   stripeSessionId?: string;
   discountCode?: string;
   couponName?: string;
@@ -1163,6 +1167,7 @@ export async function getOrderByStripeSession(sessionId: string): Promise<Order 
     safePlace: data.safe_place ?? null,
     boxDepositPaid: data.box_deposit_paid ?? false,
     bottleDepositPaid: data.bottle_deposit_paid ?? false,
+    bottleDepositQty: data.bottle_deposit_qty ?? 0,
     boxLeft: data.box_left ?? null,
     boxCollected: data.box_collected ?? null,
     address: data.address_line1 ? {
@@ -1198,6 +1203,7 @@ export async function createOrder(options: CreateOrderOptions): Promise<Order> {
       safe_place: options.safePlace ?? null,
       box_deposit_paid: options.boxDepositPaid,
       bottle_deposit_paid: options.bottleDepositPaid,
+      bottle_deposit_qty: options.bottleDepositQty ?? 0,
       stripe_session_id: options.stripeSessionId ?? null,
       discount_code: options.discountCode ?? null,
       coupon_name: options.couponName ?? null,
@@ -1253,6 +1259,7 @@ export async function createOrder(options: CreateOrderOptions): Promise<Order> {
     safePlace: order.safe_place ?? null,
     boxDepositPaid: order.box_deposit_paid ?? false,
     bottleDepositPaid: order.bottle_deposit_paid ?? false,
+    bottleDepositQty: order.bottle_deposit_qty ?? 0,
     boxLeft: order.box_left ?? null,
     boxCollected: order.box_collected ?? null,
     address: options.address ?? null,
@@ -1379,6 +1386,7 @@ export async function getOrder(orderId: string, client: SupabaseClient = supabas
     safePlace: data.safe_place ?? null,
     boxDepositPaid: data.box_deposit_paid ?? false,
     bottleDepositPaid: data.bottle_deposit_paid ?? false,
+    bottleDepositQty: data.bottle_deposit_qty ?? 0,
     boxLeft: data.box_left ?? null,
     boxCollected: data.box_collected ?? null,
     address: data.address_line1 ? {

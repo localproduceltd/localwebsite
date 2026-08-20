@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { stripe, DISCOUNT_EXPAND, extractSessionDiscount } from "@/lib/stripe";
 import { createOrder, getOrderByStripeSession, parseItemsFromMetadata, updateCustomerDeliveryDetails, type DeliveryWindow, type DeliveryOption, type OrderItem, setCustomerOutstandingBox, getActiveDeliveryDays, markBasketConverted } from "@/lib/data";
 import { sendOrderConfirmation } from "@/lib/email";
+import { applyBottleCredit } from "@/lib/bottle-deposits";
 import { auth, clerkClient } from "@clerk/nextjs/server";
 import { eoAddContact } from "@/lib/emailoctopus";
 import { DELIVERY_FEE } from "@/lib/constants";
@@ -56,6 +57,7 @@ export async function POST(request: NextRequest) {
     const total = parseFloat(metadata.total);
     const boxDepositPaid = metadata.boxDepositPaid === "true";
     const bottleDepositPaid = metadata.bottleDepositPaid === "true";
+    const bottleDepositQty = bottleDepositPaid ? parseInt(metadata.bottleDepositQty || "0", 10) || 0 : 0;
 
     // Any promo code applied on Stripe's checkout page - stored on the order
     // and shown on the confirmation email (same as the webhook path).
@@ -75,6 +77,7 @@ export async function POST(request: NextRequest) {
       safePlace: metadata.safePlace || undefined,
       boxDepositPaid,
       bottleDepositPaid,
+      bottleDepositQty,
       stripeSessionId: sessionId,
       discountCode,
       couponName,
@@ -90,6 +93,17 @@ export async function POST(request: NextRequest) {
       pinLat: metadata.pinLat ? parseFloat(metadata.pinLat) : undefined,
       pinLng: metadata.pinLng ? parseFloat(metadata.pinLng) : undefined,
     });
+
+    // Spend any bottle credit that came off this order. Idempotent - the
+    // webhook may have got here first. Best-effort: never fail a paid order.
+    const bottleCreditPence = parseInt(metadata.bottleCreditPence || "0", 10) || 0;
+    if (bottleCreditPence > 0) {
+      try {
+        await applyBottleCredit(metadata.userId, order.id, bottleCreditPence);
+      } catch (e) {
+        console.error("Failed to apply bottle credit:", e);
+      }
+    }
 
     // Tag them as a customer in Email Octopus - if the welcome hasn't sent
     // yet, this flips their branch to the first-order thank-you (fail-soft).

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/admin-auth";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { getOrder, updateOrderStatus, setCustomerOutstandingBox, type Order } from "@/lib/data";
+import { recordBottleDeposit } from "@/lib/bottle-deposits";
 import { sendOrderStatusUpdate } from "@/lib/email";
 
 type RouteContext = { params: Promise<{ id: string }> };
@@ -62,6 +63,17 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     // Side effect: Set has_outstanding_box when order with box deposit is marked delivered
     if (body.status === "delivered" && existing.boxDepositPaid) {
       await setCustomerOutstandingBox(existing.userId, true, supabaseAdmin);
+    }
+
+    // Side effect: same rule for milk bottles - the deposit only counts as
+    // outstanding once the bottles are physically with them. Best-effort: a
+    // failure here must not stop the order being marked delivered.
+    if (body.status === "delivered" && existing.bottleDepositQty > 0) {
+      try {
+        await recordBottleDeposit(existing.userId, id, existing.bottleDepositQty);
+      } catch (e) {
+        console.error("Failed to record bottle deposit on delivery:", e);
+      }
     }
 
     // Side effect: Send status update email for prepped, next_hour, delivered, cancelled
