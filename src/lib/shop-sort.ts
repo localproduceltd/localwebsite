@@ -7,7 +7,8 @@
 //    one-product-per-supplier so no one floods the top, with a nudge so two
 //    products of the same category don't sit next to each other. Both the
 //    supplier turn order and which of a supplier's products leads rotate
-//    weekly, so the first screen genuinely changes Monday to Monday.
+//    twice a week, so the first screen genuinely changes every Tuesday and
+//    every Friday.
 //  - Bottom band: everything else, interleaved by category with locality
 //    priority (local first) - unchanged from the original shop sort.
 
@@ -36,27 +37,42 @@ const belongsInTopBand = (p: Product) =>
   (p.recentOrderCount ?? 0) > 0 || (p.recentRatingCount ?? 0) > 0 ||
   isFeatured(p) || isNewArrival(p);
 
-// Changes every Monday; stable within the week so the page doesn't reshuffle
-// mid-browse. Epoch day 0 (1 Jan 1970) was a Thursday, so +3 aligns the
-// 7-day buckets to Monday boundaries.
-function currentWeekNumber(): number {
-  const days = Math.floor(Date.now() / 86_400_000);
-  return Math.floor((days + 3) / 7);
+// Changes every Tuesday and Friday; stable in between so the page doesn't
+// reshuffle mid-browse. Epoch day 0 (1 Jan 1970) was a Thursday and the
+// first Tuesday after it was epoch day 5, so +2 starts each 7-day block on a
+// Tuesday. Within a block, Tue-Thu is the first slot and Fri-Mon the second,
+// which makes the counter tick over exactly on those two mornings.
+function currentRotationPeriod(): number {
+  const t = Math.floor(Date.now() / 86_400_000) + 2;
+  return 2 * Math.floor(t / 7) + (t % 7 >= 3 ? 1 : 0);
 }
 
-// Deterministic per-week ordering key for a string id (djb2 hash of week+id).
-// The week has to lead: djb2 only avalanches forward, so a trailing week
-// number moved the key by 1 or 2 out of 2^32 and left the order identical
-// week after week.
-function weeklyKey(id: string, week: number): number {
+// Deterministic per-period ordering key for a string id (djb2 hash of
+// period+id, then mixed). The period has to lead: djb2 only avalanches
+// forward, so a trailing counter moved the key by 1 or 2 out of 2^32 and
+// left the order identical period after period.
+//
+// The mix at the end matters just as much. Supplier ids are all UUIDs, so
+// every key is the same length, and plain djb2 over "<period>:<id>" leaves
+// each period's keys a constant offset from the last one's - adding a
+// constant mod 2^32 preserves the cyclic order, so the shop showed one fixed
+// parade of suppliers cut at a different point each time (12 distinct cuts
+// across 30 rotations, and the same supplier always following the same one).
+// The murmur3 finaliser is non-linear, so a new period reorders rather than
+// re-cuts.
+function rotationKey(id: string, period: number): number {
   let h = 5381;
-  const s = `${week}:${id}`;
+  const s = `${period}:${id}`;
   for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) >>> 0;
-  return h;
+  h = (h ^ (h >>> 16)) >>> 0;
+  h = Math.imul(h, 2246822507) >>> 0;
+  h = (h ^ (h >>> 13)) >>> 0;
+  h = Math.imul(h, 3266489909) >>> 0;
+  return (h ^ (h >>> 16)) >>> 0;
 }
 
 // Rotate an array left by n (used to give each product in a supplier's top
-// slice its turn at the front, a different one each week).
+// slice its turn at the front, a different one each rotation).
 function rotate<T>(arr: T[], by: number): T[] {
   if (arr.length < 2) return arr;
   const n = ((by % arr.length) + arr.length) % arr.length;
@@ -79,13 +95,13 @@ function supplierQueueOrder(a: Product, b: Product): number {
 
 // One supplier's queue on the shop: their stars first, then new arrivals and
 // proven sellers alternating so neither buries the other, and finally a
-// weekly rotation of the head so a different one of their best products
-// leads each week instead of the same card sitting there forever.
-function shopQueue(products: Product[], week: number): Product[] {
+// rotation of the head so a different one of their best products leads each
+// time instead of the same card sitting there forever.
+function shopQueue(products: Product[], period: number): Product[] {
   const featured = rotate(
     products.filter(isFeatured)
       .sort((a, b) => (a.featuredAt ?? "").localeCompare(b.featuredAt ?? "")),
-    week,
+    period,
   );
   const others = products.filter((p) => !isFeatured(p));
   const fresh = others.filter(isNewArrival)
@@ -98,26 +114,26 @@ function shopQueue(products: Product[], week: number): Product[] {
     if (i < proven.length) body.push(proven[i]);
   }
   const head = Math.min(ROTATION_WINDOW, body.length);
-  return [...featured, ...rotate(body.slice(0, head), week), ...body.slice(head)];
+  return [...featured, ...rotate(body.slice(0, head), period), ...body.slice(head)];
 }
 
 // Round-robin the top band across suppliers: one product per supplier per
-// turn, supplier order rotated weekly. If a supplier's next product would
-// repeat the previous card's category, take their next different-category
-// product instead (falling back to the repeat when they have nothing else).
+// turn, supplier order rotated twice a week. If a supplier's next product
+// would repeat the previous card's category, take their next
+// different-category product instead (falling back when they have nothing else).
 function roundRobinBySupplier(band: Product[]): Product[] {
-  const week = currentWeekNumber();
+  const period = currentRotationPeriod();
   const bySupplier = new Map<string, Product[]>();
   for (const p of band) {
     if (!bySupplier.has(p.supplierId)) bySupplier.set(p.supplierId, []);
     bySupplier.get(p.supplierId)!.push(p);
   }
   for (const [supplierId, queue] of bySupplier) {
-    bySupplier.set(supplierId, shopQueue(queue, week));
+    bySupplier.set(supplierId, shopQueue(queue, period));
   }
 
   const supplierIds = Array.from(bySupplier.keys())
-    .sort((a, b) => weeklyKey(a, week) - weeklyKey(b, week));
+    .sort((a, b) => rotationKey(a, period) - rotationKey(b, period));
 
   const result: Product[] = [];
   let lastCategory: string | null = null;
