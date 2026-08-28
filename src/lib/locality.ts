@@ -6,5 +6,7 @@ export const LOCALITY_COLORS: Record<Locality, { bg: string; text: string; dot: 
   "Regional":    { bg: "#e8ecd8", text: "#5c6648", dot: "#8E9F68", border: "#c8d1b8" },
   "UK":          { bg: "#f5f0e8", text: "#6b5d4a", dot: "#9b8a70", border: "#d9cfc0" },
   "International": { bg: "#ffe8d6", text: "#8b4513", dot: "#FF9310", border: "#ffc896" },
-  "TBC":         { bg: "#e5e5e5", text: "#666666", dot: "#999999", border: "#cccccc" },
+  // Off the green-to-orange distance ramp on purpose: a mixed origin isn't a
+  // point on that scale, so it reads as its own thing rather than as "far".
+  "Mixed":       { bg: "#dfe9ec", text: "#3f5c66", dot: "#5f8794", border: "#b9cdd4" },
 };

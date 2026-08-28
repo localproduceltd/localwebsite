@@ -1331,7 +1331,12 @@ function ProductForm({
           />
           <select
             value={form.locality}
-            onChange={(e) => setForm({ ...form, locality: e.target.value as Locality })}
+            onChange={(e) => {
+              const locality = e.target.value as Locality;
+              setForm(locality === "Mixed"
+                ? { ...form, locality, variableLocation: true, lat: null, lng: null }
+                : { ...form, locality });
+            }}
             className="w-full rounded-lg border border-primary/20 bg-surface px-3 py-2 text-sm outline-none focus:border-secondary"
           >
             {ALL_LOCALITIES.map((opt) => (
@@ -1344,7 +1349,8 @@ function ProductForm({
               <button
                 type="button"
                 onClick={() => setForm({ ...form, variableLocation: false })}
-                className={`flex-1 rounded-lg border-2 px-3 py-2 text-sm font-semibold transition ${
+                disabled={form.locality === "Mixed"}
+                className={`flex-1 rounded-lg border-2 px-3 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 ${
                   !form.variableLocation
                     ? "border-secondary bg-secondary/10 text-secondary"
                     : "border-primary/20 bg-surface text-muted hover:border-primary/40"

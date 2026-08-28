@@ -49,11 +49,30 @@ export interface SupplierUser {
   supplierId: string;
 }
 
-export type Locality = "Own Produce" | "Local" | "Regional" | "UK" | "International" | "TBC";
+// "Mixed" replaced the old admin-only "TBC" in Aug 2026. TBC meant "we
+// haven't worked this out yet" and leaked onto the shop as a grey badge;
+// Mixed is a real answer for things whose origin genuinely varies batch to
+// batch (a fish counter, a refill bin). It is a customer-facing filter
+// option like any other, and it always implies a variable location - see
+// applyLocalityRules below.
+export type Locality = "Own Produce" | "Local" | "Regional" | "UK" | "International" | "Mixed";
 
-export const LOCALITY_OPTIONS: Locality[] = ["Own Produce", "Local", "Regional", "UK", "International"];
+export const LOCALITY_OPTIONS: Locality[] = ["Own Produce", "Local", "Regional", "UK", "International", "Mixed"];
 
-export const ALL_LOCALITIES: Locality[] = ["Own Produce", "Local", "Regional", "UK", "International", "TBC"];
+// Kept as a separate export for the admin/supplier dropdowns. Identical to
+// LOCALITY_OPTIONS now that TBC is gone, but the two had different meanings
+// and callers still distinguish "what customers can filter by" from "what an
+// editor can pick".
+export const ALL_LOCALITIES: Locality[] = [...LOCALITY_OPTIONS];
+
+// Mixed origin means there is no single place to pin, so the flag and the
+// coordinates are derived from the locality rather than trusted from the
+// caller. Applied on every write in createProduct/updateProduct, so no form,
+// API route or bulk import can leave a Mixed product sitting on the map.
+export function applyLocalityRules<T extends { locality: Locality; lat: number | null; lng: number | null; variableLocation: boolean }>(product: T): T {
+  if (product.locality !== "Mixed") return product;
+  return { ...product, variableLocation: true, lat: null, lng: null };
+}
 
 export type ProductStatus = "pending" | "approved" | "rejected";
 
@@ -717,7 +736,8 @@ export async function checkStockForItems(
 
 // ─── Write functions ─────────────────────────────────────────────────────────
 
-export async function createProduct(product: Omit<Product, "id" | "supplierName">, client: SupabaseClient = supabase): Promise<Product> {
+export async function createProduct(rawProduct: Omit<Product, "id" | "supplierName">, client: SupabaseClient = supabase): Promise<Product> {
+  const product = applyLocalityRules(rawProduct);
   const { data, error } = await client.from("products").insert({
     name: product.name,
     description: product.description,
@@ -765,7 +785,8 @@ export async function createProduct(product: Omit<Product, "id" | "supplierName"
   };
 }
 
-export async function updateProduct(product: Product, client: SupabaseClient = supabase): Promise<void> {
+export async function updateProduct(rawProduct: Product, client: SupabaseClient = supabase): Promise<void> {
+  const product = applyLocalityRules(rawProduct);
   const { error } = await client.from("products").update({
     name: product.name,
     description: product.description,

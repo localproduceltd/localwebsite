@@ -14,9 +14,9 @@
 
 import type { Product } from "./data";
 
-// Own Produce/Local/Regional = 0, UK = 1, International = 2, TBC = 3
+// Own Produce/Local/Regional = 0, UK = 1, International/Mixed = 2
 const LOCALITY_PRIORITY: Record<string, number> = {
-  "Own Produce": 0, "Local": 0, "Regional": 0, "UK": 1, "International": 2, "TBC": 3,
+  "Own Produce": 0, "Local": 0, "Regional": 0, "UK": 1, "International": 2, "Mixed": 2,
 };
 
 // Matches the recent_* window in products_with_stats.

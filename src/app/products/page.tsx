@@ -38,8 +38,8 @@ export default function ProductsPage() {
 
   const localityOptions: ("All" | Locality)[] = ["All", ...LOCALITY_OPTIONS];
 
-  // Locality priority: Own Produce/Local/Regional = 0, UK = 1, International = 2, TBC = 3
-  const localityPriority: Record<string, number> = { "Own Produce": 0, "Local": 0, "Regional": 0, "UK": 1, "International": 2, "TBC": 3 };
+  // Locality priority: Own Produce/Local/Regional = 0, UK = 1, International/Mixed = 2
+  const localityPriority: Record<string, number> = { "Own Produce": 0, "Local": 0, "Regional": 0, "UK": 1, "International": 2, "Mixed": 2 };
 
   // Calculate search relevance score for a product
   const getSearchScore = (p: Product, searchTerm: string): number => {
