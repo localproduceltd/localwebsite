@@ -143,8 +143,12 @@ function MapPageContent() {
     setSubmittingExpansion(false);
   };
 
+  // Out-of-stock products are hidden here too (Aug 2026), matching the shop
+  // and supplier pages - otherwise items a supplier had parked behind the
+  // stock toggle stayed findable on the map, which was the one place they
+  // could still be seen.
   const productsWithCoords = useMemo(
-    () => products.filter((p) => p.lat != null && p.lng != null),
+    () => products.filter((p) => p.inStock && p.lat != null && p.lng != null),
     [products]
   );
   const suppliersWithCoords = useMemo(
@@ -311,9 +315,7 @@ function MapPageContent() {
         const isJustAdded = justAdded === product.id;
         
         let buttonHtml = '';
-        if (!product.inStock) {
-          buttonHtml = '<p style="margin-top:8px;font-size:11px;color:#9ca3af;font-style:italic;">Out of stock</p>';
-        } else if (cartItem && !isJustAdded) {
+        if (cartItem && !isJustAdded) {
           buttonHtml = `
             <div style="display:flex;align-items:center;justify-content:space-between;margin-top:10px;padding:6px 10px;background:#A9B67C20;border-radius:10px;">
               <button onclick="window.__mapUpdateQuantity__('${product.id}', -1)" style="
