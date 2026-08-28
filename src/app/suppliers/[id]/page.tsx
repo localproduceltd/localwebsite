@@ -36,8 +36,8 @@ export default function SupplierDetailPage({ params }: { params: Promise<{ id: s
       }
       setSupplier(sup);
       const prods = await getProductsBySupplier(id);
-      // Featured picks pinned first, then last-14-days activity, then
-      // all-time popularity for the quiet tail.
+      // In stock first, out of stock below. Within each: featured picks
+      // pinned first, then last-14-days activity, then all-time popularity.
       const approved = prods.filter((p) => p.status === "approved");
       setProducts(sortSupplierProducts(approved));
       setLoading(false);

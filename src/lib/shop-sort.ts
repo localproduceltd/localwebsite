@@ -187,11 +187,13 @@ export function sortShopProducts(products: Product[]): Product[] {
   return [...roundRobinBySupplier(topBand), ...interleaveByCategory(rest)];
 }
 
-// Ordering for one supplier's page: featured pinned first (oldest star
+// Ordering for one supplier's page: everything in stock first, then the
+// out-of-stock tail. Within each band, featured pinned first (oldest star
 // first), then the same recency ranking as the shop, then all-time
 // popularity as the fallback for the quiet tail.
 export function sortSupplierProducts(products: Product[]): Product[] {
   return [...products].sort((a, b) => {
+    if (a.inStock !== b.inStock) return a.inStock ? -1 : 1;
     const queueDiff = supplierQueueOrder(a, b);
     if (queueDiff !== 0) return queueDiff;
     const allTimeOrders = (b.orderCount ?? 0) - (a.orderCount ?? 0);
