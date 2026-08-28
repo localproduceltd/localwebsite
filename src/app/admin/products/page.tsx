@@ -1263,7 +1263,13 @@ function ProductForm({
             value={form.supplierId}
             onChange={(e) => {
               const s = suppliers.find((s) => s.id === e.target.value);
-              setForm({ ...form, supplierId: e.target.value, supplierName: s?.name ?? "" });
+              setForm({
+                ...form,
+                supplierId: e.target.value,
+                supplierName: s?.name ?? "",
+                // Own Produce follows whichever supplier is selected.
+                ...(form.locality === "Own Produce" ? { lat: s?.lat ?? null, lng: s?.lng ?? null } : {}),
+              });
             }}
             className="w-full rounded-lg border border-primary/20 bg-surface px-3 py-2 text-sm outline-none focus:border-secondary"
           >
@@ -1333,9 +1339,15 @@ function ProductForm({
             value={form.locality}
             onChange={(e) => {
               const locality = e.target.value as Locality;
-              setForm(locality === "Mixed"
-                ? { ...form, locality, variableLocation: true, lat: null, lng: null }
-                : { ...form, locality });
+              if (locality === "Mixed") {
+                setForm({ ...form, locality, variableLocation: true, lat: null, lng: null });
+              } else if (locality === "Own Produce") {
+                // Made on the supplier's own site, so it inherits their pin.
+                const own = suppliers.find((s) => s.id === form.supplierId);
+                setForm({ ...form, locality, variableLocation: false, lat: own?.lat ?? null, lng: own?.lng ?? null });
+              } else {
+                setForm({ ...form, locality });
+              }
             }}
             className="w-full rounded-lg border border-primary/20 bg-surface px-3 py-2 text-sm outline-none focus:border-secondary"
           >
@@ -1349,7 +1361,7 @@ function ProductForm({
               <button
                 type="button"
                 onClick={() => setForm({ ...form, variableLocation: false })}
-                disabled={form.locality === "Mixed"}
+                disabled={form.locality === "Mixed" || form.locality === "Own Produce"}
                 className={`flex-1 rounded-lg border-2 px-3 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 ${
                   !form.variableLocation
                     ? "border-secondary bg-secondary/10 text-secondary"
@@ -1361,7 +1373,8 @@ function ProductForm({
               <button
                 type="button"
                 onClick={() => setForm({ ...form, variableLocation: true, lat: null, lng: null })}
-                className={`flex-1 rounded-lg border-2 px-3 py-2 text-sm font-semibold transition ${
+                disabled={form.locality === "Own Produce"}
+                className={`flex-1 rounded-lg border-2 px-3 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 ${
                   form.variableLocation
                     ? "border-secondary bg-secondary/10 text-secondary"
                     : "border-primary/20 bg-surface text-muted hover:border-primary/40"
@@ -1568,13 +1581,13 @@ function ProductForm({
           </button>
           <button
             onClick={() => onSave(form)}
-            disabled={!form.variableLocation && (!form.lat || !form.lng)}
+            disabled={!form.variableLocation && form.locality !== "Own Produce" && (!form.lat || !form.lng)}
             className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-background hover:bg-secondary disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {product ? "Save Changes" : "Add Product"}
           </button>
         </div>
-        {!form.variableLocation && (!form.lat || !form.lng) && (
+        {!form.variableLocation && form.locality !== "Own Produce" && (!form.lat || !form.lng) && (
           <p className="mt-2 text-xs text-red-500 text-right">Please set a location or select Variable Location</p>
         )}
       </div>

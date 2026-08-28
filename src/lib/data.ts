@@ -65,13 +65,35 @@ export const LOCALITY_OPTIONS: Locality[] = ["Own Produce", "Local", "Regional",
 // editor can pick".
 export const ALL_LOCALITIES: Locality[] = [...LOCALITY_OPTIONS];
 
-// Mixed origin means there is no single place to pin, so the flag and the
-// coordinates are derived from the locality rather than trusted from the
-// caller. Applied on every write in createProduct/updateProduct, so no form,
-// API route or bulk import can leave a Mixed product sitting on the map.
+// Two localities derive their own location rather than trusting the caller:
+//
+//  - Mixed has no single place to pin, so the flag goes on and the
+//    coordinates come off.
+//  - Own Produce is by definition made at the supplier's own site, so it
+//    takes the supplier's coordinates. Suppliers were re-pinning their own
+//    farm by hand for every product they added, which was busywork that
+//    drifted (Aug 2026).
+//
+// This half is synchronous so the edit forms can apply it as the user picks;
+// Own Produce needs the supplier row, so it lives in resolveProductLocation.
 export function applyLocalityRules<T extends { locality: Locality; lat: number | null; lng: number | null; variableLocation: boolean }>(product: T): T {
   if (product.locality !== "Mixed") return product;
   return { ...product, variableLocation: true, lat: null, lng: null };
+}
+
+// Full location rules, applied on every write in createProduct/updateProduct
+// so no form, API route or bulk import can save a product whose pin
+// contradicts its locality. Falls back to whatever the caller supplied if the
+// supplier has no coordinates of its own.
+export async function resolveProductLocation<T extends { supplierId: string; locality: Locality; lat: number | null; lng: number | null; variableLocation: boolean }>(
+  product: T,
+  client: SupabaseClient = supabase,
+): Promise<T> {
+  const withRules = applyLocalityRules(product);
+  if (withRules.locality !== "Own Produce") return withRules;
+  const { data } = await client.from("suppliers").select("lat, lng").eq("id", withRules.supplierId).single();
+  if (data?.lat == null || data?.lng == null) return withRules;
+  return { ...withRules, variableLocation: false, lat: data.lat, lng: data.lng };
 }
 
 export type ProductStatus = "pending" | "approved" | "rejected";
@@ -737,7 +759,7 @@ export async function checkStockForItems(
 // ─── Write functions ─────────────────────────────────────────────────────────
 
 export async function createProduct(rawProduct: Omit<Product, "id" | "supplierName">, client: SupabaseClient = supabase): Promise<Product> {
-  const product = applyLocalityRules(rawProduct);
+  const product = await resolveProductLocation(rawProduct, client);
   const { data, error } = await client.from("products").insert({
     name: product.name,
     description: product.description,
@@ -786,7 +808,7 @@ export async function createProduct(rawProduct: Omit<Product, "id" | "supplierNa
 }
 
 export async function updateProduct(rawProduct: Product, client: SupabaseClient = supabase): Promise<void> {
-  const product = applyLocalityRules(rawProduct);
+  const product = await resolveProductLocation(rawProduct, client);
   const { error } = await client.from("products").update({
     name: product.name,
     description: product.description,
