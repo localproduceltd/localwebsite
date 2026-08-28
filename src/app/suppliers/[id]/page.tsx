@@ -17,6 +17,7 @@ export default function SupplierDetailPage({ params }: { params: Promise<{ id: s
   const [id, setId] = useState<string | null>(null);
   const [supplier, setSupplier] = useState<any>(null);
   const [products, setProducts] = useState<Product[]>([]);
+  const [hasHiddenStock, setHasHiddenStock] = useState(false);
   const [loading, setLoading] = useState(true);
   const [justAdded, setJustAdded] = useState<string | null>(null);
   const { addItem, updateQuantity, items } = useCart();
@@ -36,10 +37,14 @@ export default function SupplierDetailPage({ params }: { params: Promise<{ id: s
       }
       setSupplier(sup);
       const prods = await getProductsBySupplier(id);
-      // In stock first, out of stock below. Within each: featured picks
-      // pinned first, then last-14-days activity, then all-time popularity.
+      // Out-of-stock items are hidden entirely (Aug 2026), same as the shop -
+      // suppliers park half-finished listings behind the stock toggle, so
+      // showing them greyed out only confused people. hasHiddenStock tells the
+      // empty state apart from a supplier who has genuinely listed nothing.
       const approved = prods.filter((p) => p.status === "approved");
-      setProducts(sortSupplierProducts(approved));
+      const available = approved.filter((p) => p.inStock);
+      setHasHiddenStock(approved.length > 0 && available.length === 0);
+      setProducts(sortSupplierProducts(available));
       setLoading(false);
     })();
   }, [id]);
@@ -118,7 +123,11 @@ export default function SupplierDetailPage({ params }: { params: Promise<{ id: s
       </h2>
 
       {products.length === 0 ? (
-        <p className="mt-4 text-muted">No products listed yet.</p>
+        <p className="mt-4 text-muted">
+          {hasHiddenStock
+            ? "Nothing available from this supplier at the moment - check back soon."
+            : "No products listed yet."}
+        </p>
       ) : (
         <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-4 xl:grid-cols-5">
           {products.map((product) => {

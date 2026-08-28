@@ -69,14 +69,19 @@ export default function ProductsPage() {
   const filtered = (() => {
     const searchTerm = search.trim().toLowerCase();
     
-    // First filter products
+    // First filter products. Out-of-stock items are hidden from the shop
+    // entirely (Aug 2026) rather than shown greyed out - suppliers use the
+    // stock toggle to park items they haven't finished pricing, so a listing
+    // customers can't buy is just noise. Note this is the supplier's own
+    // in_stock toggle; something that has only sold out its weekly cap still
+    // shows, with its "sold out this week" badge.
     const matchingProducts = products.filter((p) => {
       const matchesSearch = !searchTerm || getSearchScore(p, searchTerm) > 0;
       const matchesCategory = category === "All" || p.category === category;
       const matchesLocality = selectedLocalities.size === 0 || selectedLocalities.has(p.locality);
       const matchesTags = selectedTags.size === 0 || Array.from(selectedTags).every((tag) => p.tags?.includes(tag));
       const matchesFavourites = !showFavourites || favouriteProductIds.has(p.id);
-      return matchesSearch && matchesCategory && matchesLocality && matchesTags && matchesFavourites;
+      return p.inStock && matchesSearch && matchesCategory && matchesLocality && matchesTags && matchesFavourites;
     });
 
     // If searching, sort by relevance score then locality
