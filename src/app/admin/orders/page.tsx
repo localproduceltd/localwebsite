@@ -1,10 +1,8 @@
 "use client";
 
 import { useState, useEffect, useMemo, useCallback } from "react";
-import { type Order, type OrderItem, type OrderItemRefund, type RefundPaidBy, type RefundReasonType, refundReasonConfig, DELIVERY_OPTION_LABELS, getOrders, updateOrderStatus, getCustomerBoxStatuses, getRefundsForDeliveryDay, deleteOrderItemRefund } from "@/lib/data";
-import { Package, Clock, CheckCircle, XCircle, Calendar, ChevronDown, ChevronRight, Home, MapPin, Users, Truck, Search, MoreVertical, Play, Download, ArrowRight, FileText } from "lucide-react";
-import { jsPDF } from "jspdf";
-import Link from "next/link";
+import { type Order, type OrderItem, type OrderItemRefund, type RefundPaidBy, type RefundReasonType, refundReasonConfig, DELIVERY_OPTION_LABELS, getOrders, updateOrderStatus, getCustomerBoxStatuses, getRefundsForDeliveryDay, deleteOrderItemRefund, getOrderIssuesForDeliveryDay, orderIssueConfig, type OrderIssue } from "@/lib/data";
+import { Package, Clock, CheckCircle, XCircle, Calendar, ChevronDown, ChevronRight, Home, MapPin, Users, Truck, Search, MoreVertical, Play, AlertTriangle } from "lucide-react";
 
 const statusConfig = {
   ordered: { label: "Ordered", icon: Clock, color: "text-amber-600 bg-amber-50" },
@@ -31,231 +29,6 @@ function isUpcoming(dateStr: string) {
   return d >= today;
 }
 
-function formatAddress(order: Order): string {
-  if (!order.address) return "—";
-  const parts = [order.address.addressLine1];
-  if (order.address.addressLine2) parts.push(order.address.addressLine2);
-  parts.push(order.address.city, order.address.postcode);
-  return parts.join(", ");
-}
-
-function exportDeliveryPDF(
-  orders: Order[],
-  boxStatuses: Map<string, boolean>,
-  deliveryDate: string,
-  windowFilter: "all" | "morning" | "afternoon" | "any" = "all",
-) {
-  // Filter by window if requested
-  const scoped = windowFilter === "all"
-    ? orders
-    : orders.filter(o => o.deliveryWindow === windowFilter);
-
-  // Sort all orders by order number first
-  const sortByOrderNumber = (a: Order, b: Order) => a.orderNumber - b.orderNumber;
-  const allSorted = [...scoped].sort(sortByOrderNumber);
-  
-  // Then split into sections while preserving order number sort
-  const morningOrders = allSorted.filter(o => o.deliveryWindow === "morning");
-  const afternoonOrders = allSorted.filter(o => o.deliveryWindow === "afternoon");
-  const eitherOrders = allSorted.filter(o => o.deliveryWindow === "any");
-
-  // Build sections based on filter
-  const sections: { label: string; orders: Order[] }[] = [];
-  if (windowFilter === "all") {
-    if (morningOrders.length > 0) sections.push({ label: "Morning (9am–1pm)", orders: morningOrders });
-    if (afternoonOrders.length > 0) sections.push({ label: "Afternoon (1pm–5pm)", orders: afternoonOrders });
-    if (eitherOrders.length > 0) sections.push({ label: "Either (I don't mind)", orders: eitherOrders });
-  } else if (windowFilter === "morning") {
-    sections.push({ label: "Morning (9am–1pm)", orders: morningOrders });
-  } else if (windowFilter === "afternoon") {
-    sections.push({ label: "Afternoon (1pm–5pm)", orders: afternoonOrders });
-  } else {
-    sections.push({ label: "Either (I don't mind)", orders: eitherOrders });
-  }
-
-  // Create PDF (A4 portrait)
-  const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
-  const pageWidth = doc.internal.pageSize.getWidth();
-  const pageHeight = doc.internal.pageSize.getHeight();
-  const margin = 10;
-  let y = margin;
-
-  // Format delivery date for title
-  const formattedDate = deliveryDate && deliveryDate !== "unassigned"
-    ? new Date(deliveryDate + "T00:00:00").toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" })
-    : deliveryDate;
-
-  // Title
-  doc.setFontSize(12);
-  doc.setFont("helvetica", "bold");
-  doc.text(`Delivery Sheet – ${formattedDate}`, margin, y);
-  y += 7;
-
-  // Column widths (A4 portrait = 210mm wide, minus margins = 190mm usable)
-  const colWidths = { order: 10, name: 28, address: 52, inOut: 32, safe: 52, box: 12 };
-  const colX = {
-    order: margin,
-    name: margin + colWidths.order,
-    address: margin + colWidths.order + colWidths.name,
-    inOut: margin + colWidths.order + colWidths.name + colWidths.address,
-    safe: margin + colWidths.order + colWidths.name + colWidths.address + colWidths.inOut,
-    box: margin + colWidths.order + colWidths.name + colWidths.address + colWidths.inOut + colWidths.safe,
-  };
-  const rowHeight = 9; // Rows for 2-line address
-
-  const drawTableHeader = () => {
-    doc.setFillColor(240, 240, 240);
-    doc.rect(margin, y, pageWidth - 2 * margin, 6, "F");
-    doc.setFontSize(6);
-    doc.setFont("helvetica", "bold");
-    doc.setTextColor(60, 60, 60);
-    doc.text("Box", colX.order + 0.5, y + 4);
-    doc.text("Customer", colX.name + 0.5, y + 4);
-    doc.text("Address", colX.address + 0.5, y + 4);
-    doc.text("In/Out", colX.inOut + 0.5, y + 4);
-    doc.text("Safe Place", colX.safe + 0.5, y + 4);
-    doc.text("Box swap", colX.box + 0.5, y + 4);
-    y += 6;
-  };
-
-  const getInOutLabel = (order: Order): string => {
-    if (order.deliveryOption) {
-      return DELIVERY_OPTION_LABELS[order.deliveryOption];
-    }
-    return order.willBeIn ? "I'll be in" : "I'm out";
-  };
-
-  const getBoxAction = (order: Order): string => {
-    const hasBox = boxStatuses.get(order.userId) ?? false;
-    if (order.boxDepositPaid && !hasBox) return "New";
-    if (hasBox) return "Swap";
-    return "—";
-  };
-
-  // Draw each section
-  for (const section of sections) {
-    // Check if we need a new page for section header
-    if (y > pageHeight - 30) {
-      doc.addPage();
-      y = margin;
-    }
-
-    // Section header
-    doc.setFontSize(9);
-    doc.setFont("helvetica", "bold");
-    doc.setTextColor(30, 30, 30);
-    doc.text(section.label, margin, y + 3);
-    doc.setFontSize(7);
-    doc.setFont("helvetica", "normal");
-    doc.setTextColor(100, 100, 100);
-    doc.text(`(${section.orders.length} order${section.orders.length !== 1 ? "s" : ""})`, margin + doc.getTextWidth(section.label) + 2, y + 3);
-    y += 5;
-
-    // Table header
-    drawTableHeader();
-
-    // Table rows
-    doc.setFont("helvetica", "normal");
-    doc.setTextColor(30, 30, 30);
-    for (let i = 0; i < section.orders.length; i++) {
-      const order = section.orders[i];
-
-      // Check if we need a new page (need space for 2-line row)
-      if (y > pageHeight - 14) {
-        doc.addPage();
-        y = margin;
-        // Repeat section header on new page
-        doc.setFontSize(7);
-        doc.setFont("helvetica", "italic");
-        doc.setTextColor(100, 100, 100);
-        doc.text(`${section.label} (continued)`, margin, y + 3);
-        y += 4;
-        drawTableHeader();
-        doc.setFont("helvetica", "normal");
-        doc.setTextColor(30, 30, 30);
-      }
-
-      // Alternating row background
-      if (i % 2 === 1) {
-        doc.setFillColor(250, 250, 250);
-        doc.rect(margin, y, pageWidth - 2 * margin, rowHeight, "F");
-      }
-
-      // Draw row border
-      doc.setDrawColor(230, 230, 230);
-      doc.line(margin, y + rowHeight, pageWidth - margin, y + rowHeight);
-
-      doc.setFontSize(6);
-      // Box number (weekly), order # underneath
-      doc.setFont("helvetica", "bold");
-      doc.text(String(order.boxNumber ?? "?"), colX.order + 0.5, y + 3.5);
-      doc.setFont("helvetica", "normal");
-      doc.setTextColor(120, 120, 120);
-      doc.text(`#${order.orderNumber}`, colX.order + 0.5, y + 7);
-      doc.setTextColor(30, 30, 30);
-      
-      // Customer name
-      doc.setFont("helvetica", "normal");
-      const customerName = order.customerName || order.customerEmail?.split("@")[0] || "—";
-      doc.text(customerName.substring(0, 15), colX.name + 0.5, y + 3.5);
-      
-      // Address - line 1: street address
-      const addr = order.address;
-      if (addr) {
-        const line1 = addr.addressLine1 + (addr.addressLine2 ? `, ${addr.addressLine2}` : "");
-        doc.text(line1.substring(0, 28), colX.address + 0.5, y + 3.5);
-        // Address - line 2: city + postcode (bold postcode)
-        doc.text(`${addr.city}, `, colX.address + 0.5, y + 7);
-        const cityWidth = doc.getTextWidth(`${addr.city}, `);
-        doc.setFont("helvetica", "bold");
-        doc.text(addr.postcode, colX.address + 0.5 + cityWidth, y + 7);
-        doc.setFont("helvetica", "normal");
-      } else {
-        doc.text("—", colX.address + 0.5, y + 3.5);
-      }
-      
-      // In/Out option
-      const inOut = getInOutLabel(order);
-      doc.text(inOut.substring(0, 18), colX.inOut + 0.5, y + 3.5);
-      
-      // Safe place instructions (2 lines if needed)
-      const safePlace = order.safePlace || "";
-      if (safePlace) {
-        const safeLine1 = safePlace.substring(0, 30);
-        const safeLine2 = safePlace.length > 30 ? safePlace.substring(30, 60) : "";
-        doc.text(safeLine1, colX.safe + 0.5, y + 3.5);
-        if (safeLine2) {
-          doc.text(safeLine2, colX.safe + 0.5, y + 7);
-        }
-      } else {
-        doc.setTextColor(180, 180, 180);
-        doc.text("—", colX.safe + 0.5, y + 3.5);
-        doc.setTextColor(30, 30, 30);
-      }
-      
-      // Box action
-      const boxAction = getBoxAction(order);
-      if (boxAction === "New") {
-        doc.setTextColor(22, 163, 74); // green
-      } else if (boxAction === "Swap") {
-        doc.setTextColor(37, 99, 235); // blue
-      } else {
-        doc.setTextColor(150, 150, 150);
-      }
-      doc.text(boxAction, colX.box + 0.5, y + 3.5);
-      doc.setTextColor(30, 30, 30);
-
-      y += rowHeight;
-    }
-
-    y += 4; // Space between sections
-  }
-
-  // Download the PDF
-  const suffix = windowFilter === "all" ? "" : `-${windowFilter}`;
-  doc.save(`deliveries-${deliveryDate}${suffix}.pdf`);
-}
-
 function formatAddressOneLine(order: Order): string {
   if (!order.address) return "—";
   return `${order.address.addressLine1}, ${order.address.postcode}`;
@@ -272,6 +45,29 @@ function groupItemsBySupplier(items: OrderItem[]): Array<{ supplierId: string; s
   return Array.from(map.entries())
     .map(([supplierId, data]) => ({ supplierId, ...data }))
     .sort((a, b) => a.supplierName.localeCompare(b.supplierName));
+}
+// "1st", "2nd", "3rd", "11th"...
+function ordinal(n: number) {
+  const teens = n % 100;
+  if (teens >= 11 && teens <= 13) return `${n}th`;
+  return `${n}${["th", "st", "nd", "rd"][n % 10] ?? "th"}`;
+}
+
+// How many orders this customer has had, counting this one. Same badge as the
+// packing bench, so a first-timer reads the same wherever they turn up.
+function OrderCount({ seq }: { seq: number }) {
+  if (seq === 1) {
+    return (
+      <span className="rounded-full bg-secondary px-2 py-0.5 text-[10px] font-bold uppercase text-white">
+        1st order
+      </span>
+    );
+  }
+  return (
+    <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-muted">
+      {ordinal(seq)}
+    </span>
+  );
 }
 
 // Status progression: ordered → prepped → next_hour → delivered
@@ -291,7 +87,6 @@ export default function AdminDeliveriesPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [actionMenuOpen, setActionMenuOpen] = useState<string | null>(null);
   const [markingAllPrepped, setMarkingAllPrepped] = useState<string | null>(null);
-  const [exportMenuOpen, setExportMenuOpen] = useState<string | null>(null);
   
   const [refunds, setRefunds] = useState<Map<string, OrderItemRefund[]>>(new Map());
   const [refundModal, setRefundModal] = useState<{ orderId: string; orderNumber: number; productName: string; price: number; quantity: number; supplierId: string } | null>(null);
@@ -305,6 +100,7 @@ export default function AdminDeliveriesPage() {
 
   const loadRefunds = useCallback(async (deliveryDays: string[]) => {
     const refundsMap = new Map<string, OrderItemRefund[]>();
+    const issuesMap = new Map<string, OrderIssue[]>();
     for (const day of deliveryDays) {
       const dayRefunds = await getRefundsForDeliveryDay(day);
       for (const r of dayRefunds) {
@@ -312,8 +108,17 @@ export default function AdminDeliveriesPage() {
         if (!refundsMap.has(key)) refundsMap.set(key, []);
         refundsMap.get(key)!.push(r);
       }
+      try {
+        for (const issue of await getOrderIssuesForDeliveryDay(day)) {
+          if (!issuesMap.has(issue.orderId)) issuesMap.set(issue.orderId, []);
+          issuesMap.get(issue.orderId)!.push(issue);
+        }
+      } catch {
+        // The badge is a nicety - never block the orders list over it.
+      }
     }
     setRefunds(refundsMap);
+    setIssuesByOrder(issuesMap);
   }, []);
 
   useEffect(() => {
@@ -392,6 +197,28 @@ export default function AdminDeliveriesPage() {
     }
   };
 
+  // Which order this is for each customer, counted across their whole history
+  // (cancelled ones don't count), keyed on their login with email as fallback.
+  // Open "Something not right?" reports, so an order carrying one is obvious
+  // here as well as on Stock, where it actually gets dealt with.
+  const [issuesByOrder, setIssuesByOrder] = useState<Map<string, OrderIssue[]>>(new Map());
+
+  const orderSequence = useMemo(() => {
+    const byCustomer = new Map<string, Order[]>();
+    for (const order of orderList) {
+      if (order.status === "cancelled") continue;
+      const key = order.userId || order.customerEmail?.toLowerCase() || `one-off-${order.id}`;
+      if (!byCustomer.has(key)) byCustomer.set(key, []);
+      byCustomer.get(key)!.push(order);
+    }
+    const seq = new Map<string, number>();
+    for (const list of byCustomer.values()) {
+      list.sort((a, b) => a.orderNumber - b.orderNumber);
+      list.forEach((order, i) => seq.set(order.id, i + 1));
+    }
+    return seq;
+  }, [orderList]);
+
   const handleMarkAllPrepped = async (deliveryDay: string, orders: Order[]) => {
     const eligibleOrders = orders.filter(o => o.status !== "cancelled" && o.status !== "delivered");
     if (eligibleOrders.length === 0) {
@@ -399,7 +226,8 @@ export default function AdminDeliveriesPage() {
       return;
     }
     
-    if (!confirm(`This will mark ${eligibleOrders.length} order${eligibleOrders.length !== 1 ? 's' : ''} as prepped and send email notifications to each customer. Continue?`)) {
+    const notYet = eligibleOrders.filter(o => o.status === "ordered").length;
+    if (!confirm(`Send the "coming tomorrow" email to ${notYet} customer${notYet !== 1 ? "s" : ""}?\n\nAnyone already emailed is skipped. These normally go on their own at 6pm Thursday.`)) {
       return;
     }
     
@@ -416,7 +244,7 @@ export default function AdminDeliveriesPage() {
       }
       // Refresh so the new statuses show
       setOrderList(await getOrders());
-      alert(`✅ Marked ${result.sent} order${result.sent === 1 ? "" : "s"} as prepped and emailed${result.skipped ? ` (${result.skipped} skipped)` : ""}.`);
+      alert(`✅ Emailed ${result.sent} customer${result.sent === 1 ? "" : "s"}${result.skipped ? ` (${result.skipped} already had theirs)` : ""}.`);
     } catch (error) {
       alert(`Error: ${error instanceof Error ? error.message : "Unknown error"}`);
     } finally {
@@ -576,16 +404,9 @@ export default function AdminDeliveriesPage() {
     <div className="mx-auto max-w-7xl px-3 py-6 sm:px-6 sm:py-10 lg:px-8">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-2">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-bold text-primary">Deliveries</h1>
-          <p className="mt-1 text-muted">Delivery day management and customer status updates</p>
+          <h1 className="text-2xl sm:text-3xl font-bold text-primary">Orders</h1>
+          <p className="mt-1 text-muted">Every order by delivery day - status, addresses and refunds.</p>
         </div>
-        <Link
-          href="/admin/packing"
-          className="inline-flex items-center gap-1.5 rounded-lg bg-secondary/20 px-4 py-2 text-sm font-semibold text-secondary hover:bg-secondary/30 transition"
-        >
-          Packing list
-          <ArrowRight size={16} />
-        </Link>
       </div>
 
       {grouped.map(([deliveryDay, allOrders]) => {
@@ -628,14 +449,49 @@ export default function AdminDeliveriesPage() {
                       className="w-full rounded-lg border border-primary/20 pl-9 pr-4 py-2 text-sm focus:border-secondary focus:outline-none"
                     />
                   </div>
-                  <button
-                    onClick={() => handleMarkAllPrepped(deliveryDay, allOrders)}
-                    disabled={markingAllPrepped === deliveryDay}
-                    className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 transition disabled:opacity-50"
-                  >
-                    <Package size={16} />
-                    {markingAllPrepped === deliveryDay ? "Marking..." : "Mark All Prepped"}
-                  </button>
+                  {(() => {
+                    // The "coming tomorrow" emails send themselves at 6pm
+                    // Thursday (/api/cron/prepped-emails), and an order's
+                    // status IS the record of whether its email went - so this
+                    // reports the truth rather than leaving Josie guessing,
+                    // and the button is only the backup. Pressing it is always
+                    // safe: the same engine skips already-prepped orders.
+                    const live = allOrders.filter(o => o.status !== "cancelled");
+                    const emailed = live.filter(o => o.status !== "ordered").length;
+                    const outstanding = live.length - emailed;
+                    return (
+                      <div className="flex items-center gap-3 flex-wrap">
+                        {live.length > 0 && (
+                          outstanding === 0 ? (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-green-100 px-2.5 py-1 text-[11px] font-bold text-green-700">
+                              <CheckCircle size={12} />
+                              All {emailed} emailed
+                            </span>
+                          ) : emailed > 0 ? (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-bold text-amber-800">
+                              <Clock size={12} />
+                              {emailed} emailed, {outstanding} to go
+                            </span>
+                          ) : (
+                            <span className="rounded-full bg-primary/10 px-2.5 py-1 text-[11px] font-semibold text-muted">
+                              &quot;Coming tomorrow&quot; emails go automatically at 6pm Thu
+                            </span>
+                          )
+                        )}
+                        {outstanding > 0 && (
+                          <button
+                            onClick={() => handleMarkAllPrepped(deliveryDay, allOrders)}
+                            disabled={markingAllPrepped === deliveryDay}
+                            title="Backup for the automatic 6pm Thursday send - skips anyone already emailed"
+                            className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 transition disabled:opacity-50"
+                          >
+                            <Package size={16} />
+                            {markingAllPrepped === deliveryDay ? "Sending..." : `Send the remaining ${outstanding}`}
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </div>
 
                 {/* CUSTOMERS TABLE - split by window for easier delivery routing */}
@@ -649,7 +505,6 @@ export default function AdminDeliveriesPage() {
                   const afternoonTotal = afternoonOrders.reduce((sum, o) => sum + o.total, 0);
                   const eitherTotal = eitherOrders.reduce((sum, o) => sum + o.total, 0);
                   const unscheduledTotal = unscheduledOrders.reduce((sum, o) => sum + o.total, 0);
-                  const isMenuOpen = exportMenuOpen === deliveryDay;
 
                   return (
                 <div className="rounded-xl bg-surface shadow-sm overflow-hidden">
@@ -658,52 +513,6 @@ export default function AdminDeliveriesPage() {
                       <Users size={18} className="text-secondary" />
                       <h3 className="font-bold text-primary">Customers</h3>
                       <span className="text-xs text-muted">({filteredOrders.length}{filteredOrders.length !== allOrders.length ? ` of ${allOrders.length}` : ""})</span>
-                    </div>
-                    <div className="relative">
-                      <button
-                        onClick={() => setExportMenuOpen(isMenuOpen ? null : deliveryDay)}
-                        title="Export this delivery day as PDF"
-                        className="inline-flex items-center gap-1.5 rounded-lg bg-secondary/20 px-2 sm:px-3 py-1.5 text-xs font-semibold text-secondary hover:bg-secondary/30 transition"
-                      >
-                        <FileText size={14} />
-                        <span className="hidden sm:inline">Export PDF</span>
-                        <ChevronDown size={12} />
-                      </button>
-                      {isMenuOpen && (
-                        <div className="absolute right-0 top-full mt-1 z-10 w-48 rounded-lg border border-primary/10 bg-surface shadow-lg overflow-hidden">
-                          <button
-                            onClick={() => { exportDeliveryPDF(sortedOrders, boxStatuses, deliveryDay, "all"); setExportMenuOpen(null); }}
-                            className="w-full text-left px-3 py-2 text-sm hover:bg-primary/5 transition border-b border-primary/5"
-                          >
-                            <span className="font-medium text-primary">All</span>
-                            <span className="ml-2 text-xs text-muted">({sortedOrders.length})</span>
-                          </button>
-                          <button
-                            onClick={() => { exportDeliveryPDF(sortedOrders, boxStatuses, deliveryDay, "morning"); setExportMenuOpen(null); }}
-                            disabled={morningOrders.length === 0}
-                            className="w-full text-left px-3 py-2 text-sm hover:bg-primary/5 transition border-b border-primary/5 disabled:opacity-40 disabled:cursor-not-allowed"
-                          >
-                            <span className="font-medium text-primary">Morning</span>
-                            <span className="ml-2 text-xs text-muted">9am-1pm · {morningOrders.length}</span>
-                          </button>
-                          <button
-                            onClick={() => { exportDeliveryPDF(sortedOrders, boxStatuses, deliveryDay, "afternoon"); setExportMenuOpen(null); }}
-                            disabled={afternoonOrders.length === 0}
-                            className="w-full text-left px-3 py-2 text-sm hover:bg-primary/5 transition border-b border-primary/5 disabled:opacity-40 disabled:cursor-not-allowed"
-                          >
-                            <span className="font-medium text-primary">Afternoon</span>
-                            <span className="ml-2 text-xs text-muted">1pm-5pm · {afternoonOrders.length}</span>
-                          </button>
-                          <button
-                            onClick={() => { exportDeliveryPDF(sortedOrders, boxStatuses, deliveryDay, "any"); setExportMenuOpen(null); }}
-                            disabled={eitherOrders.length === 0}
-                            className="w-full text-left px-3 py-2 text-sm hover:bg-primary/5 transition disabled:opacity-40 disabled:cursor-not-allowed"
-                          >
-                            <span className="font-medium text-primary">Either</span>
-                            <span className="ml-2 text-xs text-muted">I don't mind · {eitherOrders.length}</span>
-                          </button>
-                        </div>
-                      )}
                     </div>
                   </div>
                   {[
@@ -727,7 +536,6 @@ export default function AdminDeliveriesPage() {
                       const key = `customer-${order.id}`;
                       const isExpanded = expandedCustomers.has(key);
                       const status = statusConfig[order.status];
-                      const StatusIcon = status.icon;
                       const hasBox = boxStatuses.get(order.userId);
                       const nextStatus = statusProgression[order.status];
                       const orderRefunds = refunds.get(order.id) || [];
@@ -751,7 +559,23 @@ export default function AdminDeliveriesPage() {
                             
                             {/* Customer info */}
                             <div className="flex-1 min-w-0">
-                              <p className="font-semibold text-primary truncate">{order.customerName || order.customerEmail?.split("@")[0] || "—"}</p>
+                              <p className="font-semibold text-primary flex items-center gap-2 min-w-0 flex-wrap">
+                                <span className="truncate">{order.customerName || order.customerEmail?.split("@")[0] || "—"}</span>
+                                <OrderCount seq={orderSequence.get(order.id) ?? 1} />
+                                {(() => {
+                                  const open = (issuesByOrder.get(order.id) ?? []).filter(i => i.status === "open");
+                                  if (open.length === 0) return null;
+                                  return (
+                                    <span
+                                      className="inline-flex items-center gap-1 rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-bold text-rose-800"
+                                      title={open.map(i => `${i.productName}: ${orderIssueConfig[i.issueType]?.label}`).join(" · ")}
+                                    >
+                                      <AlertTriangle size={10} />
+                                      Reported a problem
+                                    </span>
+                                  );
+                                })()}
+                              </p>
                               <p className="text-sm text-muted truncate">{formatAddressOneLine(order)}</p>
                             </div>
                             

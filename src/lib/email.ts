@@ -305,6 +305,98 @@ export async function sendSavedBasketReminder(data: SavedBasketReminderData) {
 
 const ADMIN_EMAIL = "orders@localproduce.ltd";
 
+// Shouted at Josie when the Wednesday 7:10pm supplier-summary cron can't do
+// its job. Deliberately plain and a bit blunt - if this lands, no producer
+// knows what to bring on Thursday and it needs fixing that evening.
+export async function sendSupplierSummaryCronAlert(message: string) {
+  const adminEmail = process.env.ADMIN_EMAIL || "josie@localproduce.ltd";
+  const { error } = await resend.emails.send({
+    from: FROM_EMAIL,
+    to: adminEmail,
+    subject: "⚠️ Supplier summaries need your attention",
+    html: shell(`
+        <h1 style="color: ${BRAND}; font-size: 21px; margin: 0 0 14px;">Supplier summaries didn't go out cleanly</h1>
+        <p style="margin: 0 0 12px;">${message}</p>
+        <p style="margin: 0 0 12px;"><a href="https://www.localproduce.ltd/admin/stock" style="color: ${BRAND};">Open the Stock tab</a> and use Send summaries - it skips anyone who already had theirs.</p>
+    `),
+  });
+  if (error) {
+    console.error("Failed to send supplier summary cron alert:", error);
+    throw new Error(error.message);
+  }
+}
+
+interface OrderIssueAlertData {
+  orderNumber: number;
+  customerName: string | null;
+  customerEmail: string | null;
+  deliveryDay: string;
+  productName: string;
+  quantity: number;
+  issueLabel: string;
+  customerNote: string | null;
+}
+
+// Heads-up to Josie the moment a customer reports a problem with their box via
+// "Something not right?" on /account. Goes to josie@ (not orders@) because it
+// needs a decision, not filing.
+export async function sendOrderIssueAlert(data: OrderIssueAlertData) {
+  const adminEmail = process.env.ADMIN_EMAIL || "josie@localproduce.ltd";
+  const who = data.customerName || data.customerEmail || "A customer";
+  const { error } = await resend.emails.send({
+    from: FROM_EMAIL,
+    to: adminEmail,
+    subject: `${who} has reported a problem - order #${data.orderNumber}`,
+    html: shell(`
+        <h1 style="color: ${BRAND}; font-size: 21px; margin: 0 0 14px;">Problem reported on order #${data.orderNumber}</h1>
+        <p style="margin: 0 0 12px;"><strong>${who}</strong>${data.customerEmail ? ` (${data.customerEmail})` : ""}, delivery ${data.deliveryDay}.</p>
+        <div style="background: #f7f7f5; border: 1px solid #e5e5e5; border-radius: 8px; padding: 14px 16px; margin: 16px 0;">
+          <p style="margin: 0; font-size: 14px;"><strong>${data.productName} × ${data.quantity}</strong> - ${data.issueLabel}</p>
+          ${data.customerNote ? `<p style="margin: 10px 0 0; font-size: 14px; font-style: italic; color: #666;">"${data.customerNote}"</p>` : ""}
+        </div>
+        <p style="margin: 0 0 12px;">Nothing has been refunded - it's waiting for you on the <a href="https://www.localproduce.ltd/admin/stock" style="color: ${BRAND};">Stock tab</a> under that delivery day.</p>
+    `),
+  });
+  if (error) {
+    console.error("Failed to send order issue alert:", error);
+    throw new Error(error.message);
+  }
+}
+
+interface OrderIssueRepliedData {
+  customerEmail: string;
+  customerName: string;
+  orderNumber: number;
+  productName: string;
+  quantity: number;
+  reply: string;
+}
+
+// Sent when Josie decides a reported problem doesn't need a refund, or that
+// nothing was owed. When it DOES end in money the refund email covers it, so
+// this isn't sent as well - nobody wants two emails about one apple.
+export async function sendOrderIssueReplied(data: OrderIssueRepliedData) {
+  const { error } = await resend.emails.send({
+    from: FROM_EMAIL,
+    to: data.customerEmail,
+    subject: `About your order #${data.orderNumber}`,
+    html: shell(`
+        <h1 style="color: ${BRAND}; font-size: 21px; margin: 0 0 14px;">About your order #${data.orderNumber}</h1>
+        <p style="margin: 0 0 12px;">Hi ${firstName(data.customerName)},</p>
+        <p style="margin: 0 0 12px;">Thanks for letting us know about the ${data.productName}${data.quantity > 1 ? ` × ${data.quantity}` : ""} - it really does help us put things right.</p>
+        <div style="background: #f7f7f5; border: 1px solid #e5e5e5; border-radius: 8px; padding: 14px 16px; margin: 16px 0;">
+          <p style="margin: 0; font-size: 14px;">${data.reply}</p>
+        </div>
+        <p style="margin: 0 0 12px;">If that doesn't seem right, just reply to this email and I'll take another look. 💚</p>
+        ${SIGNOFF}
+    `),
+  });
+  if (error) {
+    console.error("Failed to send order issue reply:", error);
+    throw new Error(error.message);
+  }
+}
+
 interface SupplierFlagAlertData {
   supplierName: string;
   productName: string;
@@ -479,7 +571,10 @@ interface SupplierRefundNoticeData {
   quantity: number;
   refundAmount: number;
   reasonLabel: string;
-  reason: string | null;
+  reason: string | null; // the customer's note - quoted back so both sides match
+  // Josie's private line to the producer, written when she settles the
+  // supplier side. Never shown to the customer.
+  supplierNote?: string | null;
   paidBy: "local" | "supplier" | "50-50";
   itemArrived: boolean;
   // Explicit £ the supplier bears; null = legacy behaviour (see below).
@@ -529,6 +624,8 @@ export async function sendSupplierRefundNotice(data: SupplierRefundNoticeData) {
         </div>
 
         <p style="margin: 0 0 12px;">${payoutImpact}</p>
+
+        ${data.supplierNote ? `<p style="margin: 0 0 12px;">${data.supplierNote}</p>` : ""}
 
         <p style="margin: 0 0 6px; font-size: 13px; color: #888;">What the customer's email said:</p>
         <div style="border-left: 3px solid #e5e5e5; padding: 2px 0 2px 14px; margin: 0 0 16px; color: #666; font-size: 14px; font-style: italic;">
@@ -798,6 +895,11 @@ export async function sendOrderStatusUpdate(data: OrderStatusUpdateData) {
           <p style="margin: 0 0 4px; font-weight: bold; color: ${BRAND}; font-size: 15px;">⭐ Got any feedback? Good or bad, we want to hear it!</p>
           <p style="margin: 0 0 12px; font-size: 14px; color: #5a5a5a;">Every product review goes directly to the producers - and anything about the service comes straight to both me and the producers. It's how we get better!</p>
           <a href="https://www.localproduce.ltd/account" style="display: inline-block; background: ${BRAND}; color: #fff; padding: 10px 22px; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 14px;">Leave a quick review</a>
+        </div>
+        <div style="border: 1px solid #e5e5e5; border-radius: 8px; padding: 14px 16px; margin: 16px 0;">
+          <p style="margin: 0 0 4px; font-weight: bold; font-size: 15px;">Something not right?</p>
+          <p style="margin: 0 0 12px; font-size: 14px; color: #5a5a5a;">If anything's missing, squashed, not up to scratch, or just isn't what you ordered - tell us here and we'll put it right. No need to write an email.</p>
+          <a href="https://www.localproduce.ltd/account?issue=${data.orderNumber}" style="display: inline-block; border: 1px solid ${BRAND}; color: ${BRAND}; padding: 9px 20px; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 14px;">Tell us what's wrong</a>
         </div>
         <p style="margin: 12px 0 4px;">And if you enjoyed your Local Produce, please help us spread the word - a mention to a friend or neighbour does more for us at Local than any advert could. 💚</p>
         ${SIGNOFF}`;

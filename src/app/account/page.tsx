@@ -14,6 +14,10 @@ import {
   updateCustomerDeliveryDetails,
   canModifyOrder,
   submitFeedback,
+  getOrderIssues,
+  orderIssueConfig,
+  type OrderIssue,
+  type OrderIssueType,
 } from "@/lib/data";
 import {
   Package,
@@ -32,11 +36,39 @@ import {
   MapPin,
   Milk,
   Minus,
+  AlertCircle,
 } from "lucide-react";
 import MapPicker from "@/components/MapPicker";
 import MiniMapPreview from "@/components/MiniMapPreview";
 import { useRouter } from "next/navigation";
 import { useCart } from "@/lib/cart-context";
+
+// How long after delivery a customer can report a problem. Mirrors the check
+// in /api/order-issues - the server is the one that actually enforces it.
+const REPORT_WINDOW_DAYS = 7;
+
+function canReportIssue(order: Order): boolean {
+  if (!order.deliveryDay) return false;
+  if (order.status === "cancelled") return false;
+  const delivery = new Date(order.deliveryDay + "T00:00:00");
+  if (isNaN(delivery.getTime())) return false;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  if (delivery > today) return false; // not delivered yet
+  const deadline = new Date(delivery);
+  deadline.setDate(deadline.getDate() + REPORT_WINDOW_DAYS);
+  return today <= deadline;
+}
+
+const ISSUE_ORDER: OrderIssueType[] = [
+  "missing",
+  "short",
+  "wrong_item",
+  "damaged",
+  "quality",
+  "too_many",
+  "other",
+];
 
 const statusConfig = {
   ordered: { label: "Ordered", icon: Clock, color: "text-amber-600 bg-amber-50" },
@@ -204,6 +236,19 @@ export default function AccountPage() {
   const [draftRatings, setDraftRatings] = useState<Record<string, Record<string, DraftRating>>>({});
   // Track which orders are in "review mode"
   const [reviewingOrder, setReviewingOrder] = useState<string | null>(null);
+
+  // "Something not right?" - reporting a problem with a delivered box.
+  // A report is never a refund: it goes to Josie, who decides.
+  const [issueOrder, setIssueOrder] = useState<string | null>(null);
+  const [issuesByOrder, setIssuesByOrder] = useState<Record<string, OrderIssue[]>>({});
+  const [issueForm, setIssueForm] = useState<{ productName: string; issueType: OrderIssueType; quantity: number; note: string }>({
+    productName: "",
+    issueType: "missing",
+    quantity: 1,
+    note: "",
+  });
+  const [issueSaving, setIssueSaving] = useState(false);
+  const [issueError, setIssueError] = useState<string | null>(null);
   // Track expanded comment fields
   const [expandedComments, setExpandedComments] = useState<Set<string>>(new Set());
   // Submitting state
@@ -240,6 +285,30 @@ export default function AccountPage() {
         }
       }
       setModifiableOrders(modifiable);
+
+      // Any problems already reported, so the panel can say "we're on it"
+      // rather than letting them report the same thing twice.
+      const reportable = orders.filter(canReportIssue);
+      const issueMap: Record<string, OrderIssue[]> = {};
+      for (const order of reportable) {
+        try {
+          issueMap[order.id] = await getOrderIssues(order.id);
+        } catch {
+          issueMap[order.id] = [];
+        }
+      }
+      setIssuesByOrder(issueMap);
+
+      // Deep link from the delivered email: /account?issue=343 opens straight
+      // on that order, so nobody has to go hunting for the button.
+      const wanted = new URLSearchParams(window.location.search).get("issue");
+      if (wanted) {
+        const target = reportable.find(o => String(o.orderNumber) === wanted);
+        if (target) {
+          setIssueOrder(target.id);
+          setIssueForm({ productName: target.items[0]?.productName ?? "", issueType: "missing", quantity: 1, note: "" });
+        }
+      }
     }).catch(console.error);
   }, [user]);
 
@@ -340,6 +409,51 @@ export default function AccountPage() {
   const [reorderedId, setReorderedId] = useState<string | null>(null);
 
   // Handle add to order - sets up top-up mode and navigates to products
+  const openIssue = (order: Order) => {
+    setIssueOrder(order.id);
+    setIssueForm({
+      productName: order.items[0]?.productName ?? "",
+      issueType: "missing",
+      quantity: 1,
+      note: "",
+    });
+    setIssueError(null);
+  };
+
+  const submitIssue = async (order: Order) => {
+    if (!issueForm.productName) {
+      setIssueError("Pick which item it was.");
+      return;
+    }
+    setIssueSaving(true);
+    setIssueError(null);
+    try {
+      const res = await fetch("/api/order-issues", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          orderId: order.id,
+          productName: issueForm.productName,
+          quantity: issueForm.quantity,
+          issueType: issueForm.issueType,
+          customerNote: issueForm.note,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setIssueError(data.error || "Couldn't send that just now - please try again.");
+        return;
+      }
+      const refreshed = await getOrderIssues(order.id);
+      setIssuesByOrder(prev => ({ ...prev, [order.id]: refreshed }));
+      setIssueOrder(null);
+    } catch {
+      setIssueError("Couldn't reach us just now - please try again in a moment.");
+    } finally {
+      setIssueSaving(false);
+    }
+  };
+
   const handleAddToOrder = (order: Order) => {
     setTopUpOrder({
       orderId: order.id,
@@ -614,6 +728,10 @@ export default function AccountPage() {
               const hasAllRatings = order.items.every((item) => (orderSubmittedRatings[item.productId]?.stars ?? 0) > 0);
               const draftHasAnyStars = Object.values(draft).some((r) => r.stars > 0);
               const canModify = modifiableOrders.has(order.id);
+              const canReport = canReportIssue(order);
+              const orderIssues = issuesByOrder[order.id] ?? [];
+              const openIssues = orderIssues.filter(i => i.status === "open");
+              const isReportingThis = issueOrder === order.id;
 
               return (
                 <div key={order.id} className="overflow-hidden rounded-xl bg-surface shadow-sm">
@@ -635,6 +753,26 @@ export default function AccountPage() {
                             {Object.keys(orderSubmittedRatings).length > 0 ? "Edit Review" : "Leave a Review"}
                           </button>
                         )
+                      )}
+                      {canReport && !isReportingThis && (
+                        <button
+                          onClick={() => openIssue(order)}
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-primary/20 px-3 py-1.5 text-xs font-semibold text-muted transition hover:border-secondary hover:text-secondary"
+                        >
+                          <AlertCircle size={12} />
+                          Something not right?
+                        </button>
+                      )}
+                      {orderIssues.length > 0 && (
+                        <span
+                          className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-semibold ${
+                            openIssues.length > 0 ? "bg-amber-100 text-amber-800" : "bg-green-100 text-green-700"
+                          }`}
+                        >
+                          {openIssues.length > 0
+                            ? `We're looking into ${openIssues.length === 1 ? "this" : `${openIssues.length} things`}`
+                            : "Sorted"}
+                        </span>
                       )}
                       {canModify && (
                         <button
@@ -669,6 +807,143 @@ export default function AccountPage() {
                       </span>
                     </div>
                   </div>
+
+                  {/* "Something not right?" - a report, not a refund. Josie
+                      reads every one and decides; nothing here moves money. */}
+                  {isReportingThis && (
+                    <div className="border-b border-primary/5 bg-secondary/5 px-6 py-5">
+                      <h3 className="font-semibold text-primary">Something not right?</h3>
+                      <p className="mt-1 text-sm text-muted">
+                        Tell us what happened and we&apos;ll put it right. Josie reads every one of these herself.
+                      </p>
+
+                      <div className="mt-4 space-y-4">
+                        <div>
+                          <label className="block text-xs font-semibold uppercase text-muted mb-1.5">Which item?</label>
+                          <select
+                            value={issueForm.productName}
+                            onChange={(e) => setIssueForm({ ...issueForm, productName: e.target.value, quantity: 1 })}
+                            className="w-full rounded-lg border border-primary/20 bg-background px-3 py-2.5 text-sm text-primary"
+                          >
+                            {order.items.map((item) => {
+                              const reported = orderIssues.some(i => i.productName === item.productName && i.status === "open");
+                              return (
+                                <option key={item.productName} value={item.productName} disabled={reported}>
+                                  {item.productName}{item.unit ? ` - ${item.unit}` : ""} × {item.quantity}
+                                  {reported ? " (already reported)" : ""}
+                                </option>
+                              );
+                            })}
+                          </select>
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-semibold uppercase text-muted mb-1.5">What happened?</label>
+                          <div className="grid gap-2 sm:grid-cols-2">
+                            {ISSUE_ORDER.map((type) => {
+                              const config = orderIssueConfig[type];
+                              const selected = issueForm.issueType === type;
+                              return (
+                                <button
+                                  key={type}
+                                  type="button"
+                                  onClick={() => setIssueForm({ ...issueForm, issueType: type })}
+                                  className={`rounded-lg border px-3 py-2.5 text-left transition ${
+                                    selected ? "border-secondary bg-secondary/10" : "border-primary/15 hover:bg-primary/5"
+                                  }`}
+                                >
+                                  <span className="block text-sm font-semibold text-primary">{config.label}</span>
+                                  <span className="block text-xs text-muted">{config.hint}</span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+
+                        {(() => {
+                          const line = order.items.find(i => i.productName === issueForm.productName);
+                          if (!line || line.quantity <= 1) return null;
+                          return (
+                            <div>
+                              <label className="block text-xs font-semibold uppercase text-muted mb-1.5">How many?</label>
+                              <div className="flex flex-wrap gap-2">
+                                {Array.from({ length: line.quantity }, (_, i) => i + 1).map((n) => (
+                                  <button
+                                    key={n}
+                                    type="button"
+                                    onClick={() => setIssueForm({ ...issueForm, quantity: n })}
+                                    className={`h-11 min-w-11 rounded-lg border px-3 text-sm font-semibold transition ${
+                                      issueForm.quantity === n
+                                        ? "border-secondary bg-secondary text-white"
+                                        : "border-primary/20 text-primary hover:bg-primary/5"
+                                    }`}
+                                  >
+                                    {n}
+                                  </button>
+                                ))}
+                              </div>
+                              <p className="mt-1.5 text-xs text-muted">of {line.quantity} you ordered</p>
+                            </div>
+                          );
+                        })()}
+
+                        <div>
+                          <label className="block text-xs font-semibold uppercase text-muted mb-1.5">
+                            Anything else we should know?
+                          </label>
+                          <textarea
+                            value={issueForm.note}
+                            onChange={(e) => setIssueForm({ ...issueForm, note: e.target.value })}
+                            rows={3}
+                            placeholder="Optional - the more you tell us, the better we can fix it"
+                            className="w-full rounded-lg border border-primary/20 bg-background px-3 py-2 text-sm text-primary"
+                          />
+                        </div>
+
+                        {issueError && (
+                          <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-700">
+                            {issueError}
+                          </div>
+                        )}
+
+                        <div className="flex flex-wrap gap-3">
+                          <button
+                            onClick={() => submitIssue(order)}
+                            disabled={issueSaving}
+                            className="rounded-lg bg-secondary px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-secondary/90 disabled:opacity-50"
+                          >
+                            {issueSaving ? "Sending..." : "Send this to Josie"}
+                          </button>
+                          <button
+                            onClick={() => setIssueOrder(null)}
+                            disabled={issueSaving}
+                            className="rounded-lg border border-primary/20 px-4 py-2.5 text-sm font-medium text-muted transition hover:bg-primary/5 disabled:opacity-50"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* What they've already told us about this box */}
+                  {!isReportingThis && orderIssues.length > 0 && (
+                    <div className="border-b border-primary/5 bg-primary/5 px-6 py-3">
+                      {orderIssues.map((issue) => (
+                        <p key={issue.id} className="text-sm text-muted">
+                          <span className="font-medium text-primary">{issue.productName}</span>
+                          {" - "}{orderIssueConfig[issue.issueType]?.label ?? "Reported"}
+                          {issue.status === "open" ? (
+                            <span className="ml-2 text-xs text-amber-700">We&apos;re looking into it</span>
+                          ) : issue.status === "refunded" ? (
+                            <span className="ml-2 text-xs text-green-700">Refunded - check your email</span>
+                          ) : (
+                            <span className="ml-2 text-xs text-green-700">Sorted - we replied by email</span>
+                          )}
+                        </p>
+                      ))}
+                    </div>
+                  )}
 
                   {/* Order items grouped by supplier */}
                   <div className="px-6 py-4">
@@ -745,7 +1020,7 @@ export default function AccountPage() {
                                               <StarRating value={submitted.stars} size={16} />
                                               {submitted.comment && (
                                                 <p className="text-[10px] text-muted max-w-[150px] truncate" title={submitted.comment}>
-                                                  "{submitted.comment}"
+                                                  &ldquo;{submitted.comment}&rdquo;
                                                 </p>
                                               )}
                                             </div>

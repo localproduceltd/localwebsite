@@ -9,6 +9,14 @@
       "schedule": "0 13 * * 3"
     },
     {
+      "path": "/api/cron/supplier-summaries",
+      "schedule": "10 18 * * 3"
+    },
+    {
+      "path": "/api/cron/supplier-summaries",
+      "schedule": "10 19 * * 3"
+    },
+    {
       "path": "/api/cron/prepped-emails",
       "schedule": "0 17 * * 4"
     },

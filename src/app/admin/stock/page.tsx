@@ -1,38 +1,67 @@
 "use client";
 
 import { useState, useEffect, useMemo, useCallback } from "react";
+import Link from "next/link";
 import { useUser } from "@clerk/nextjs";
-import { type Order, type OrderItemRefund, type OrderItemCheckin, type RefundPaidBy, type RefundReasonType, type SupplierProductFlag, refundReasonConfig, supplierPayoutAdjustment, getOrders, getRefundsForDeliveryDay, getOrderItemCheckins, setOrderItemCheckin, getSupplierProductFlags, resolveSupplierProductFlag, createSupplierProductFlag, removeSupplierProductFlag, getCompletedCheckins, setCheckinComplete, reopenCheckin } from "@/lib/data";
-import { CheckCircle, XCircle, Calendar, ChevronDown, ChevronRight, Truck, AlertTriangle, FileText, Mail, Download, Send, Users, Eye, Flag, PoundSterling } from "lucide-react";
+import { type Order, type OrderItemRefund, type OrderItemCheckin, type RefundPaidBy, type SupplierProductFlag, type OrderIssue, refundReasonConfig, faultHintLabel, orderIssueConfig, supplierPayoutAdjustment, getOrders, getRefundsForDeliveryDay, getOrderItemCheckins, getSupplierProductFlags, getOrderIssuesForDeliveryDay, createSupplierProductFlag, removeSupplierProductFlag } from "@/lib/data";
+import { CheckCircle, XCircle, Calendar, ChevronDown, ChevronRight, Truck, AlertTriangle, FileText, Mail, Download, Send, Flag, PoundSterling } from "lucide-react";
 import { ChilledTag, chilledRowClass } from "@/components/ChilledTag";
 
-interface StockIssue {
-  type: "shortage" | "flagged";
-  deliveryDay: string;
-  supplierId: string;
+// A refund Luke has already paid back to the customer, waiting on Josie's
+// who-pays call. Everything the queue row needs to make that call.
+interface PendingRefund {
+  refund: OrderItemRefund;
+  orderNumber: number;
+  boxNumber: number | null;
+  customerName: string | null;
   supplierName: string;
-  productName: string;
-  shortfall: number;
-  orderedQty: number;
-  arrivedQty: number | null;
-  affectedOrders: Array<{ orderId: string; orderNumber: number; customerName: string | null; customerEmail: string | null; quantity: number; price: number }>;
+  deliveryDay: string;
+  // quantity × the line's unit price - the most the supplier could be docked.
+  fullLineValue: number;
 }
 
-interface ReviewModalState {
-  issue: StockIssue;
-  // orderId -> quantity to refund (1..their remaining line quantity)
-  selectedQtys: Map<string, number>;
-  reasonType: RefundReasonType;
-  paidBy: RefundPaidBy;
-  // % of the line price to refund (1-100) - less than 100 when a substitute
-  // or partial make-good means the customer shouldn't get the full amount back
-  refundPercent: number;
-  // % of the full line price docked from the supplier's payout. Null = match
-  // the customer refund (the supplier's who-pays share of it). An explicit %
-  // overrides who-pays for the payout maths.
-  supplierDeductPercent: number | null;
-  notes: string;
+// A customer's "Something not right?" report, with everything Josie needs to
+// decide on it without opening another tab.
+interface PendingIssue {
+  issue: OrderIssue;
+  orderNumber: number;
+  boxNumber: number | null;
+  customerName: string | null;
+  supplierName: string;
+  deliveryDay: string;
+  unitPrice: number;
+  // Full value of the units they've reported - the ceiling on any refund.
+  fullLineValue: number;
+  // Which order this was for that customer. A first-timer with a problem is
+  // the one to be most generous with.
+  orderSeq: number;
 }
+
+interface IssueForm {
+  outcome: "refund" | "decline";
+  amount: string;
+  paidBy: RefundPaidBy;
+  deduction: string;
+  customerNote: string;
+  supplierNote: string;
+  reply: string;
+}
+
+interface SettleForm {
+  paidBy: RefundPaidBy;
+  // £ off the payout. Follows who-pays unless Josie types over it.
+  deduction: string;
+  supplierNote: string;
+  notify: boolean;
+}
+
+// Where the "whose fault" hint lands before Josie touches it. A hint only -
+// she overrules it whenever a new supplier is getting grace.
+const faultDefaults: Record<string, RefundPaidBy> = {
+  supplier: "supplier",
+  local: "local",
+  unsure: "supplier",
+};
 
 // The supplier's share of one line's refund under "match refund" (£).
 function matchRefundDeduction(refundAmount: number, paidBy: RefundPaidBy): number {
@@ -54,10 +83,6 @@ function isUpcoming(dateStr: string) {
   today.setHours(0, 0, 0, 0);
   const d = new Date(dateStr + "T00:00:00");
   return d >= today;
-}
-
-function formatItemLine(name: string, unit: string, qty: number) {
-  return unit ? `${name} — ${unit} × ${qty}` : `${name} × ${qty}`;
 }
 
 interface SupplierOrderItems {
@@ -129,44 +154,165 @@ export default function AdminStockPage() {
   const [refunds, setRefunds] = useState<Map<string, OrderItemRefund[]>>(new Map());
   const [productFlags, setProductFlags] = useState<Map<string, SupplierProductFlag>>(new Map());
   // Keys are `${deliveryDay}-${supplierId}` for suppliers whose check-in is marked complete.
-  const [completedCheckins, setCompletedCheckins] = useState<Set<string>>(new Set());
   const [payoutModal, setPayoutModal] = useState<string | null>(null);
   const [sendingPayouts, setSendingPayouts] = useState(false);
   const [sendingSummaries, setSendingSummaries] = useState<string | null>(null);
+  // Which suppliers have already had their order summary, per delivery day.
+  // Read from the server rather than assumed, so the page shows whether the
+  // Wednesday cron actually ran instead of leaving Josie to guess.
+  const [summariesSent, setSummariesSent] = useState<Map<string, Set<string>>>(new Map());
+  // Customer-reported problems, per delivery day.
+  const [orderIssues, setOrderIssues] = useState<Map<string, OrderIssue[]>>(new Map());
+  const [resolving, setResolving] = useState<PendingIssue | null>(null);
+  const [issueSaving, setIssueSaving] = useState(false);
+  const [issueError, setIssueError] = useState<string | null>(null);
+  const [issueForm, setIssueForm] = useState<IssueForm>({
+    outcome: "refund",
+    amount: "",
+    paidBy: "local",
+    deduction: "0.00",
+    customerNote: "",
+    supplierNote: "",
+    reply: "",
+  });
   
-  // Issue review modal state
-  const [reviewModal, setReviewModal] = useState<ReviewModalState | null>(null);
-  const [refundLoading, setRefundLoading] = useState(false);
-  const [refundError, setRefundError] = useState<string | null>(null);
+  // Settle queue state: Josie's who-pays call on refunds Luke has already
+  // made to the customer.
+  const [settling, setSettling] = useState<PendingRefund | null>(null);
+  const [settleSaving, setSettleSaving] = useState(false);
+  const [settleError, setSettleError] = useState<string | null>(null);
+  const [settleForm, setSettleForm] = useState<SettleForm>({
+    paidBy: "supplier",
+    deduction: "",
+    supplierNote: "",
+    notify: true,
+  });
 
-  // Flip a bag tick. Updates local state immediately (the ticks ARE the stock
-  // count, so no refetch is needed) and syncs the row to the database behind
-  // the scenes, reverting the tick if that fails.
-  const handleOrderCheckIn = async (
-    supplierId: string,
-    orderId: string,
-    productName: string,
-    quantity: number
-  ) => {
-    const checkinKey = `${orderId}-${supplierId}-${productName}`;
-    const wasChecked = orderCheckins.has(checkinKey);
-
-    const apply = (checked: boolean) => setOrderCheckins(prev => {
-      const next = new Map(prev);
-      if (checked) {
-        next.set(checkinKey, { id: "", orderId, supplierId, productName, quantity, checkedInAt: new Date().toISOString() });
-      } else {
-        next.delete(checkinKey);
-      }
-      return next;
+  const openResolve = (pending: PendingIssue) => {
+    const config = orderIssueConfig[pending.issue.issueType];
+    const paidBy = config.defaultPaidBy;
+    setResolving(pending);
+    setIssueForm({
+      outcome: config.refundable ? "refund" : "decline",
+      amount: pending.fullLineValue.toFixed(2),
+      paidBy,
+      deduction: (paidBy === "supplier"
+        ? pending.fullLineValue
+        : paidBy === "50-50"
+          ? Math.round(pending.fullLineValue * 50) / 100
+          : 0
+      ).toFixed(2),
+      customerNote: "",
+      supplierNote: "",
+      reply: "",
     });
+    setIssueError(null);
+  };
 
-    apply(!wasChecked);
+  // Who-pays moves the default deduction with it, but only up to whatever
+  // she's actually refunding - the farm can never be docked more than the
+  // customer got back.
+  const changeIssuePaidBy = (paidBy: RefundPaidBy) => {
+    const amount = Number(issueForm.amount) || 0;
+    const deduction = paidBy === "supplier" ? amount : paidBy === "50-50" ? Math.round(amount * 50) / 100 : 0;
+    setIssueForm(prev => ({ ...prev, paidBy, deduction: deduction.toFixed(2) }));
+  };
+
+  const submitResolve = async () => {
+    if (!resolving) return;
+    setIssueSaving(true);
+    setIssueError(null);
     try {
-      await setOrderItemCheckin(orderId, supplierId, productName, quantity, !wasChecked);
+      const body = issueForm.outcome === "refund"
+        ? {
+            outcome: "refund",
+            refundAmount: Number(issueForm.amount) || 0,
+            paidBy: issueForm.paidBy,
+            supplierDeduction: Number(issueForm.deduction) || 0,
+            customerNote: issueForm.customerNote,
+            supplierNote: issueForm.supplierNote,
+          }
+        : {
+            outcome: orderIssueConfig[resolving.issue.issueType].refundable ? "decline" : "note",
+            reply: issueForm.reply,
+          };
+
+      const response = await fetch(`/api/admin/order-issues/${resolving.issue.id}/resolve`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        setIssueError(data?.error?.message || "Couldn't sort that one out");
+        return;
+      }
+      const day = resolving.deliveryDay;
+      setResolving(null);
+      await loadCheckinData([day]);
     } catch (error) {
-      apply(wasChecked);
-      alert(`Failed to save check-in: ${error instanceof Error ? error.message : "unknown error"}`);
+      setIssueError(error instanceof Error ? error.message : "Couldn't sort that one out");
+    } finally {
+      setIssueSaving(false);
+    }
+  };
+
+  const openSettle = (pending: PendingRefund) => {
+    const paidBy = faultDefaults[pending.refund.faultHint ?? "unsure"] ?? "supplier";
+    setSettling(pending);
+    setSettleForm({
+      paidBy,
+      deduction: settleDeduction(pending, paidBy).toFixed(2),
+      supplierNote: "",
+      notify: true,
+    });
+    setSettleError(null);
+  };
+
+  // What the supplier bears by default. For a line that never arrived that's
+  // the full value of the missing units (they're simply not paid for goods
+  // they didn't send); for one that arrived but was no good it's the who-pays
+  // share of what the customer got back.
+  const settleDeduction = (pending: PendingRefund, paidBy: RefundPaidBy) => {
+    if (!pending.refund.itemArrived) {
+      if (paidBy === "local") return 0;
+      if (paidBy === "supplier") return pending.fullLineValue;
+      return Math.round(pending.fullLineValue * 50) / 100;
+    }
+    return matchRefundDeduction(pending.refund.refundAmount, paidBy);
+  };
+
+  const changePaidBy = (paidBy: RefundPaidBy) => {
+    if (!settling) return;
+    setSettleForm(prev => ({ ...prev, paidBy, deduction: settleDeduction(settling, paidBy).toFixed(2) }));
+  };
+
+  const submitSettle = async () => {
+    if (!settling) return;
+    setSettleSaving(true);
+    setSettleError(null);
+    try {
+      const response = await fetch(`/api/admin/refunds/${settling.refund.id}/settle`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          paidBy: settleForm.paidBy,
+          supplierDeduction: Number(settleForm.deduction) || 0,
+          supplierNote: settleForm.supplierNote || null,
+          notifySupplier: settleForm.notify,
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        setSettleError(data?.error?.message || "Couldn't settle that refund");
+        return;
+      }
+      setSettling(null);
+      await loadCheckinData([settling.deliveryDay]);
+    } catch (error) {
+      setSettleError(error instanceof Error ? error.message : "Couldn't settle that refund");
+    } finally {
+      setSettleSaving(false);
     }
   };
 
@@ -186,6 +332,25 @@ export default function AdminStockPage() {
 
   // Total not-arrived refunded quantity for a supplier's product across the
   // day's orders. expected-to-arrive = ordered - this.
+  // Every refunded unit on a line, whatever the reason. This is what decides
+  // whether there's anything left for Luke to put in the box - a punnet
+  // refunded for being squashed isn't going in it either.
+  const refundedQtyAll = useCallback((orderId: string, productName: string) => {
+    return (refunds.get(orderId) || [])
+      .filter(r => r.productName === productName)
+      .reduce((sum, r) => sum + r.quantityRefunded, 0);
+  }, [refunds]);
+
+  const productRefundedQtyAll = useCallback((supplier: SupplierSummary, productName: string) => {
+    let total = 0;
+    for (const orderEntry of supplier.orders) {
+      if (orderEntry.items.some(i => i.productName === productName)) {
+        total += refundedQtyAll(orderEntry.orderId, productName);
+      }
+    }
+    return total;
+  }, [refundedQtyAll]);
+
   const productRefundedQty = useCallback((supplier: SupplierSummary, productName: string) => {
     let total = 0;
     for (const orderEntry of supplier.orders) {
@@ -204,42 +369,21 @@ export default function AdminStockPage() {
     for (const orderEntry of supplier.orders) {
       for (const item of orderEntry.items) {
         if (item.productName !== productName) continue;
-        if (!isOrderItemCheckedIn(orderEntry.orderId, supplier.supplierId, productName)) continue;
-        const remaining = item.quantity - notArrivedRefundedQty(orderEntry.orderId, supplier.supplierId, productName);
-        if (remaining > 0) total += remaining;
+
+        const notArrived = notArrivedRefundedQty(orderEntry.orderId, supplier.supplierId, productName);
+        const stillToPack = item.quantity - refundedQtyAll(orderEntry.orderId, productName);
+        const ticked = isOrderItemCheckedIn(orderEntry.orderId, supplier.supplierId, productName);
+
+        // What the supplier actually delivered = everything bar the units that
+        // never turned up. Counted once the line is settled either way: packed
+        // into the box, or refunded away. A quality refund still arrived - they
+        // sent it, we chose not to pass it on - so they're still paid for it
+        // here, and whether they bear the refund is the settle decision.
+        if (ticked || stillToPack <= 0) total += Math.max(0, item.quantity - notArrived);
       }
     }
     return total;
-  }, [isOrderItemCheckedIn, notArrivedRefundedQty]);
-
-  // Customers still on the hook for this product (not yet fully refunded),
-  // with their remaining quantities, plus the total quantity already refunded
-  // (any reason - a refunded line shouldn't be refunded twice).
-  const buildAffectedOrders = useCallback((orders: Order[], supplierId: string, productName: string) => {
-    const affectedOrders: StockIssue["affectedOrders"] = [];
-    let totalRefundedQty = 0;
-    for (const order of orders) {
-      if (order.status === "cancelled") continue;
-      for (const orderItem of order.items) {
-        if (orderItem.supplierId !== supplierId || orderItem.productName !== productName) continue;
-        const orderRefunds = (refunds.get(order.id) || []).filter(r => r.productName === productName);
-        const refundedQty = orderRefunds.reduce((sum, r) => sum + r.quantityRefunded, 0);
-        totalRefundedQty += refundedQty;
-        const remaining = orderItem.quantity - refundedQty;
-        if (remaining > 0) {
-          affectedOrders.push({
-            orderId: order.id,
-            orderNumber: order.orderNumber,
-            customerName: order.customerName,
-            customerEmail: order.customerEmail,
-            quantity: remaining,
-            price: orderItem.price,
-          });
-        }
-      }
-    }
-    return { affectedOrders, totalRefundedQty };
-  }, [refunds]);
+  }, [isOrderItemCheckedIn, notArrivedRefundedQty, refundedQtyAll]);
 
   const toggleExpand = useCallback((key: string) => {
     setExpandedSuppliers((prev) => {
@@ -254,7 +398,8 @@ export default function AdminStockPage() {
     const checkinsMap = new Map<string, OrderItemCheckin>();
     const refundsMap = new Map<string, OrderItemRefund[]>();
     const flagsMap = new Map<string, SupplierProductFlag>();
-    const completeSet = new Set<string>();
+    const sentMap = new Map<string, Set<string>>();
+    const issuesMap = new Map<string, OrderIssue[]>();
 
     for (const day of deliveryDays) {
       const checkins = await getOrderItemCheckins(day);
@@ -274,15 +419,32 @@ export default function AdminStockPage() {
         flagsMap.set(`${f.deliveryDay}-${f.supplierId}-${f.productName}`, f);
       }
 
-      const completed = await getCompletedCheckins(day);
-      for (const supplierId of completed) {
-        completeSet.add(`${day}-${supplierId}`);
+      issuesMap.set(day, await getOrderIssuesForDeliveryDay(day));
+
+      try {
+        const res = await fetch(`/api/send-supplier-summaries?deliveryDate=${day}`);
+        if (res.ok) {
+          const data = await res.json();
+          sentMap.set(day, new Set<string>(data.sentSupplierIds ?? []));
+        }
+      } catch {
+        // Not knowing is survivable - the button still works and still skips
+        // anyone already emailed.
       }
     }
     setOrderCheckins(checkinsMap);
     setRefunds(refundsMap);
     setProductFlags(flagsMap);
-    setCompletedCheckins(completeSet);
+    setSummariesSent(prev => {
+      const next = new Map(prev);
+      for (const [day, ids] of sentMap) next.set(day, ids);
+      return next;
+    });
+    setOrderIssues(prev => {
+      const next = new Map(prev);
+      for (const [day, list] of issuesMap) next.set(day, list);
+      return next;
+    });
   }, []);
 
   useEffect(() => {
@@ -307,41 +469,28 @@ export default function AdminStockPage() {
     }).catch(console.error);
   }, [loadCheckinData]);
 
-  // Whether a supplier's check-in is marked complete for a delivery day.
+  // Whether a supplier's crate is finished for a delivery day.
+  //
+  // Derived, never declared: done = every one of their order lines is either
+  // packed into a box or refunded as short. The old "Done checking in" button
+  // was removed in Aug 2026 - it existed only to tell the shortfall engine the
+  // count was final, and that engine is gone. (It was also routinely pressed
+  // the morning after, which made the figures lie overnight.)
   const isSupplierComplete = useCallback(
-    (deliveryDay: string, supplierId: string) => completedCheckins.has(`${deliveryDay}-${supplierId}`),
-    [completedCheckins]
+    (deliveryDay: string, supplierId: string, supplier: SupplierSummary) => {
+      let lines = 0;
+      for (const orderEntry of supplier.orders) {
+        for (const item of orderEntry.items) {
+          lines++;
+          const stillToPack = item.quantity - refundedQtyAll(orderEntry.orderId, item.productName);
+          if (stillToPack > 0 && !isOrderItemCheckedIn(orderEntry.orderId, supplierId, item.productName)) return false;
+        }
+      }
+      return lines > 0;
+    },
+    [isOrderItemCheckedIn, refundedQtyAll]
   );
 
-  const markCheckinComplete = async (deliveryDay: string, supplierId: string) => {
-    await setCheckinComplete(deliveryDay, supplierId);
-    setCompletedCheckins(prev => new Set(prev).add(`${deliveryDay}-${supplierId}`));
-  };
-
-  // "Done checking in" - completes as-is, locking in any shortages. Warns first.
-  // Anything unticked counts as 0 arrived: a no-show must flag, not slip
-  // through as "not checked".
-  const handleDoneCheckin = async (deliveryDay: string, supplier: SupplierSummary) => {
-    const shortItems: string[] = [];
-    for (const item of supplier.items) {
-      const arrived = tickedArrivedQty(supplier, item.productName);
-      const expected = Math.max(0, item.quantity - productRefundedQty(supplier, item.productName));
-      if (arrived < expected) shortItems.push(`${item.productName} (${arrived} of ${expected} ticked in)`);
-    }
-
-    let msg = `Mark ${supplier.supplierName}'s check-in as complete?`;
-    if (shortItems.length > 0) {
-      msg += `\n\nShort:\n${shortItems.map(s => `• ${s}`).join("\n")}\n\nThese will be flagged as not arrived and raise refund issues for the affected customers. If something's actually here, cancel and tick it in first.`;
-    } else {
-      msg += `\n\nEverything has arrived in full.`;
-    }
-    if (!confirm(msg)) return;
-    await markCheckinComplete(deliveryDay, supplier.supplierId);
-  };
-
-  // Admin "flag as won't arrive" from the top stock list - e.g. a supplier
-  // texts the day before. Same flag the supplier portal creates, so it rides
-  // the same issue-queue rails.
   const handleAdminFlag = async (deliveryDay: string, supplier: SupplierSummary, item: { productName: string; quantity: number }) => {
     const input = prompt(
       `How many "${item.productName}" won't arrive?\n\nOrdered: ${item.quantity}. Leave as ${item.quantity} if the whole line isn't coming.`,
@@ -370,7 +519,7 @@ export default function AdminStockPage() {
   // refunds have gone out against it - those aren't reversible from here.
   const handleUnflag = async (deliveryDay: string, supplier: SupplierSummary, productName: string) => {
     if (productRefundedQty(supplier, productName) > 0) {
-      alert("Customers have already been refunded against this flag, so it can't be removed. Use Reopen/Review if something else needs fixing.");
+      alert("Customers have already been refunded against this flag, so it can't be removed.");
       return;
     }
     if (!confirm(`Remove the "won't arrive" flag on ${productName}?`)) return;
@@ -386,18 +535,14 @@ export default function AdminStockPage() {
     }
   };
 
-  const handleReopenCheckin = async (deliveryDay: string, supplierId: string) => {
-    await reopenCheckin(deliveryDay, supplierId);
-    setCompletedCheckins(prev => {
-      const next = new Set(prev);
-      next.delete(`${deliveryDay}-${supplierId}`);
-      return next;
-    });
-  };
+  // Backup for the Wednesday 7:10pm cron. Safe to press at any time: the
+  // engine skips suppliers who already had theirs.
+  const handleSendSupplierSummaries = async (deliveryDay: string, alreadySent: number) => {
+    const note = alreadySent > 0
+      ? `\n\n${alreadySent} supplier${alreadySent !== 1 ? "s have" : " has"} already had theirs - they'll be skipped.`
+      : "";
+    if (!confirm(`Send supplier summaries for ${formatDeliveryDate(deliveryDay)}?${note}`)) return;
 
-  const handleSendSupplierSummaries = async (deliveryDay: string) => {
-    if (!confirm(`Send supplier summary emails for ${formatDeliveryDate(deliveryDay)}?`)) return;
-    
     setSendingSummaries(deliveryDay);
     try {
       const response = await fetch("/api/send-supplier-summaries", {
@@ -406,11 +551,12 @@ export default function AdminStockPage() {
         body: JSON.stringify({ deliveryDate: deliveryDay }),
       });
       const data = await response.json();
-      if (data.success) {
-        alert(`✅ Sent summary emails to ${data.sent} suppliers!`);
-      } else {
+      if (!response.ok) {
         alert(`Error: ${data.error}`);
+        return;
       }
+      alert(`✅ ${data.message}`);
+      await loadCheckinData([deliveryDay]);
     } catch (error) {
       alert(`Failed to send: ${error instanceof Error ? error.message : "Unknown error"}`);
     } finally {
@@ -425,198 +571,6 @@ export default function AdminStockPage() {
       else next.add(key);
       return next;
     });
-  };
-
-  // Build issue queue for a delivery day.
-  // Before check-in is complete, only flags ("won't arrive") raise issues.
-  // Once complete, the actual count is ground truth: shortfall = ordered -
-  // arrived, with anything untouched counting as 0 arrived. Refunded
-  // quantities always count towards covering a shortfall, so handled issues
-  // drop out and only the uncovered remainder shows.
-  const getIssuesForDay = useCallback((deliveryDay: string, orders: Order[], supplierSummaries: SupplierSummary[]): StockIssue[] => {
-    const issues: StockIssue[] = [];
-
-    for (const supplier of supplierSummaries) {
-      for (const item of supplier.items) {
-        const flag = productFlags.get(`${deliveryDay}-${supplier.supplierId}-${item.productName}`);
-
-        // A resolved flag = dismissed for the day. Skip so it doesn't reappear.
-        if (flag && flag.resolved) continue;
-
-        const isFlagged = !!(flag && !flag.resolved);
-        const supplierComplete = isSupplierComplete(deliveryDay, supplier.supplierId);
-        const arrived = tickedArrivedQty(supplier, item.productName);
-
-        let shortfall: number;
-        if (supplierComplete) {
-          // Counted: the real gap, whatever flags said.
-          shortfall = item.quantity - arrived;
-        } else if (isFlagged) {
-          // Not counted yet, but flagged ahead of time (supplier portal or
-          // admin). Partial quantity if recorded, whole line otherwise.
-          shortfall = Math.min(flag!.quantityUnavailable ?? item.quantity, item.quantity);
-        } else {
-          // Still checking in - low counts aren't shortages yet.
-          continue;
-        }
-        if (shortfall <= 0) continue;
-
-        const { affectedOrders, totalRefundedQty } = buildAffectedOrders(orders, supplier.supplierId, item.productName);
-
-        // Issue is handled once refunds cover the shortfall
-        if (totalRefundedQty >= shortfall) continue;
-        if (affectedOrders.length === 0) continue;
-
-        issues.push({
-          type: isFlagged ? "flagged" : "shortage",
-          deliveryDay,
-          supplierId: supplier.supplierId,
-          supplierName: supplier.supplierName,
-          productName: item.productName,
-          // Show the uncovered remainder, not the original gap.
-          shortfall: shortfall - totalRefundedQty,
-          orderedQty: item.quantity,
-          arrivedQty: supplierComplete ? arrived : null,
-          affectedOrders,
-        });
-      }
-    }
-
-    return issues;
-  }, [productFlags, isSupplierComplete, tickedArrivedQty, buildAffectedOrders]);
-
-  // Handle opening the review modal for an issue
-  const openReviewModal = (issue: StockIssue) => {
-    setReviewModal({
-      issue,
-      selectedQtys: new Map(),
-      reasonType: "didnt_arrive",
-      paidBy: "supplier",
-      refundPercent: 100,
-      supplierDeductPercent: null,
-      notes: "",
-    });
-    setRefundError(null);
-  };
-
-  // "Missing" straight from a customer's bag row: same review modal, scoped to
-  // this product with that customer pre-selected at their remaining quantity.
-  const openMissingModal = (deliveryDay: string, supplier: SupplierSummary, orders: Order[], orderId: string, productName: string, remainingQty: number) => {
-    const { affectedOrders } = buildAffectedOrders(orders, supplier.supplierId, productName);
-    if (affectedOrders.length === 0) return;
-    const ordered = supplier.items.find(i => i.productName === productName)?.quantity ?? remainingQty;
-    setReviewModal({
-      issue: {
-        type: "shortage",
-        deliveryDay,
-        supplierId: supplier.supplierId,
-        supplierName: supplier.supplierName,
-        productName,
-        shortfall: remainingQty,
-        orderedQty: ordered,
-        arrivedQty: null,
-        affectedOrders,
-      },
-      selectedQtys: new Map([[orderId, remainingQty]]),
-      reasonType: "didnt_arrive",
-      paidBy: "supplier",
-      refundPercent: 100,
-      supplierDeductPercent: null,
-      notes: "",
-    });
-    setRefundError(null);
-  };
-
-  // Handle refunding selected orders
-  const handleRefundSelected = async () => {
-    if (!reviewModal || reviewModal.selectedQtys.size === 0) return;
-
-    setRefundLoading(true);
-    setRefundError(null);
-
-    const { issue, selectedQtys, reasonType, paidBy, refundPercent, supplierDeductPercent, notes } = reviewModal;
-    const reasonConfig = refundReasonConfig[reasonType];
-    const percent = Math.max(1, Math.min(100, refundPercent || 100));
-
-    try {
-      for (const [orderId, qty] of selectedQtys) {
-        const orderInfo = issue.affectedOrders.find(o => o.orderId === orderId);
-        if (!orderInfo) continue;
-
-        const quantity = Math.min(qty, orderInfo.quantity);
-        const fullLineValue = Math.round(quantity * orderInfo.price * 100) / 100;
-        // Rounded to the penny - Stripe refunds in whole pence
-        const refundAmount = Math.round(quantity * orderInfo.price * percent) / 100;
-        const supplierDeduction = supplierDeductPercent !== null
-          ? Math.round(quantity * orderInfo.price * Math.max(0, Math.min(100, supplierDeductPercent))) / 100
-          : matchRefundDeduction(refundAmount, paidBy);
-
-        const response = await fetch("/api/refund-order-item", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            orderId,
-            productName: issue.productName,
-            quantity,
-            refundAmount,
-            reasonType,
-            refundReason: notes || null,
-            itemArrived: reasonConfig.itemArrived,
-            paidBy,
-            supplierId: issue.supplierId,
-            supplierDeduction,
-            fullLineValue,
-          }),
-        });
-
-        if (!response.ok) {
-          const data = await response.json();
-          throw new Error(data.error || "Failed to process refund");
-        }
-      }
-
-      // Flags are NOT auto-resolved here: the queue clears via the refunded
-      // quantities, the row shows "handled", and if check-in later reveals the
-      // line even shorter than flagged, the remainder still surfaces.
-      // (Resolved is reserved for explicit dismissals.)
-
-      // Reload data to reflect changes
-      const deliveryDays = [...new Set(orderList.map(o => o.deliveryDay).filter(Boolean))];
-      await loadCheckinData(deliveryDays);
-
-      setReviewModal(null);
-      alert(`✅ Refunded ${selectedQtys.size} order${selectedQtys.size !== 1 ? "s" : ""}`);
-    } catch (error) {
-      setRefundError(error instanceof Error ? error.message : "Failed to process refunds");
-    } finally {
-      setRefundLoading(false);
-    }
-  };
-
-  // Handle dismissing an issue without refunding
-  const handleDismissIssue = async (issue: StockIssue) => {
-    if (!confirm(`Dismiss this issue without issuing refunds?\n\n${issue.productName} from ${issue.supplierName}\n\nThis will clear the issue from the queue.`)) {
-      return;
-    }
-    
-    try {
-      if (issue.type === "flagged") {
-        // Resolve the supplier flag
-        await resolveSupplierProductFlag(issue.deliveryDay, issue.supplierId, issue.productName);
-      } else {
-        // For shortages, create a resolved flag to mark as dismissed
-        await createSupplierProductFlag(issue.deliveryDay, issue.supplierId, issue.productName, "admin");
-        await resolveSupplierProductFlag(issue.deliveryDay, issue.supplierId, issue.productName);
-      }
-      
-      // Reload data to reflect changes
-      const deliveryDays = [...new Set(orderList.map(o => o.deliveryDay).filter(Boolean))];
-      await loadCheckinData(deliveryDays);
-      
-      alert("✅ Issue dismissed");
-    } catch (error) {
-      alert(`Error: ${error instanceof Error ? error.message : "Failed to dismiss issue"}`);
-    }
   };
 
   const grouped = useMemo(() => {
@@ -655,7 +609,7 @@ export default function AdminStockPage() {
     let checkedIn = 0;
     for (const orderEntry of supplier.orders) {
       for (const item of orderEntry.items) {
-        const remaining = item.quantity - notArrivedRefundedQty(orderEntry.orderId, supplier.supplierId, item.productName);
+        const remaining = item.quantity - refundedQtyAll(orderEntry.orderId, item.productName);
         if (remaining <= 0) continue;
         total++;
         if (isOrderItemCheckedIn(orderEntry.orderId, supplier.supplierId, item.productName)) {
@@ -669,7 +623,10 @@ export default function AdminStockPage() {
   return (
     <div className="mx-auto max-w-7xl px-3 py-6 sm:px-6 sm:py-10 lg:px-8">
       <h1 className="text-2xl sm:text-3xl font-bold text-primary">Stock Management</h1>
-      <p className="mt-1 text-muted">Supplier stock arrivals and per-customer bag check-in</p>
+      <p className="mt-1 text-muted">
+        What&apos;s been packed, the payouts, and the who-pays call on this week&apos;s refunds.
+        The counting itself happens on <Link href="/admin/packing" className="text-secondary underline">Packing</Link>.
+      </p>
 
       {grouped.map(([deliveryDay, orders]) => {
         const upcoming = isUpcoming(deliveryDay);
@@ -698,77 +655,180 @@ export default function AdminStockPage() {
 
             {isOpen && (
               <div className="space-y-6">
-                {/* ISSUE QUEUE */}
+                {/* CUSTOMERS REPORTING A PROBLEM */}
                 {(() => {
-                  const issues = getIssuesForDay(deliveryDay, orders, supplierSummaries);
-                  const dayRefunds = orders.flatMap(o => refunds.get(o.id) || []);
-                  const totalRefunds = dayRefunds.reduce((sum, r) => sum + r.refundAmount, 0);
+                  // Reports off "Something not right?" on /account. A report is
+                  // never a refund - Josie decides here, and settles both
+                  // halves at once because she's making both calls anyway.
+                  const dayIssues = (orderIssues.get(deliveryDay) ?? []).filter(i => i.status === "open");
+                  if (dayIssues.length === 0 || isPacker) return null;
 
-                  if (issues.length === 0 && totalRefunds === 0) return null;
+                  // How many orders each customer has had, for the badge.
+                  const seqOf = new Map<string, number>();
+                  const byCustomer = new Map<string, Order[]>();
+                  for (const o of orderList) {
+                    if (o.status === "cancelled") continue;
+                    const k = o.userId || o.customerEmail?.toLowerCase() || `one-off-${o.id}`;
+                    if (!byCustomer.has(k)) byCustomer.set(k, []);
+                    byCustomer.get(k)!.push(o);
+                  }
+                  for (const list of byCustomer.values()) {
+                    list.sort((a, b) => a.orderNumber - b.orderNumber);
+                    list.forEach((o, i) => seqOf.set(o.id, i + 1));
+                  }
+
+                  const pending: PendingIssue[] = [];
+                  for (const issue of dayIssues) {
+                    const order = orders.find(o => o.id === issue.orderId);
+                    if (!order) continue;
+                    const line = order.items.find(i => i.productName === issue.productName);
+                    pending.push({
+                      issue,
+                      orderNumber: order.orderNumber,
+                      boxNumber: order.boxNumber,
+                      customerName: order.customerName,
+                      supplierName: line?.supplierName ?? "Unknown supplier",
+                      deliveryDay,
+                      unitPrice: line?.price ?? 0,
+                      fullLineValue: Math.round((line?.price ?? 0) * issue.quantity * 100) / 100,
+                      orderSeq: seqOf.get(order.id) ?? 1,
+                    });
+                  }
+
+                  return (
+                    <div className="rounded-xl bg-rose-50 border border-rose-200 overflow-hidden">
+                      <div className="px-4 sm:px-6 py-3 border-b border-rose-200">
+                        <h3 className="font-bold text-rose-900 flex items-center gap-2">
+                          <AlertTriangle size={18} />
+                          Customers reporting a problem
+                          <span className="rounded-full bg-rose-200 px-2 py-0.5 text-xs font-bold text-rose-900">
+                            {pending.length}
+                          </span>
+                        </h3>
+                        <p className="text-xs text-rose-800 mt-0.5">
+                          Nothing has been refunded. Decide each one - they get an email either way.
+                        </p>
+                      </div>
+                      <div className="divide-y divide-rose-200">
+                        {pending.map((item) => (
+                          <div key={item.issue.id} className="px-4 sm:px-6 py-3 flex flex-wrap items-start justify-between gap-3">
+                            <div className="min-w-0 flex-1">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="font-medium text-rose-900">
+                                  {item.issue.productName} × {item.issue.quantity}
+                                </span>
+                                <span className="rounded-full bg-rose-200 px-2 py-0.5 text-[10px] font-bold text-rose-900 uppercase">
+                                  {orderIssueConfig[item.issue.issueType]?.label ?? "Problem"}
+                                </span>
+                                {item.orderSeq === 1 && (
+                                  <span className="rounded-full bg-secondary px-2 py-0.5 text-[10px] font-bold uppercase text-white">
+                                    1st order
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-xs text-rose-800 mt-0.5">
+                                {item.boxNumber != null ? `Box ${item.boxNumber}` : `Order #${item.orderNumber}`}
+                                {item.customerName ? ` · ${item.customerName}` : ""}
+                                {" · "}{item.supplierName}
+                                {" · "}worth £{item.fullLineValue.toFixed(2)}
+                              </p>
+                              {item.issue.customerNote && (
+                                <p className="text-xs text-rose-800/80 italic mt-1">
+                                  &ldquo;{item.issue.customerNote}&rdquo;
+                                </p>
+                              )}
+                            </div>
+                            <button
+                              onClick={() => openResolve(item)}
+                              className="flex-shrink-0 rounded-lg bg-rose-200 px-3 py-1.5 text-xs font-semibold text-rose-900 hover:bg-rose-300 transition"
+                            >
+                              Sort it out
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* REFUNDS TO SETTLE */}
+                {(() => {
+                  // Luke refunds the customer at the bench and moves on; the
+                  // supplier half waits here. Nothing has reached the producer
+                  // yet, and a supplier with unsettled refunds isn't safe to
+                  // pay out.
+                  const pending: PendingRefund[] = [];
+                  for (const order of orders) {
+                    for (const refund of refunds.get(order.id) || []) {
+                      if (refund.supplierStatus !== "pending") continue;
+                      const line = order.items.find(i => i.productName === refund.productName);
+                      const supplierName =
+                        supplierSummaries.find(s => s.supplierId === refund.supplierId)?.supplierName
+                        ?? line?.supplierName
+                        ?? "Unknown supplier";
+                      pending.push({
+                        refund,
+                        orderNumber: order.orderNumber,
+                        boxNumber: order.boxNumber,
+                        customerName: order.customerName,
+                        supplierName,
+                        deliveryDay,
+                        fullLineValue: Math.round((line?.price ?? 0) * refund.quantityRefunded * 100) / 100,
+                      });
+                    }
+                  }
+                  if (pending.length === 0 || isPacker) return null;
+                  pending.sort((a, b) => a.supplierName.localeCompare(b.supplierName));
 
                   return (
                     <div className="rounded-xl bg-amber-50 border border-amber-200 overflow-hidden">
-                      <div className="px-6 py-3 border-b border-amber-200 flex items-center justify-between">
-                        <h3 className="font-bold text-amber-800 flex items-center gap-2">
-                          <AlertTriangle size={18} />
-                          Issues Requiring Action
-                          {issues.length > 0 && (
-                            <span className="rounded-full bg-amber-200 px-2 py-0.5 text-xs font-bold text-amber-800">
-                              {issues.length}
-                            </span>
-                          )}
-                        </h3>
-                        {totalRefunds > 0 && (
-                          <span className="text-xs text-amber-700">
-                            {dayRefunds.length} refund{dayRefunds.length !== 1 ? "s" : ""} issued · £{totalRefunds.toFixed(2)}
+                      <div className="px-4 sm:px-6 py-3 border-b border-amber-200">
+                        <h3 className="font-bold text-amber-900 flex items-center gap-2">
+                          <PoundSterling size={18} />
+                          Refunds to settle
+                          <span className="rounded-full bg-amber-200 px-2 py-0.5 text-xs font-bold text-amber-800">
+                            {pending.length}
                           </span>
-                        )}
+                        </h3>
+                        <p className="text-xs text-amber-700 mt-0.5">
+                          Customers have been refunded and emailed. Decide who bears each one -
+                          nothing reaches the farm until you do.
+                        </p>
                       </div>
-                      {issues.length > 0 && (
-                        <div className="divide-y divide-amber-200">
-                          {issues.map((issue, i) => (
-                            <div key={i} className="px-6 py-3 flex items-center justify-between gap-4">
-                              <div className="min-w-0 flex-1">
-                                <div className="flex items-center gap-2 flex-wrap">
-                                  <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${
-                                    issue.type === "flagged" 
-                                      ? "bg-red-100 text-red-700" 
-                                      : "bg-amber-200 text-amber-800"
-                                  }`}>
-                                    {issue.type === "flagged" && issue.shortfall >= issue.orderedQty ? "Won't arrive" : `Short by ${issue.shortfall}`}
-                                  </span>
-                                  <span className="font-medium text-amber-900">{issue.productName}</span>
-                                  <span className="text-xs text-amber-700">from {issue.supplierName}</span>
-                                </div>
-                                <p className="text-xs text-amber-700 mt-0.5 flex items-center gap-1">
-                                  <Users size={12} />
-                                  {issue.affectedOrders.length} customer{issue.affectedOrders.length !== 1 ? "s" : ""} affected
-                                  {issue.arrivedQty !== null && (
-                                    <span className="ml-2">· {issue.arrivedQty}/{issue.orderedQty} arrived</span>
-                                  )}
+                      <div className="divide-y divide-amber-200">
+                        {pending.map((item) => (
+                          <div key={item.refund.id} className="px-4 sm:px-6 py-3 flex flex-wrap items-start justify-between gap-3">
+                            <div className="min-w-0 flex-1">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="font-medium text-amber-900">
+                                  {item.refund.productName} × {item.refund.quantityRefunded}
+                                </span>
+                                <span className="text-xs text-amber-700">from {item.supplierName}</span>
+                                <span className="rounded-full bg-amber-200 px-2 py-0.5 text-[10px] font-bold text-amber-800 uppercase">
+                                  {refundReasonConfig[item.refund.reasonType]?.label ?? "Refund"}
+                                </span>
+                              </div>
+                              <p className="text-xs text-amber-700 mt-0.5">
+                                {item.boxNumber != null ? `Box ${item.boxNumber}` : `Order #${item.orderNumber}`}
+                                {item.customerName ? ` · ${item.customerName}` : ""}
+                                {" · "}£{item.refund.refundAmount.toFixed(2)} refunded
+                                {item.refund.faultHint && ` · ${faultHintLabel[item.refund.faultHint]}`}
+                              </p>
+                              {item.refund.customerNote && (
+                                <p className="text-xs text-amber-700/80 italic mt-1">
+                                  &ldquo;{item.refund.customerNote}&rdquo;
                                 </p>
-                              </div>
-                              <div className="flex items-center gap-2 flex-shrink-0">
-                                <button
-                                  onClick={() => openReviewModal(issue)}
-                                  className="inline-flex items-center gap-1.5 rounded-lg bg-amber-200 px-3 py-1.5 text-xs font-semibold text-amber-800 hover:bg-amber-300 transition"
-                                >
-                                  <Eye size={14} />
-                                  Review
-                                </button>
-                                <button
-                                  onClick={() => handleDismissIssue(issue)}
-                                  className="inline-flex items-center gap-1.5 rounded-lg bg-gray-100 px-3 py-1.5 text-xs font-semibold text-gray-600 hover:bg-gray-200 transition"
-                                  title="Dismiss without refunding"
-                                >
-                                  <XCircle size={14} />
-                                  Dismiss
-                                </button>
-                              </div>
+                              )}
                             </div>
-                          ))}
-                        </div>
-                      )}
+                            <button
+                              onClick={() => openSettle(item)}
+                              className="flex-shrink-0 rounded-lg bg-amber-200 px-3 py-1.5 text-xs font-semibold text-amber-900 hover:bg-amber-300 transition"
+                            >
+                              Settle
+                            </button>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   );
                 })()}
@@ -834,7 +894,7 @@ export default function AdminStockPage() {
                                     <p className="text-xs text-muted">
                                       #{order.orderNumber} · {order.customerName || order.customerEmail?.split("@")[0] || "Customer"}
                                       {" · "}{refundReasonConfig[refund.reasonType]?.label || refund.reasonType}
-                                      {refund.refundReason && <span> - {refund.refundReason}</span>}
+                                      {refund.customerNote && <span> - {refund.customerNote}</span>}
                                     </p>
                                   </div>
                                   <div className="flex-shrink-0 text-right">
@@ -852,23 +912,54 @@ export default function AdminStockPage() {
                 })()}
 
                 {/* SUPPLIERS SECTION */}
+                {(() => {
+                  // Summaries go out on their own at 7:10pm Wednesday. This
+                  // header reports what actually happened rather than leaving
+                  // Josie to remember - the button below is only the backup.
+                  const sentIds = summariesSent.get(deliveryDay) ?? new Set<string>();
+                  const withEmail = supplierSummaries.filter(s => s.supplierId !== "unknown");
+                  const sentCount = withEmail.filter(s => sentIds.has(s.supplierId)).length;
+                  const outstanding = withEmail.length - sentCount;
+                  return (
                 <div className="rounded-xl bg-surface shadow-sm overflow-hidden">
-                  <div className="flex items-center justify-between border-b border-primary/5 px-3 sm:px-6 py-3 sm:py-4">
-                    <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-primary/5 px-3 sm:px-6 py-3 sm:py-4">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <Truck size={18} className="text-secondary" />
                       <h3 className="font-bold text-primary">Suppliers</h3>
                       <span className="text-xs text-muted">({supplierSummaries.length})</span>
+                      {!isPacker && withEmail.length > 0 && (
+                        outstanding === 0 ? (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-bold text-green-700">
+                            <CheckCircle size={11} />
+                            Summaries sent to all {sentCount}
+                          </span>
+                        ) : sentCount > 0 ? (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-800">
+                            <AlertTriangle size={11} />
+                            Summaries: {sentCount} sent, {outstanding} still to go
+                          </span>
+                        ) : (
+                          <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-muted">
+                            Summaries go automatically at 7:10pm Wed
+                          </span>
+                        )
+                      )}
                     </div>
                     {/* Both buttons hit admin-only APIs, so hide them from the packer */}
                     {!isPacker && (
                       <div className="flex items-center gap-2">
                         <button
-                          onClick={() => handleSendSupplierSummaries(deliveryDay)}
+                          onClick={() => handleSendSupplierSummaries(deliveryDay, sentCount)}
                           disabled={sendingSummaries === deliveryDay}
+                          title="Backup for the automatic Wednesday send - skips anyone who already had theirs"
                           className="inline-flex items-center gap-1.5 rounded-lg bg-secondary/20 px-3 py-1.5 text-xs font-semibold text-secondary hover:bg-secondary/30 transition disabled:opacity-50"
                         >
                           <Send size={14} />
-                          {sendingSummaries === deliveryDay ? "Sending..." : "Send Summaries"}
+                          {sendingSummaries === deliveryDay
+                            ? "Sending..."
+                            : outstanding > 0 && sentCount > 0
+                              ? `Send the remaining ${outstanding}`
+                              : "Send summaries"}
                         </button>
                         <button
                           onClick={() => setPayoutModal(deliveryDay)}
@@ -885,10 +976,10 @@ export default function AdminStockPage() {
                       const key = `supplier-${deliveryDay}-${supplier.supplierId}`;
                       const isExpanded = expandedSuppliers.has(key);
                       const bags = getSupplierBagCounts(supplier);
-                      const supplierDone = isSupplierComplete(deliveryDay, supplier.supplierId);
+                      const supplierDone = isSupplierComplete(deliveryDay, supplier.supplierId, supplier);
 
-                      // Progress pill: green = done (or everything ticked),
-                      // amber = started, grey = not started.
+                      // Progress pill: green = done, amber = started,
+                      // grey = Luke hasn't reached this crate yet.
                       const checkInPillClass = supplierDone || (bags.checkedIn === bags.total && bags.total > 0)
                         ? "bg-green-100 text-green-700"
                         : bags.checkedIn > 0
@@ -907,330 +998,109 @@ export default function AdminStockPage() {
                             </div>
                             <div className="flex items-center gap-2 sm:gap-3 text-sm flex-shrink-0">
                               <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${checkInPillClass}`}>
-                                {supplierDone ? "✓ Checked in" : `Checked in ${bags.checkedIn}/${bags.total}`}
+                                {supplierDone ? "✓ Packed" : `Packed ${bags.checkedIn}/${bags.total}`}
                               </span>
                               <span className="font-semibold text-primary">£{supplier.totalPrice.toFixed(2)}</span>
                             </div>
                           </button>
                           {isExpanded && (
                             <div className="bg-primary/5 px-3 sm:px-6 py-4 space-y-4">
-                              {/* STOCK ARRIVALS */}
-                              <div className="rounded-lg border border-primary/10 bg-surface overflow-x-auto">
-                                <div className="px-3 py-2 border-b border-primary/10 flex flex-wrap items-center justify-between gap-2">
-                                  <span className="text-xs font-semibold text-muted uppercase">Stock Arrivals</span>
-                                  <div className="flex flex-wrap items-center gap-2 sm:gap-3">
-                                    {isSupplierComplete(deliveryDay, supplier.supplierId) ? (
-                                      <>
-                                        <span className="text-xs font-semibold text-green-600">✓ Check-in complete</span>
-                                        <button
-                                          onClick={() => handleReopenCheckin(deliveryDay, supplier.supplierId)}
-                                          className="rounded border border-primary/10 px-3 py-2 sm:border-0 sm:px-0 sm:py-0 text-xs font-medium text-muted hover:text-primary transition"
-                                        >
-                                          Reopen
-                                        </button>
-                                      </>
-                                    ) : (
-                                      <button
-                                        onClick={() => handleDoneCheckin(deliveryDay, supplier)}
-                                        className="rounded border border-green-200 px-3 py-2 sm:border-0 sm:px-0 sm:py-0 text-xs font-semibold text-green-600 hover:text-green-700 transition"
-                                      >
-                                        Done checking in
-                                      </button>
-                                    )}
-                                  </div>
+                              {/* WHAT'S BEEN PACKED */}
+                              {/* Read-only since Aug 2026: the counting all
+                                  happens on /admin/packing. This mirrors it so
+                                  Josie can see how far Luke has got, and it's
+                                  where she logs a "no chillies this week"
+                                  message so it reaches his bench. */}
+                              <div className="rounded-lg border border-primary/10 bg-surface overflow-hidden">
+                                <div className="px-3 py-2 border-b border-primary/10">
+                                  <span className="text-xs font-semibold text-muted uppercase">What&apos;s been packed</span>
                                 </div>
-                                {/* Mobile card view */}
-                                <div className="sm:hidden space-y-3 p-3">
+                                <div className="divide-y divide-primary/5">
                                   {supplier.items.map((item) => {
                                     const flag = productFlags.get(`${deliveryDay}-${supplier.supplierId}-${item.productName}`);
                                     const isFlagged = !!(flag && !flag.resolved);
-                                    const arrived = tickedArrivedQty(supplier, item.productName);
-                                    const supplierComplete = isSupplierComplete(deliveryDay, supplier.supplierId);
-                                    const refunded = productRefundedQty(supplier, item.productName);
+                                    const packed = tickedArrivedQty(supplier, item.productName);
+                                    const refunded = productRefundedQtyAll(supplier, item.productName);
+                                    // Refunded units aren't coming, so they're
+                                    // not part of what's left to pack.
                                     const expected = Math.max(0, item.quantity - refunded);
                                     const flagQty = isFlagged ? Math.min(flag!.quantityUnavailable ?? item.quantity, item.quantity) : 0;
                                     const flagCovered = isFlagged && refunded >= flagQty;
                                     const flagOpen = isFlagged && !flagCovered;
-                                    const allTicked = arrived >= expected;
-                                    const hasShortage = supplierComplete && !allTicked;
+                                    const allPacked = packed >= expected;
                                     const affectsList = supplier.orders
                                       .filter(o => o.items.some(i => i.productName === item.productName))
                                       .map(o => o.boxNumber != null ? `Box ${o.boxNumber}` : `#${o.orderNumber}`)
                                       .join(", ");
 
                                     return (
-                                      <div key={`${item.productName}|${item.unit}`} className={`rounded-xl border border-primary/10 bg-surface p-3 shadow-sm ${flagOpen ? 'bg-red-50' : allTicked ? 'bg-green-50' : hasShortage ? 'bg-amber-50' : item.refrigerated ? chilledRowClass : ''}`}>
-                                        <div className="flex items-center gap-2 flex-wrap">
-                                          <span className="font-bold text-primary">{item.productName}</span>
-                                          {item.refrigerated && <ChilledTag />}
-                                          {flagOpen && (
-                                            <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-bold text-red-700 uppercase">
-                                              {flagQty >= item.quantity ? "Won't arrive" : `${flagQty} of ${item.quantity} won't arrive`}
-                                            </span>
-                                          )}
-                                        </div>
-                                        {item.unit && <span className="block text-xs text-muted">{item.unit}</span>}
-                                        <div className="mt-2 flex items-center justify-between text-sm">
-                                          <span className="text-muted">Ordered</span>
-                                          <span className="font-semibold text-primary">
-                                            {item.quantity}
-                                            {refunded > 0 && <span className="ml-1 text-xs font-normal text-muted">({refunded} refunded, expect {expected})</span>}
-                                          </span>
-                                        </div>
-                                        <div className="mt-2 flex items-center justify-between text-sm">
-                                          <span className="text-muted">Ticked in</span>
-                                          <span className={`font-semibold ${allTicked && expected > 0 ? 'text-green-600' : 'text-primary'}`}>
-                                            {arrived} of {expected}
-                                          </span>
-                                        </div>
-                                        <div className="mt-2 flex items-center justify-between gap-2 text-sm">
-                                          <div className="min-w-0">
-                                          {flagOpen ? (
-                                            <div>
-                                              <span className="inline-flex items-center gap-1 text-xs font-semibold text-red-700">
-                                                <XCircle size={12} />
-                                                Flagged by {flag!.flaggedBy === "admin" ? "you" : "supplier"}
-                                              </span>
-                                              <p className="text-[10px] text-red-600 mt-0.5">Affects: {affectsList}</p>
-                                            </div>
-                                          ) : flagCovered && !supplierComplete ? (
-                                            <span className="inline-flex items-center gap-1 text-xs font-semibold text-green-700">
-                                              <CheckCircle size={12} />
-                                              Flag handled ({refunded} refunded)
-                                            </span>
-                                          ) : hasShortage ? (
-                                            <div>
-                                              <span className="inline-flex items-center gap-1 text-xs font-semibold text-amber-700">
-                                                <AlertTriangle size={12} />
-                                                Short by {expected - arrived}
-                                              </span>
-                                              <p className="text-[10px] text-amber-600 mt-0.5">Affects: {affectsList}</p>
-                                            </div>
-                                          ) : supplierComplete ? (
-                                            <span className="inline-flex items-center gap-1 text-xs font-semibold text-green-700">
-                                              <CheckCircle size={12} />
-                                              Complete{refunded > 0 && <span className="font-normal text-muted"> · {refunded} refunded</span>}
-                                            </span>
-                                          ) : refunded > 0 ? (
-                                            <span className="text-xs text-muted">{refunded} refunded</span>
-                                          ) : null}
+                                      <div
+                                        key={`${item.productName}|${item.unit}`}
+                                        className={`px-3 py-2.5 ${flagOpen ? "bg-red-50" : allPacked && expected > 0 ? "bg-green-50" : item.refrigerated ? chilledRowClass : ""}`}
+                                      >
+                                        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                                          <div className="flex items-center gap-2 flex-wrap min-w-0">
+                                            <span className="font-medium text-primary">{item.productName}</span>
+                                            {item.unit && <span className="text-xs text-muted">{item.unit}</span>}
+                                            {item.refrigerated && <ChilledTag />}
                                           </div>
-                                          {flagOpen ? (
+                                          <div className="flex items-center gap-3 flex-shrink-0 text-sm">
+                                            <span className={`font-semibold ${allPacked && expected > 0 ? "text-green-600" : "text-primary"}`}>
+                                              Packed {packed} of {expected}
+                                            </span>
+                                            <span className="text-muted">£{(item.quantity * item.price).toFixed(2)}</span>
+                                          </div>
+                                        </div>
+
+                                        <div className="mt-1 flex flex-wrap items-center justify-between gap-2">
+                                          <div className="flex flex-wrap items-center gap-2 min-w-0">
+                                            {flagOpen && (
+                                              <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-bold text-red-700 uppercase">
+                                                <XCircle size={11} />
+                                                {flagQty >= item.quantity ? "Won't arrive" : `${flagQty} of ${item.quantity} won't arrive`}
+                                                <span className="font-normal normal-case">
+                                                  · flagged by {flag!.flaggedBy === "admin" ? "you" : "them"}
+                                                </span>
+                                              </span>
+                                            )}
+                                            {flagCovered && (
+                                              <span className="inline-flex items-center gap-1 text-xs font-semibold text-green-700">
+                                                <CheckCircle size={12} />
+                                                Flag handled
+                                              </span>
+                                            )}
+                                            {refunded > 0 && (
+                                              <span className="text-xs text-muted">{refunded} refunded</span>
+                                            )}
+                                            {flagOpen && (
+                                              <span className="text-[10px] text-red-600">Affects: {affectsList}</span>
+                                            )}
+                                          </div>
+
+                                          {!isPacker && (flagOpen ? (
                                             <button
                                               onClick={() => handleUnflag(deliveryDay, supplier, item.productName)}
-                                              className="flex-shrink-0 rounded border border-red-200 px-2 py-1 text-[10px] font-medium text-red-600 hover:bg-red-50 transition"
+                                              className="flex-shrink-0 rounded border border-red-200 px-2.5 py-1 text-[10px] font-medium text-red-600 hover:bg-red-50 transition"
                                             >
                                               Unflag
                                             </button>
-                                          ) : !isFlagged && !supplierComplete ? (
+                                          ) : !isFlagged ? (
                                             <button
                                               onClick={() => handleAdminFlag(deliveryDay, supplier, item)}
-                                              title="Flag as won't arrive"
-                                              className="flex-shrink-0 inline-flex items-center gap-1 rounded border border-primary/10 px-2 py-1 text-[10px] font-medium text-muted hover:text-red-600 hover:border-red-200 transition"
+                                              title="They've told you it isn't coming - flag it so it reaches Luke's packing screen"
+                                              className="flex-shrink-0 inline-flex items-center gap-1 rounded border border-primary/10 px-2.5 py-1 text-[10px] font-medium text-muted hover:text-red-600 hover:border-red-200 transition"
                                             >
                                               <Flag size={11} />
-                                              Flag
+                                              Not coming
                                             </button>
-                                          ) : null}
-                                        </div>
-                                      </div>
-                                    );
-                                  })}
-                                </div>
-                                <table className="hidden sm:table w-full text-sm">
-                                  <thead>
-                                    <tr className="text-left text-xs text-muted border-b border-primary/5">
-                                      <th className="px-3 py-2 font-medium">Product</th>
-                                      <th className="px-3 py-2 font-medium text-center">Ordered</th>
-                                      <th className="px-3 py-2 font-medium text-center">Ticked in</th>
-                                      <th className="px-3 py-2 font-medium">Status</th>
-                                    </tr>
-                                  </thead>
-                                  <tbody>
-                                    {supplier.items.map((item) => {
-                                      const flag = productFlags.get(`${deliveryDay}-${supplier.supplierId}-${item.productName}`);
-                                      const isFlagged = !!(flag && !flag.resolved);
-                                      const arrived = tickedArrivedQty(supplier, item.productName);
-                                      const supplierComplete = isSupplierComplete(deliveryDay, supplier.supplierId);
-                                      const refunded = productRefundedQty(supplier, item.productName);
-                                      const expected = Math.max(0, item.quantity - refunded);
-                                      const flagQty = isFlagged ? Math.min(flag!.quantityUnavailable ?? item.quantity, item.quantity) : 0;
-                                      const flagCovered = isFlagged && refunded >= flagQty;
-                                      const flagOpen = isFlagged && !flagCovered;
-                                      const allTicked = arrived >= expected;
-                                      // Only a genuine shortage once check-in is marked complete.
-                                      const hasShortage = supplierComplete && !allTicked;
-                                      const affectsList = supplier.orders
-                                        .filter(o => o.items.some(i => i.productName === item.productName))
-                                        .map(o => o.boxNumber != null ? `Box ${o.boxNumber}` : `#${o.orderNumber}`)
-                                        .join(", ");
-
-                                      return (
-                                        <tr key={`${item.productName}|${item.unit}`} className={`border-t border-primary/5 ${flagOpen ? 'bg-red-50' : allTicked ? 'bg-green-50' : hasShortage ? 'bg-amber-50' : item.refrigerated ? chilledRowClass : ''}`}>
-                                          <td className="px-3 py-2">
-                                            <div className="flex items-center gap-2">
-                                              <span className="text-primary">{item.productName}</span>
-                                              {item.refrigerated && <ChilledTag />}
-                                              {flagOpen && (
-                                                <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-bold text-red-700 uppercase">
-                                                  {flagQty >= item.quantity ? "Won't arrive" : `${flagQty} of ${item.quantity} won't arrive`}
-                                                </span>
-                                              )}
-                                            </div>
-                                            {item.unit && <span className="block text-xs text-muted">{item.unit}</span>}
-                                          </td>
-                                          <td className="px-3 py-2 text-center font-semibold text-primary">
-                                            {item.quantity}
-                                            {refunded > 0 && <span className="block text-[10px] font-normal text-muted">{refunded} refunded · expect {expected}</span>}
-                                          </td>
-                                          <td className="px-3 py-2 text-center">
-                                            <span className={`font-semibold ${allTicked && expected > 0 ? 'text-green-600' : 'text-primary'}`}>
-                                              {arrived} of {expected}
-                                            </span>
-                                          </td>
-                                          <td className="px-3 py-2">
-                                            <div className="flex items-center justify-between gap-2">
-                                              <div className="min-w-0">
-                                              {flagOpen ? (
-                                                <div>
-                                                  <span className="inline-flex items-center gap-1 text-xs font-semibold text-red-700">
-                                                    <XCircle size={12} />
-                                                    Flagged by {flag!.flaggedBy === "admin" ? "you" : "supplier"}
-                                                  </span>
-                                                  <p className="text-[10px] text-red-600 mt-0.5">Affects: {affectsList}</p>
-                                                </div>
-                                              ) : flagCovered && !supplierComplete ? (
-                                                <span className="inline-flex items-center gap-1 text-xs font-semibold text-green-700">
-                                                  <CheckCircle size={12} />
-                                                  Flag handled ({refunded} refunded)
-                                                </span>
-                                              ) : hasShortage ? (
-                                                <div>
-                                                  <span className="inline-flex items-center gap-1 text-xs font-semibold text-amber-700">
-                                                    <AlertTriangle size={12} />
-                                                    Short by {expected - arrived}
-                                                  </span>
-                                                  <p className="text-[10px] text-amber-600 mt-0.5">Affects: {affectsList}</p>
-                                                </div>
-                                              ) : supplierComplete ? (
-                                                <span className="inline-flex items-center gap-1 text-xs font-semibold text-green-700">
-                                                  <CheckCircle size={12} />
-                                                  Complete{refunded > 0 && <span className="font-normal text-muted"> · {refunded} refunded</span>}
-                                                </span>
-                                              ) : refunded > 0 ? (
-                                                <span className="text-xs text-muted">{refunded} refunded</span>
-                                              ) : null}
-                                              </div>
-                                              {flagOpen ? (
-                                                <button
-                                                  onClick={() => handleUnflag(deliveryDay, supplier, item.productName)}
-                                                  className="flex-shrink-0 rounded border border-red-200 px-2 py-0.5 text-[10px] font-medium text-red-600 hover:bg-red-50 transition"
-                                                >
-                                                  Unflag
-                                                </button>
-                                              ) : !isFlagged && !supplierComplete ? (
-                                                <button
-                                                  onClick={() => handleAdminFlag(deliveryDay, supplier, item)}
-                                                  title="Flag as won't arrive (e.g. supplier told you separately)"
-                                                  className="flex-shrink-0 inline-flex items-center gap-1 rounded border border-primary/10 px-2 py-0.5 text-[10px] font-medium text-muted hover:text-red-600 hover:border-red-200 transition"
-                                                >
-                                                  <Flag size={11} />
-                                                  Flag
-                                                </button>
-                                              ) : null}
-                                            </div>
-                                          </td>
-                                        </tr>
-                                      );
-                                    })}
-                                  </tbody>
-                                </table>
-                              </div>
-
-                              {/* ORDER CHECK-IN */}
-                              {(() => {
-                                // "Packable" = still expected in the crate: line quantity minus
-                                // any not-coming refunds. Fully-refunded lines grey out.
-                                const itemRemaining = (orderEntry: SupplierOrderItems, item: { productName: string; quantity: number }) =>
-                                  item.quantity - notArrivedRefundedQty(orderEntry.orderId, supplier.supplierId, item.productName);
-                                const allBagsChecked = supplier.orders.every(o => o.items.every(item =>
-                                  itemRemaining(o, item) <= 0 || isOrderItemCheckedIn(o.orderId, supplier.supplierId, item.productName)
-                                ));
-                                return (
-                              <div className={`rounded-lg border ${allBagsChecked ? 'border-green-300 bg-green-50' : 'border-primary/10 bg-surface'} overflow-hidden`}>
-                                <div className="px-3 py-2 border-b border-primary/10 flex items-center justify-between">
-                                  <span className="text-xs font-semibold text-muted uppercase">Order Check-in (per-customer bags)</span>
-                                  {allBagsChecked && (
-                                    <span className="text-xs font-semibold text-green-600">✓ Complete</span>
-                                  )}
-                                </div>
-                                <div className="divide-y divide-primary/5">
-                                  {supplier.orders.map((orderEntry) => {
-                                    const allItemsChecked = orderEntry.items.every(item =>
-                                      itemRemaining(orderEntry, item) <= 0 ||
-                                      isOrderItemCheckedIn(orderEntry.orderId, supplier.supplierId, item.productName)
-                                    );
-                                    return (
-                                      <div key={orderEntry.orderId} className={`${allItemsChecked ? 'bg-green-50' : ''}`}>
-                                        <div className="px-3 py-2 flex items-center justify-between">
-                                          <span className={`font-medium ${allItemsChecked ? 'text-green-700' : 'text-primary'}`}>
-                                            {orderEntry.boxNumber != null ? `Box ${orderEntry.boxNumber}` : `Order #${orderEntry.orderNumber}`}
-                                            <span className="ml-1 text-xs font-normal text-muted">#{orderEntry.orderNumber}</span>
-                                          </span>
-                                          {allItemsChecked && <span className="text-xs text-green-600">✓</span>}
-                                        </div>
-                                        <div className="px-3 pb-2 space-y-1">
-                                          {orderEntry.items.map((item, i) => {
-                                            const isItemChecked = isOrderItemCheckedIn(orderEntry.orderId, supplier.supplierId, item.productName);
-                                            const refundedQty = notArrivedRefundedQty(orderEntry.orderId, supplier.supplierId, item.productName);
-                                            const remaining = item.quantity - refundedQty;
-                                            if (remaining <= 0) {
-                                              return (
-                                                <div key={i} className="flex items-center gap-2 pl-2 opacity-60">
-                                                  <XCircle size={18} className="text-red-300 flex-shrink-0" />
-                                                  <span className="text-sm text-red-400 line-through">
-                                                    {formatItemLine(item.productName, item.unit, item.quantity)}
-                                                  </span>
-                                                  <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-bold text-red-600">Refunded</span>
-                                                </div>
-                                              );
-                                            }
-                                            return (
-                                              <div key={i} className="flex items-center gap-2 pl-2">
-                                                <label className="flex flex-1 items-center gap-2 cursor-pointer min-w-0">
-                                                  <input
-                                                    type="checkbox"
-                                                    checked={isItemChecked}
-                                                    onChange={() => handleOrderCheckIn(supplier.supplierId, orderEntry.orderId, item.productName, remaining)}
-                                                    className="h-5 w-5 rounded border-primary/30 text-green-600 focus:ring-green-500"
-                                                  />
-                                                  <span className={`text-sm ${isItemChecked ? 'text-green-600 line-through' : 'text-muted'}`}>
-                                                    {formatItemLine(item.productName, item.unit, remaining)}
-                                                    {refundedQty > 0 && <span className="ml-1 text-xs text-red-500">({refundedQty} refunded)</span>}
-                                                  </span>
-                                                  {item.refrigerated && <ChilledTag />}
-                                                </label>
-                                                {!isItemChecked && (
-                                                  <button
-                                                    onClick={() => openMissingModal(deliveryDay, supplier, orders, orderEntry.orderId, item.productName, remaining)}
-                                                    title="Not in the crate - flag for refund"
-                                                    className="flex-shrink-0 inline-flex items-center gap-1 rounded border border-primary/10 px-2 py-0.5 text-[10px] font-medium text-muted hover:text-red-600 hover:border-red-200 transition"
-                                                  >
-                                                    <XCircle size={11} />
-                                                    Missing
-                                                  </button>
-                                                )}
-                                              </div>
-                                            );
-                                          })}
+                                          ) : null)}
                                         </div>
                                       </div>
                                     );
                                   })}
                                 </div>
                               </div>
-                                );
-                              })()}
+
                             </div>
                           )}
                         </div>
@@ -1238,6 +1108,8 @@ export default function AdminStockPage() {
                     })}
                   </div>
                 </div>
+                  );
+                })()}
               </div>
             )}
           </div>
@@ -1313,6 +1185,21 @@ export default function AdminStockPage() {
                 </button>
               </div>
               <div className="p-6 overflow-y-auto max-h-[calc(90vh-140px)]">
+                {(() => {
+                  // A pending refund hasn't had its who-pays call made yet, so
+                  // these figures aren't final. Settle first, then pay.
+                  const unsettled = dayRefunds.filter(r => r.supplierStatus === "pending");
+                  if (unsettled.length === 0) return null;
+                  return (
+                    <div className="mb-5 flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                      <AlertTriangle size={16} className="mt-0.5 flex-shrink-0" />
+                      <span>
+                        <strong>{unsettled.length} refund{unsettled.length !== 1 ? "s" : ""} still to settle.</strong>{" "}
+                        These figures don&apos;t include them - settle the queue above before sending payouts.
+                      </span>
+                    </div>
+                  );
+                })()}
                 <div className="space-y-6">
                   {payouts.map((supplier) => (
                     <div key={supplier.supplierId} className="rounded-lg border border-primary/10 overflow-hidden">
@@ -1437,7 +1324,7 @@ export default function AdminStockPage() {
                                     {r.supplierDeduction !== null
                                       ? ` (supplier docked £${r.supplierDeduction.toFixed(2)})`
                                       : r.paidBy === "supplier" ? " (Supplier pays)" : " (50-50)"}
-                                    {r.refundReason && <span className="opacity-80"> - {r.refundReason}</span>}
+                                    {r.customerNote && <span className="opacity-80"> - {r.customerNote}</span>}
                                   </li>
                                 );
                               })}
@@ -1487,7 +1374,7 @@ export default function AdminStockPage() {
                                 productName: r.productName,
                                 amount: r.refundAmount,
                                 paidBy: r.paidBy,
-                                reason: r.refundReason,
+                                reason: r.customerNote,
                                 deduction: supplierPayoutAdjustment(r, s.items.find(i => i.productName === r.productName)?.price ?? 0),
                               })),
                               orderedTotal: s.orderedTotal,
@@ -1546,7 +1433,7 @@ export default function AdminStockPage() {
                             "", "", "", "",
                             `£${r.refundAmount.toFixed(2)}`,
                             r.paidBy === "supplier" ? "Supplier" : r.paidBy === "50-50" ? "50-50" : "Local",
-                            r.refundReason || "",
+                            r.customerNote || "",
                             Math.abs(deduction) > 0.005 ? `${deduction > 0 ? "-" : "+"}£${Math.abs(deduction).toFixed(2)}` : "",
                             ""
                           ]);
@@ -1585,359 +1472,319 @@ export default function AdminStockPage() {
         );
       })()}
 
-      {/* Issue Review Modal */}
-      {reviewModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="bg-surface rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-hidden flex flex-col">
-            <div className="px-6 py-4 border-b border-primary/10 flex items-center justify-between">
-              <div>
-                <h2 className="text-lg font-bold text-primary">Review Issue</h2>
-                <p className="text-sm text-muted">
-                  {reviewModal.issue.productName} from {reviewModal.issue.supplierName}
-                </p>
-              </div>
-              <button
-                onClick={() => setReviewModal(null)}
-                className="text-muted hover:text-primary transition"
-              >
-                <XCircle size={24} />
-              </button>
+      {/* Settle a refund - the supplier half */}
+      {settling && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 p-0 sm:p-4">
+          <div className="w-full sm:max-w-lg max-h-[92vh] overflow-y-auto rounded-t-2xl sm:rounded-2xl bg-surface shadow-xl">
+            <div className="sticky top-0 bg-surface border-b border-primary/10 px-5 py-4">
+              <h2 className="text-lg font-bold text-primary">
+                {settling.refund.productName} × {settling.refund.quantityRefunded}
+              </h2>
+              <p className="text-sm text-muted">
+                {settling.supplierName} ·{" "}
+                {settling.boxNumber != null ? `Box ${settling.boxNumber}` : `Order #${settling.orderNumber}`}
+                {" · "}£{settling.refund.refundAmount.toFixed(2)} already refunded to the customer
+              </p>
             </div>
-            
-            <div className="flex-1 overflow-y-auto p-6 space-y-6">
-              {/* Issue summary */}
-              <div className="rounded-lg bg-amber-50 border border-amber-200 px-4 py-3">
-                <div className="flex items-center gap-2">
-                  <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${
-                    reviewModal.issue.type === "flagged" 
-                      ? "bg-red-100 text-red-700" 
-                      : "bg-amber-200 text-amber-800"
-                  }`}>
-                    {reviewModal.issue.type === "flagged" && reviewModal.issue.shortfall >= reviewModal.issue.orderedQty ? "Won't arrive" : `Short by ${reviewModal.issue.shortfall}`}
-                  </span>
-                  {reviewModal.issue.arrivedQty !== null && (
-                    <span className="text-sm text-amber-700">
-                      {reviewModal.issue.arrivedQty} of {reviewModal.issue.orderedQty} arrived
-                    </span>
-                  )}
-                </div>
+
+            <div className="px-5 py-4 space-y-5">
+              <div className="rounded-lg border border-primary/10 bg-primary/5 px-3 py-2.5 text-sm">
+                <p className="text-muted text-xs uppercase font-semibold mb-1">
+                  {refundReasonConfig[settling.refund.reasonType]?.label ?? "Refund"}
+                  {settling.refund.faultHint && ` · ${faultHintLabel[settling.refund.faultHint]}`}
+                </p>
+                {settling.refund.customerNote && (
+                  <p className="text-primary italic">&ldquo;{settling.refund.customerNote}&rdquo;</p>
+                )}
               </div>
 
-              {/* Flag early, refund late: refunds are irreversible (money goes
-                  straight back + customer emailed), so nudge towards waiting
-                  until the crate has actually been checked. */}
-              {reviewModal.issue.type === "flagged" && !isSupplierComplete(reviewModal.issue.deliveryDay, reviewModal.issue.supplierId) && (
-                <div className="rounded-lg bg-blue-50 border border-blue-200 px-4 py-3 text-sm text-blue-800">
-                  <strong>{reviewModal.issue.supplierName} hasn&apos;t finished checking in yet</strong> - flagged items sometimes still turn up.
-                  Refunds go straight back to the customer&apos;s card (with an email) and can&apos;t be reversed, so if in doubt wait until you&apos;ve clicked &quot;Done checking in&quot;.
-                </div>
-              )}
-
-              {/* Customer selection */}
               <div>
-                <div className="flex items-center justify-between mb-2">
-                  <label className="text-sm font-medium text-primary">
-                    Select customers to refund ({reviewModal.selectedQtys.size} of {reviewModal.issue.affectedOrders.length})
-                  </label>
-                  <div className="flex gap-2">
+                <label className="block text-xs font-semibold text-muted uppercase mb-2">Who bears it?</label>
+                <div className="flex gap-2">
+                  {([
+                    { value: "supplier" as RefundPaidBy, label: "The farm" },
+                    { value: "50-50" as RefundPaidBy, label: "50-50" },
+                    { value: "local" as RefundPaidBy, label: "We cover it" },
+                  ]).map(option => (
                     <button
-                      onClick={() => setReviewModal(prev => prev ? {
-                        ...prev,
-                        selectedQtys: new Map(prev.issue.affectedOrders.map(o => [o.orderId, o.quantity]))
-                      } : null)}
-                      className="text-xs text-secondary hover:underline"
-                    >
-                      Select all
-                    </button>
-                    <button
-                      onClick={() => setReviewModal(prev => prev ? {
-                        ...prev,
-                        selectedQtys: new Map()
-                      } : null)}
-                      className="text-xs text-muted hover:underline"
-                    >
-                      Clear
-                    </button>
-                  </div>
-                </div>
-                <div className="rounded-lg border border-primary/10 divide-y divide-primary/5 max-h-48 overflow-y-auto">
-                  {reviewModal.issue.affectedOrders.map((order) => {
-                    const selectedQty = reviewModal.selectedQtys.get(order.orderId);
-                    const isSelected = selectedQty !== undefined;
-                    return (
-                    <div
-                      key={order.orderId}
-                      className="flex items-center gap-3 px-4 py-2.5 hover:bg-primary/5"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={isSelected}
-                        onChange={(e) => {
-                          setReviewModal(prev => {
-                            if (!prev) return null;
-                            const next = new Map(prev.selectedQtys);
-                            if (e.target.checked) next.set(order.orderId, order.quantity);
-                            else next.delete(order.orderId);
-                            return { ...prev, selectedQtys: next };
-                          });
-                        }}
-                        className="w-4 h-4 rounded border-primary/30 text-secondary focus:ring-secondary cursor-pointer"
-                      />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-primary">
-                          #{order.orderNumber} · {order.customerName || order.customerEmail?.split("@")[0] || "Customer"}
-                        </p>
-                        <p className="text-xs text-muted">
-                          {order.quantity} × £{order.price.toFixed(2)} = £{(order.quantity * order.price).toFixed(2)}
-                        </p>
-                      </div>
-                      {isSelected && (
-                        <div className="flex items-center gap-1.5 flex-shrink-0">
-                          <label className="text-xs text-muted">Refund</label>
-                          <input
-                            type="number"
-                            min={1}
-                            max={order.quantity}
-                            value={selectedQty}
-                            onChange={(e) => {
-                              const val = parseInt(e.target.value);
-                              setReviewModal(prev => {
-                                if (!prev) return null;
-                                const next = new Map(prev.selectedQtys);
-                                next.set(order.orderId, isNaN(val) ? 1 : Math.max(1, Math.min(order.quantity, val)));
-                                return { ...prev, selectedQtys: next };
-                              });
-                            }}
-                            className="w-14 rounded border border-primary/20 px-1.5 py-1 text-center text-sm focus:border-secondary focus:outline-none"
-                          />
-                          <span className="text-xs text-muted">of {order.quantity}</span>
-                        </div>
-                      )}
-                    </div>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Refund options. Packers get the locked defaults (didn't
-                  arrive, supplier pays, full price) - the API enforces the
-                  reason too, this just keeps the modal simple. */}
-              {isPacker && (
-                <div className="rounded-lg bg-primary/5 px-4 py-3 text-sm text-muted">
-                  These are refunded as <strong className="text-primary">didn&apos;t arrive</strong> - the customer gets the
-                  full price back. For anything else (quality issues, damage), contact Josie.
-                </div>
-              )}
-              {!isPacker && (
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div>
-                  <label className="block text-sm font-medium text-primary mb-1">Reason</label>
-                  <div className="flex flex-wrap gap-2">
-                    {(Object.keys(refundReasonConfig) as RefundReasonType[]).map((type) => (
-                      <button
-                        key={type}
-                        type="button"
-                        onClick={() => setReviewModal(prev => prev ? {
-                          ...prev,
-                          reasonType: type,
-                          paidBy: refundReasonConfig[type].defaultPaidBy,
-                        } : null)}
-                        className={`rounded-lg px-3 py-1.5 text-xs font-medium transition ${
-                          reviewModal.reasonType === type 
-                            ? "bg-secondary text-white" 
-                            : "border border-primary/20 text-muted hover:bg-primary/5"
-                        }`}
-                      >
-                        {refundReasonConfig[type].label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-primary mb-1">Who pays?</label>
-                  <div className="flex gap-2">
-                    {(["supplier", "50-50", "local"] as RefundPaidBy[]).map((who) => (
-                      <button
-                        key={who}
-                        type="button"
-                        onClick={() => setReviewModal(prev => prev ? { ...prev, paidBy: who } : null)}
-                        className={`rounded-lg px-3 py-1.5 text-xs font-medium transition ${
-                          reviewModal.paidBy === who 
-                            ? "bg-primary text-white" 
-                            : "border border-primary/20 text-muted hover:bg-primary/5"
-                        }`}
-                      >
-                        {who === "supplier" ? "Supplier" : who === "50-50" ? "50-50" : "Local Produce"}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-              )}
-
-              {!isPacker && (
-              <div>
-                <label className="block text-sm font-medium text-primary mb-1">How much of the price?</label>
-                <div className="flex flex-wrap items-center gap-2">
-                  {[100, 75, 50, 25].map((pct) => (
-                    <button
-                      key={pct}
-                      type="button"
-                      onClick={() => setReviewModal(prev => prev ? { ...prev, refundPercent: pct } : null)}
-                      className={`rounded-lg px-3 py-1.5 text-xs font-medium transition ${
-                        reviewModal.refundPercent === pct
-                          ? "bg-primary text-white"
-                          : "border border-primary/20 text-muted hover:bg-primary/5"
+                      key={option.value}
+                      onClick={() => changePaidBy(option.value)}
+                      className={`flex-1 rounded-lg border px-3 py-2.5 text-sm font-medium transition ${
+                        settleForm.paidBy === option.value
+                          ? "border-secondary bg-secondary/10 text-primary"
+                          : "border-primary/15 text-muted hover:bg-primary/5"
                       }`}
                     >
-                      {pct === 100 ? "Full price" : `${pct}%`}
+                      {option.label}
                     </button>
                   ))}
-                  <div className="flex items-center gap-1">
-                    <input
-                      type="number"
-                      min={1}
-                      max={100}
-                      value={reviewModal.refundPercent}
-                      onChange={(e) => {
-                        const val = parseInt(e.target.value);
-                        setReviewModal(prev => prev ? {
-                          ...prev,
-                          refundPercent: isNaN(val) ? 100 : Math.max(1, Math.min(100, val)),
-                        } : null);
-                      }}
-                      className="w-16 rounded-lg border border-primary/20 px-2 py-1.5 text-center text-xs focus:border-secondary focus:outline-none"
-                    />
-                    <span className="text-xs text-muted">%</span>
-                  </div>
                 </div>
-                {reviewModal.refundPercent < 100 && (
-                  <p className="mt-1.5 text-xs text-muted">
-                    The customer&apos;s email just shows the reduced amount - use the note below to explain (e.g. &quot;we popped a substitute in your box&quot;).
+                {!settling.refund.itemArrived && settleForm.paidBy === "local" && (
+                  <p className="text-xs text-muted mt-1.5">
+                    Grace: they&apos;ll be paid in full for the units that never turned up.
                   </p>
                 )}
               </div>
-              )}
 
-              {!isPacker && (
               <div>
-                <label className="block text-sm font-medium text-primary mb-1">Supplier deduction</label>
-                <div className="flex flex-wrap items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setReviewModal(prev => prev ? { ...prev, supplierDeductPercent: null } : null)}
-                    className={`rounded-lg px-3 py-1.5 text-xs font-medium transition ${
-                      reviewModal.supplierDeductPercent === null
-                        ? "bg-primary text-white"
-                        : "border border-primary/20 text-muted hover:bg-primary/5"
-                    }`}
-                  >
-                    Match refund
-                  </button>
-                  {[100, 50].map((pct) => (
-                    <button
-                      key={pct}
-                      type="button"
-                      onClick={() => setReviewModal(prev => prev ? { ...prev, supplierDeductPercent: pct } : null)}
-                      className={`rounded-lg px-3 py-1.5 text-xs font-medium transition ${
-                        reviewModal.supplierDeductPercent === pct
-                          ? "bg-primary text-white"
-                          : "border border-primary/20 text-muted hover:bg-primary/5"
-                      }`}
-                    >
-                      {pct === 100 ? "Full price" : `${pct}%`}
-                    </button>
-                  ))}
-                  <div className="flex items-center gap-1">
-                    <input
-                      type="number"
-                      min={0}
-                      max={100}
-                      value={reviewModal.supplierDeductPercent ?? ""}
-                      placeholder="%"
-                      onChange={(e) => {
-                        const val = parseInt(e.target.value);
-                        setReviewModal(prev => prev ? {
-                          ...prev,
-                          supplierDeductPercent: isNaN(val) ? null : Math.max(0, Math.min(100, val)),
-                        } : null);
-                      }}
-                      className="w-16 rounded-lg border border-primary/20 px-2 py-1.5 text-center text-xs focus:border-secondary focus:outline-none"
-                    />
-                    <span className="text-xs text-muted">%</span>
-                  </div>
-                </div>
-                <p className="mt-1.5 text-xs text-muted">
-                  {reviewModal.supplierDeductPercent === null
-                    ? "The supplier is docked their \"Who pays?\" share of the customer refund - the usual choice."
-                    : `The supplier is docked ${reviewModal.supplierDeductPercent}% of the item price, overriding "Who pays?" - e.g. it was their own stock they substituted.`}
+                <label className="block text-xs font-semibold text-muted uppercase mb-2">
+                  Off their payout (£)
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={settleForm.deduction}
+                  onChange={(e) => setSettleForm({ ...settleForm, deduction: e.target.value })}
+                  className="w-32 rounded-lg border border-primary/20 bg-background px-3 py-2 text-sm text-primary"
+                />
+                <p className="text-xs text-muted mt-1">
+                  Full value of the line is £{settling.fullLineValue.toFixed(2)}. Type over it for a part deduction.
                 </p>
               </div>
-              )}
 
               <div>
-                <label className="block text-sm font-medium text-primary mb-1">Note to customer (optional - included in the refund emails)</label>
-                <input
-                  type="text"
-                  value={reviewModal.notes}
-                  onChange={(e) => setReviewModal(prev => prev ? { ...prev, notes: e.target.value } : null)}
-                  placeholder="Shown to the customer (and supplier) alongside the reason..."
-                  className="w-full rounded-lg border border-primary/20 px-3 py-2 text-sm focus:border-secondary focus:outline-none"
+                <label className="block text-xs font-semibold text-muted uppercase mb-2">
+                  Note to the farm (they see this)
+                </label>
+                <textarea
+                  value={settleForm.supplierNote}
+                  onChange={(e) => setSettleForm({ ...settleForm, supplierNote: e.target.value })}
+                  rows={3}
+                  placeholder="Optional - e.g. third week running on the apples, can we talk Monday?"
+                  className="w-full rounded-lg border border-primary/20 bg-background px-3 py-2 text-sm text-primary"
                 />
+                <p className="text-xs text-muted mt-1">
+                  The customer never sees this. Their own note is quoted to the farm either way.
+                </p>
               </div>
 
-              {refundError && (
-                <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
-                  {refundError}
+              <label className="flex items-center gap-2 text-sm text-primary cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={settleForm.notify}
+                  onChange={(e) => setSettleForm({ ...settleForm, notify: e.target.checked })}
+                  className="h-5 w-5 rounded border-primary/30 text-green-600 focus:ring-green-500"
+                />
+                Email the farm about this one
+              </label>
+
+              {settleError && (
+                <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-700">
+                  {settleError}
                 </div>
               )}
             </div>
 
-            <div className="px-6 py-4 border-t border-primary/10 flex items-center justify-between">
-              <p className="text-sm text-muted">
-                {reviewModal.selectedQtys.size > 0 && (() => {
-                  let customerTotal = 0;
-                  let supplierTotal = 0;
-                  for (const o of reviewModal.issue.affectedOrders) {
-                    const qty = reviewModal.selectedQtys.get(o.orderId) ?? 0;
-                    if (!qty) continue;
-                    const refund = Math.round(qty * o.price * reviewModal.refundPercent) / 100;
-                    customerTotal += refund;
-                    supplierTotal += reviewModal.supplierDeductPercent !== null
-                      ? Math.round(qty * o.price * reviewModal.supplierDeductPercent) / 100
-                      : matchRefundDeduction(refund, reviewModal.paidBy);
-                  }
-                  return (
-                    <>
-                      Total refund: <strong className="text-primary">£{customerTotal.toFixed(2)}</strong>
-                      {reviewModal.refundPercent < 100 && (
-                        <span className="text-xs"> ({reviewModal.refundPercent}% of price)</span>
-                      )}
-                      <span className="text-xs"> · Supplier docked: <strong className="text-primary">£{supplierTotal.toFixed(2)}</strong></span>
-                    </>
-                  );
-                })()}
-              </p>
-              <div className="flex gap-3">
-                <button
-                  onClick={() => setReviewModal(null)}
-                  className="rounded-lg border border-primary/20 px-4 py-2 text-sm font-medium text-muted hover:bg-primary/5 transition"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleRefundSelected}
-                  disabled={refundLoading || reviewModal.selectedQtys.size === 0}
-                  className="rounded-lg bg-secondary px-4 py-2 text-sm font-semibold text-white hover:bg-secondary/90 transition disabled:opacity-50"
-                >
-                  {refundLoading ? "Processing..." : `Refund ${reviewModal.selectedQtys.size} selected`}
-                </button>
-              </div>
+            <div className="sticky bottom-0 bg-surface border-t border-primary/10 px-5 py-4 flex gap-3">
+              <button
+                onClick={() => setSettling(null)}
+                disabled={settleSaving}
+                className="rounded-lg border border-primary/20 px-4 py-2.5 text-sm font-medium text-muted hover:bg-primary/5 transition disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={submitSettle}
+                disabled={settleSaving}
+                className="flex-1 rounded-lg bg-secondary px-4 py-2.5 text-sm font-semibold text-white hover:bg-secondary/90 transition disabled:opacity-50"
+              >
+                {settleSaving ? "Settling..." : "Settle"}
+              </button>
             </div>
           </div>
         </div>
       )}
+
+      {/* Sort out a customer-reported problem: both halves in one go */}
+      {resolving && (() => {
+        const config = orderIssueConfig[resolving.issue.issueType];
+        return (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 p-0 sm:p-4">
+          <div className="w-full sm:max-w-lg max-h-[92vh] overflow-y-auto rounded-t-2xl sm:rounded-2xl bg-surface shadow-xl">
+            <div className="sticky top-0 bg-surface border-b border-primary/10 px-5 py-4">
+              <h2 className="text-lg font-bold text-primary">
+                {resolving.issue.productName} × {resolving.issue.quantity}
+              </h2>
+              <p className="text-sm text-muted">
+                {resolving.boxNumber != null ? `Box ${resolving.boxNumber}` : `Order #${resolving.orderNumber}`}
+                {resolving.customerName ? ` · ${resolving.customerName}` : ""}
+                {resolving.orderSeq === 1 ? " · their first order" : ` · ${resolving.orderSeq} orders in`}
+              </p>
+            </div>
+
+            <div className="px-5 py-4 space-y-5">
+              <div className="rounded-lg border border-primary/10 bg-primary/5 px-3 py-2.5 text-sm">
+                <p className="text-muted text-xs uppercase font-semibold mb-1">
+                  {config.label} · {resolving.supplierName}
+                </p>
+                {resolving.issue.customerNote ? (
+                  <p className="text-primary italic">&ldquo;{resolving.issue.customerNote}&rdquo;</p>
+                ) : (
+                  <p className="text-muted italic">They didn&apos;t add a note.</p>
+                )}
+              </div>
+
+              {config.refundable ? (
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setIssueForm({ ...issueForm, outcome: "refund" })}
+                    className={`flex-1 rounded-lg border px-3 py-2.5 text-sm font-medium transition ${
+                      issueForm.outcome === "refund"
+                        ? "border-secondary bg-secondary/10 text-primary"
+                        : "border-primary/15 text-muted hover:bg-primary/5"
+                    }`}
+                  >
+                    Refund them
+                  </button>
+                  <button
+                    onClick={() => setIssueForm({ ...issueForm, outcome: "decline" })}
+                    className={`flex-1 rounded-lg border px-3 py-2.5 text-sm font-medium transition ${
+                      issueForm.outcome === "decline"
+                        ? "border-secondary bg-secondary/10 text-primary"
+                        : "border-primary/15 text-muted hover:bg-primary/5"
+                    }`}
+                  >
+                    No refund
+                  </button>
+                </div>
+              ) : (
+                <p className="rounded-lg bg-primary/5 px-3 py-2.5 text-sm text-muted">
+                  Nothing&apos;s owed here - they got more than they ordered. Send them a line back and close it.
+                </p>
+              )}
+
+              {config.refundable && issueForm.outcome === "refund" ? (
+                <>
+                  <div>
+                    <label className="block text-xs font-semibold text-muted uppercase mb-2">Refund them (£)</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0.01"
+                      max={resolving.fullLineValue}
+                      value={issueForm.amount}
+                      onChange={(e) => setIssueForm({ ...issueForm, amount: e.target.value })}
+                      className="w-32 rounded-lg border border-primary/20 bg-background px-3 py-2 text-sm text-primary"
+                    />
+                    <p className="text-xs text-muted mt-1">
+                      Full value is £{resolving.fullLineValue.toFixed(2)} - type over it for a part refund.
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-muted uppercase mb-2">Who bears it?</label>
+                    <div className="flex gap-2">
+                      {([
+                        { value: "supplier" as RefundPaidBy, label: "The farm" },
+                        { value: "50-50" as RefundPaidBy, label: "50-50" },
+                        { value: "local" as RefundPaidBy, label: "We cover it" },
+                      ]).map(option => (
+                        <button
+                          key={option.value}
+                          onClick={() => changeIssuePaidBy(option.value)}
+                          className={`flex-1 rounded-lg border px-3 py-2.5 text-sm font-medium transition ${
+                            issueForm.paidBy === option.value
+                              ? "border-secondary bg-secondary/10 text-primary"
+                              : "border-primary/15 text-muted hover:bg-primary/5"
+                          }`}
+                        >
+                          {option.label}
+                        </button>
+                      ))}
+                    </div>
+                    <p className="text-xs text-muted mt-1.5">
+                      {resolving.issue.issueType === "quality"
+                        ? "Quality is usually the farm's - they sent it."
+                        : resolving.issue.issueType === "damaged"
+                          ? "Damage is usually ours - we packed and carried it."
+                          : "Pre-set from what they reported. Change it if that's not fair."}
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-muted uppercase mb-2">Off the farm&apos;s payout (£)</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={issueForm.deduction}
+                      onChange={(e) => setIssueForm({ ...issueForm, deduction: e.target.value })}
+                      className="w-32 rounded-lg border border-primary/20 bg-background px-3 py-2 text-sm text-primary"
+                    />
+                    <p className="text-xs text-muted mt-1">£0 means we absorb it and they&apos;re paid in full.</p>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-muted uppercase mb-2">Note to the customer</label>
+                    <textarea
+                      value={issueForm.customerNote}
+                      onChange={(e) => setIssueForm({ ...issueForm, customerNote: e.target.value })}
+                      rows={2}
+                      placeholder="Goes in their refund email - e.g. So sorry about that, refunded in full."
+                      className="w-full rounded-lg border border-primary/20 bg-background px-3 py-2 text-sm text-primary"
+                    />
+                  </div>
+
+                  {Number(issueForm.deduction) > 0 && (
+                    <div>
+                      <label className="block text-xs font-semibold text-muted uppercase mb-2">Note to the farm</label>
+                      <textarea
+                        value={issueForm.supplierNote}
+                        onChange={(e) => setIssueForm({ ...issueForm, supplierNote: e.target.value })}
+                        rows={2}
+                        placeholder="Private - the customer never sees this."
+                        className="w-full rounded-lg border border-primary/20 bg-background px-3 py-2 text-sm text-primary"
+                      />
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div>
+                  <label className="block text-xs font-semibold text-muted uppercase mb-2">What shall we tell them?</label>
+                  <textarea
+                    value={issueForm.reply}
+                    onChange={(e) => setIssueForm({ ...issueForm, reply: e.target.value })}
+                    rows={4}
+                    placeholder="They'll get this by email, from you."
+                    className="w-full rounded-lg border border-primary/20 bg-background px-3 py-2 text-sm text-primary"
+                  />
+                  <p className="text-xs text-muted mt-1">Nobody gets left without an answer.</p>
+                </div>
+              )}
+
+              {issueError && (
+                <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-700">
+                  {issueError}
+                </div>
+              )}
+            </div>
+
+            <div className="sticky bottom-0 bg-surface border-t border-primary/10 px-5 py-4 flex gap-3">
+              <button
+                onClick={() => setResolving(null)}
+                disabled={issueSaving}
+                className="rounded-lg border border-primary/20 px-4 py-2.5 text-sm font-medium text-muted hover:bg-primary/5 transition disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={submitResolve}
+                disabled={issueSaving}
+                className="flex-1 rounded-lg bg-secondary px-4 py-2.5 text-sm font-semibold text-white hover:bg-secondary/90 transition disabled:opacity-50"
+              >
+                {issueSaving
+                  ? "Sending..."
+                  : config.refundable && issueForm.outcome === "refund"
+                    ? `Refund £${(Number(issueForm.amount) || 0).toFixed(2)} and email them`
+                    : "Send the reply"}
+              </button>
+            </div>
+          </div>
+        </div>
+        );
+      })()}
+
     </div>
   );
 }

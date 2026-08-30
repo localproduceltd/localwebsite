@@ -17,9 +17,11 @@ const isDriverAllowedRoute = createRouteMatcher([
   "/admin/driver(.*)",
 ]);
 
-// Admin pages a "packer" role is allowed to use (packing check-ins on Stock).
+// Admin pages a "packer" role is allowed to use. Moved off Stock in Aug 2026:
+// the bench lives on Packing (ticks + the customer half of a refund), and
+// Stock keeps the commercial side - prices, payouts, and who pays for what.
 const isPackerAllowedRoute = createRouteMatcher([
-  "/admin/stock(.*)",
+  "/admin/packing(.*)",
 ]);
 
 export default clerkMiddleware(async (auth, req) => {
@@ -45,7 +47,7 @@ export default clerkMiddleware(async (auth, req) => {
       }
     } else if (isPacker) {
       if (!isPackerAllowedRoute(req)) {
-        return NextResponse.redirect(new URL("/admin/stock", req.url));
+        return NextResponse.redirect(new URL("/admin/packing", req.url));
       }
     } else {
       return NextResponse.redirect(new URL("/home", req.url));

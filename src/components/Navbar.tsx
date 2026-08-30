@@ -30,7 +30,7 @@ export default function Navbar() {
       : role === "driver"
         ? { href: "/admin/driver", label: "Driver Run", icon: Navigation }
         : role === "packer"
-          ? { href: "/admin/stock", label: "Stock", icon: Package }
+          ? { href: "/admin/packing", label: "Packing", icon: Package }
           : null;
   const StaffIcon = staffLink?.icon;
 

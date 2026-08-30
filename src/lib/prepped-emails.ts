@@ -6,7 +6,7 @@ import { updateOrderStatus } from "./data";
 /**
  * Shared engine for the Thursday-evening "confirming your delivery tomorrow"
  * emails, used by both the automatic cron (/api/cron/prepped-emails, 6pm UK
- * Thursday) and the manual "Mark All Prepped" button on /admin/deliveries.
+ * Thursday) and the manual "Mark All Prepped" button on /admin/orders.
  *
  * For one delivery day: marks every eligible order prepped and sends each
  * customer the single "coming tomorrow" email with their resolved slot +
@@ -18,7 +18,7 @@ import { updateOrderStatus } from "./data";
  * times this runs (cron then button, button then cron, Vercel double-firing
  * the cron), each customer is only ever emailed once. A deliberate re-send
  * for one order is still possible via the single-order status control on
- * /admin/deliveries.
+ * /admin/orders.
  */
 export interface PreppedEmailsSummary {
   success: boolean;

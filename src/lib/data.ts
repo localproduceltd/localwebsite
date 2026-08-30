@@ -2427,6 +2427,21 @@ export const refundReasonConfig: Record<RefundReasonType, { label: string; itemA
   other: { label: "Other", itemArrived: true, defaultPaidBy: "local" },
 };
 
+// Where a refund has got to on the supplier side. The customer leg always
+// settles immediately (card refunded, email sent); the supplier leg waits for
+// Josie's who-pays call on the Stock tab.
+export type RefundSupplierStatus = "pending" | "settled";
+
+// What the packer reckoned at the bench. A hint for Josie's queue, never a
+// decision - she can always overrule it.
+export type RefundFaultHint = "supplier" | "local" | "unsure";
+
+export const faultHintLabel: Record<RefundFaultHint, string> = {
+  supplier: "Luke reckons: supplier's",
+  local: "Luke reckons: ours",
+  unsure: "Luke wasn't sure",
+};
+
 export interface OrderItemRefund {
   id: string;
   orderId: string;
@@ -2434,7 +2449,11 @@ export interface OrderItemRefund {
   quantityRefunded: number;
   refundAmount: number;
   reasonType: RefundReasonType;
-  refundReason: string | null;
+  // What the customer was told, verbatim. (Legacy rows fall back to the old
+  // single refund_reason field, which used to go to both sides.)
+  customerNote: string | null;
+  // Josie's private line to the producer - never shown to the customer.
+  supplierNote: string | null;
   itemArrived: boolean;
   refundedAt: string;
   paidBy: RefundPaidBy;
@@ -2442,6 +2461,35 @@ export interface OrderItemRefund {
   // Explicit £ the supplier bears for this refund (retail value, pre-commission).
   // Null on older rows = legacy behaviour (see supplierPayoutAdjustment).
   supplierDeduction: number | null;
+  supplierStatus: RefundSupplierStatus;
+  faultHint: RefundFaultHint | null;
+  settledAt: string | null;
+}
+
+// One row shape from both refund reads, kept in one place so the two never
+// drift apart.
+function mapOrderItemRefund(d: Record<string, unknown>): OrderItemRefund {
+  return {
+    id: d.id as string,
+    orderId: d.order_id as string,
+    productName: d.product_name as string,
+    quantityRefunded: d.quantity_refunded as number,
+    refundAmount: Number(d.refund_amount),
+    reasonType: (d.reason_type as RefundReasonType) || "other",
+    customerNote: (d.customer_note as string | null) ?? (d.refund_reason as string | null) ?? null,
+    supplierNote: (d.supplier_note as string | null) ?? null,
+    itemArrived: (d.item_arrived as boolean | null) ?? true,
+    refundedAt: d.refunded_at as string,
+    paidBy: (d.paid_by as RefundPaidBy) || "local",
+    supplierId: (d.supplier_id as string | null) ?? null,
+    supplierDeduction:
+      d.supplier_deduction === null || d.supplier_deduction === undefined
+        ? null
+        : Number(d.supplier_deduction),
+    supplierStatus: (d.supplier_status as RefundSupplierStatus) || "settled",
+    faultHint: (d.fault_hint as RefundFaultHint | null) ?? null,
+    settledAt: (d.settled_at as string | null) ?? null,
+  };
 }
 
 // The £ to subtract from the supplier's arrived total for one refund.
@@ -2519,20 +2567,7 @@ export async function getOrderItemRefunds(orderId: string): Promise<OrderItemRef
     .select("*")
     .eq("order_id", orderId);
   if (error) throw error;
-  return (data ?? []).map((d) => ({
-    id: d.id,
-    orderId: d.order_id,
-    productName: d.product_name,
-    quantityRefunded: d.quantity_refunded,
-    refundAmount: Number(d.refund_amount),
-    reasonType: (d.reason_type as RefundReasonType) || "other",
-    refundReason: d.refund_reason,
-    itemArrived: d.item_arrived ?? true,
-    refundedAt: d.refunded_at,
-    paidBy: (d.paid_by as RefundPaidBy) || "local",
-    supplierId: d.supplier_id,
-    supplierDeduction: d.supplier_deduction === null || d.supplier_deduction === undefined ? null : Number(d.supplier_deduction),
-  }));
+  return (data ?? []).map(mapOrderItemRefund);
 }
 
 export async function getRefundsForDeliveryDay(deliveryDay: string): Promise<OrderItemRefund[]> {
@@ -2543,56 +2578,98 @@ export async function getRefundsForDeliveryDay(deliveryDay: string): Promise<Ord
     .eq("delivery_day", deliveryDay);
   if (ordersError) throw ordersError;
   if (!orders || orders.length === 0) return [];
-  
+
   const orderIds = orders.map(o => o.id);
   const { data, error } = await supabase
     .from("order_item_refunds")
     .select("*")
     .in("order_id", orderIds);
   if (error) throw error;
-  return (data ?? []).map((d) => ({
-    id: d.id,
-    orderId: d.order_id,
-    productName: d.product_name,
-    quantityRefunded: d.quantity_refunded,
-    refundAmount: Number(d.refund_amount),
-    reasonType: (d.reason_type as RefundReasonType) || "other",
-    refundReason: d.refund_reason,
-    itemArrived: d.item_arrived ?? true,
-    refundedAt: d.refunded_at,
-    paidBy: (d.paid_by as RefundPaidBy) || "local",
-    supplierId: d.supplier_id,
-    supplierDeduction: d.supplier_deduction === null || d.supplier_deduction === undefined ? null : Number(d.supplier_deduction),
-  }));
+  return (data ?? []).map(mapOrderItemRefund);
 }
 
-export async function createOrderItemRefund(
-  orderId: string,
-  productName: string,
-  quantityRefunded: number,
-  refundAmount: number,
-  reasonType: RefundReasonType,
-  refundReason: string | null,
-  itemArrived: boolean,
-  paidBy: RefundPaidBy,
-  supplierId: string | null,
-  supplierDeduction: number | null = null
-): Promise<void> {
-  const { error } = await supabase
+// Units already refunded against one order line, whatever the reason. The
+// refund API checks this before touching Stripe: you can never refund more
+// units than the customer ordered, which is what stops a stale packing screen
+// (or a retry after a refund that only *looked* like it failed) paying twice.
+export async function refundedQtyForLine(orderId: string, productName: string): Promise<number> {
+  const { data, error } = await supabase
+    .from("order_item_refunds")
+    .select("quantity_refunded")
+    .eq("order_id", orderId)
+    .eq("product_name", productName);
+  if (error) throw error;
+  return (data ?? []).reduce((sum, r) => sum + (r.quantity_refunded ?? 0), 0);
+}
+
+export interface CreateOrderItemRefundInput {
+  orderId: string;
+  productName: string;
+  quantityRefunded: number;
+  refundAmount: number;
+  reasonType: RefundReasonType;
+  customerNote: string | null;
+  itemArrived: boolean;
+  supplierId: string | null;
+  faultHint: RefundFaultHint | null;
+  // Supplier side. Left pending from the packing bench - Luke never decides
+  // who pays. Josie's own refunds settle inline, so she isn't made to work a
+  // queue for a call she just made.
+  supplierStatus: RefundSupplierStatus;
+  paidBy: RefundPaidBy;
+  supplierDeduction: number | null;
+  supplierNote: string | null;
+}
+
+export async function createOrderItemRefund(input: CreateOrderItemRefundInput): Promise<OrderItemRefund> {
+  const settled = input.supplierStatus === "settled";
+  const { data, error } = await supabase
     .from("order_item_refunds")
     .insert({
-      order_id: orderId,
-      product_name: productName,
-      quantity_refunded: quantityRefunded,
-      refund_amount: refundAmount,
-      reason_type: reasonType,
-      refund_reason: refundReason,
-      item_arrived: itemArrived,
-      paid_by: paidBy,
-      supplier_id: supplierId,
-      supplier_deduction: supplierDeduction,
-    });
+      order_id: input.orderId,
+      product_name: input.productName,
+      quantity_refunded: input.quantityRefunded,
+      refund_amount: input.refundAmount,
+      reason_type: input.reasonType,
+      customer_note: input.customerNote,
+      supplier_note: input.supplierNote,
+      item_arrived: input.itemArrived,
+      paid_by: input.paidBy,
+      supplier_id: input.supplierId,
+      supplier_deduction: input.supplierDeduction,
+      supplier_status: input.supplierStatus,
+      fault_hint: input.faultHint,
+      settled_at: settled ? new Date().toISOString() : null,
+    })
+    .select("*")
+    .single();
   if (error) throw error;
+  return mapOrderItemRefund(data);
+}
+
+// Josie's who-pays call. Writes the supplier side and closes the queue row;
+// the supplier notice email is sent by the settle API, not from here.
+export async function settleOrderItemRefund(
+  refundId: string,
+  paidBy: RefundPaidBy,
+  supplierDeduction: number,
+  supplierNote: string | null,
+  client: SupabaseClient = supabase
+): Promise<OrderItemRefund> {
+  const { data, error } = await client
+    .from("order_item_refunds")
+    .update({
+      paid_by: paidBy,
+      supplier_deduction: supplierDeduction,
+      supplier_note: supplierNote,
+      supplier_status: "settled",
+      settled_at: new Date().toISOString(),
+    })
+    .eq("id", refundId)
+    .select("*")
+    .single();
+  if (error) throw error;
+  return mapOrderItemRefund(data);
 }
 
 export async function deleteOrderItemRefund(refundId: string): Promise<void> {
@@ -3001,4 +3078,131 @@ export async function getSavedBasketByEmail(customerEmail: string): Promise<Save
 export async function deleteSavedBasket(id: string): Promise<void> {
   const { error } = await supabase.from("saved_baskets").delete().eq("id", id);
   if (error) throw error;
+}
+
+// ─── Customer-reported problems ("Something not right?") ─────────────────────
+// A report is a claim, never a refund. Josie decides: money back (full or
+// part), or a reply explaining why not. See supabase/migrations/
+// 20260830_order_issues.sql.
+
+export type OrderIssueType =
+  | "missing"      // it wasn't in the box at all
+  | "short"        // fewer than ordered
+  | "too_many"     // more than ordered - nothing owed, but a packing signal
+  | "wrong_item"   // someone else's item
+  | "damaged"      // crushed / broken - ours
+  | "quality"      // off, mouldy, past its best - the farm's
+  | "other";
+
+export type OrderIssueStatus = "open" | "refunded" | "declined" | "noted";
+
+export const orderIssueConfig: Record<
+  OrderIssueType,
+  {
+    /** What the customer picks. */
+    label: string;
+    /** The small print under it. */
+    hint: string;
+    /** Whether it can end in money. "Too many" can't. */
+    refundable: boolean;
+    /** Which refund reason it becomes, and so who pays by default. */
+    reasonType: RefundReasonType;
+    /** Pre-selected who-pays on Josie's modal. She can always overrule it. */
+    defaultPaidBy: RefundPaidBy;
+  }
+> = {
+  missing:    { label: "It wasn't there",     hint: "Missing from the box completely",   refundable: true,  reasonType: "missing_from_box", defaultPaidBy: "local" },
+  short:      { label: "Not enough of it",    hint: "Fewer than you ordered",            refundable: true,  reasonType: "missing_from_box", defaultPaidBy: "local" },
+  too_many:   { label: "I got too many",      hint: "More than you ordered - no refund needed, but it helps us to know", refundable: false, reasonType: "other", defaultPaidBy: "local" },
+  wrong_item: { label: "Wrong item",          hint: "You got something you didn't order", refundable: true, reasonType: "missing_from_box", defaultPaidBy: "local" },
+  damaged:    { label: "It was damaged",      hint: "Crushed, broken or leaking",        refundable: true,  reasonType: "damaged",          defaultPaidBy: "local" },
+  quality:    { label: "Not good quality",    hint: "Off, mouldy or past its best",      refundable: true,  reasonType: "quality",          defaultPaidBy: "supplier" },
+  other:      { label: "Something else",      hint: "Tell us what happened",             refundable: true,  reasonType: "other",            defaultPaidBy: "local" },
+};
+
+export interface OrderIssue {
+  id: string;
+  orderId: string;
+  productName: string;
+  quantity: number;
+  issueType: OrderIssueType;
+  customerNote: string | null;
+  status: OrderIssueStatus;
+  refundId: string | null;
+  adminReply: string | null;
+  createdAt: string;
+  resolvedAt: string | null;
+}
+
+function mapOrderIssue(d: Record<string, unknown>): OrderIssue {
+  return {
+    id: d.id as string,
+    orderId: d.order_id as string,
+    productName: d.product_name as string,
+    quantity: (d.quantity as number) ?? 1,
+    issueType: d.issue_type as OrderIssueType,
+    customerNote: (d.customer_note as string | null) ?? null,
+    status: (d.status as OrderIssueStatus) || "open",
+    refundId: (d.refund_id as string | null) ?? null,
+    adminReply: (d.admin_reply as string | null) ?? null,
+    createdAt: d.created_at as string,
+    resolvedAt: (d.resolved_at as string | null) ?? null,
+  };
+}
+
+/** Every report against one order - what the customer sees on /account. */
+export async function getOrderIssues(orderId: string, client: SupabaseClient = supabase): Promise<OrderIssue[]> {
+  const { data, error } = await client
+    .from("order_issues")
+    .select("*")
+    .eq("order_id", orderId)
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  return (data ?? []).map(mapOrderIssue);
+}
+
+/** Reports across a delivery day - Josie's queue on the Stock tab. */
+export async function getOrderIssuesForDeliveryDay(
+  deliveryDay: string,
+  client: SupabaseClient = supabase
+): Promise<OrderIssue[]> {
+  const { data: orders, error: ordersError } = await client
+    .from("orders")
+    .select("id")
+    .eq("delivery_day", deliveryDay);
+  if (ordersError) throw ordersError;
+  if (!orders || orders.length === 0) return [];
+
+  const { data, error } = await client
+    .from("order_issues")
+    .select("*")
+    .in("order_id", orders.map(o => o.id))
+    .order("created_at", { ascending: true });
+  if (error) throw error;
+  return (data ?? []).map(mapOrderIssue);
+}
+
+/**
+ * How many reports this customer has made, ever. Context for Josie's decision -
+ * usually it says a producer has a real problem; occasionally it says something
+ * else. Either way it's not something you can hold in your head week to week.
+ */
+export async function countIssuesForCustomer(
+  userId: string | null,
+  email: string | null,
+  client: SupabaseClient = supabase
+): Promise<number> {
+  const orderQuery = client.from("orders").select("id");
+  const { data: orders, error } = userId
+    ? await orderQuery.eq("user_id", userId)
+    : await orderQuery.eq("customer_email", email ?? "");
+  if (error) throw error;
+  if (!orders || orders.length === 0) return 0;
+
+  const { count, error: countError } = await client
+    .from("order_issues")
+    .select("id", { count: "exact", head: true })
+    .in("order_id", orders.map(o => o.id));
+  if (countError) throw countError;
+  return count ?? 0;
 }

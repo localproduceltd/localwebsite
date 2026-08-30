@@ -3,20 +3,23 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Package, Users, Calendar, MessageCircleHeart, MapPin, UserCircle, Menu, X, Truck, Navigation, ShoppingCart, Store } from "lucide-react";
+import { LayoutDashboard, Package, Users, Calendar, MessageCircleHeart, MapPin, UserCircle, Menu, X, Truck, Navigation, ShoppingCart, Store, PackageCheck } from "lucide-react";
 import { SignedIn, useUser } from "@clerk/nextjs";
 import UserAvatar from "@/components/UserAvatar";
 
 // Tabs each staff role can see; middleware blocks the rest of /admin for them
 const roleLinkHrefs: Record<string, string[]> = {
   driver: ["/admin/driver"],
-  packer: ["/admin/stock"],
+  // Packers work the bench, not the commercials: Packing carries the ticks and
+  // the customer-facing refund, Stock keeps prices, payouts and who-pays.
+  packer: ["/admin/packing"],
 };
 
 const adminLinks = [
   { href: "/admin", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/admin/packing", label: "Packing", icon: PackageCheck },
   { href: "/admin/stock", label: "Stock", icon: Package },
-  { href: "/admin/deliveries", label: "Deliveries", icon: Truck },
+  { href: "/admin/orders", label: "Orders", icon: Truck },
   { href: "/admin/driver", label: "Driver Run", icon: Navigation },
   { href: "/admin/customers", label: "Customers", icon: UserCircle },
   { href: "/admin/saved-baskets", label: "Saved Baskets", icon: ShoppingCart },
