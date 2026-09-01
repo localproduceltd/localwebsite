@@ -100,3 +100,104 @@ export async function eoAddContact({
     console.error(`Email Octopus push failed for ${cleaned}:`, e);
   }
 }
+
+// ---------------------------------------------------------------------------
+// Referral-scheme sync (added Aug 2026).
+// Used by /api/referral-sync, which Claude's weekly Sunday task calls to set
+// ReferralCode / RewardCode fields and flip the referral10 / reward10 tags.
+// Adding those tags is what fires the EO "tag added" automations that send
+// the code + reward emails - so all customer email stays inside EO.
+//
+// Unlike eoAddContact this is NOT fail-soft: the caller wants the truth per
+// contact so the weekly task can report failures.
+
+export interface EoSyncInput {
+  email: string;
+  firstName?: string;
+  fields?: Record<string, string>;
+  addTags?: string[];
+  removeTags?: string[];
+}
+
+export interface EoSyncResult {
+  email: string;
+  ok: boolean;
+  created?: boolean;
+  error?: string;
+}
+
+export async function eoSyncContact(input: EoSyncInput): Promise<EoSyncResult> {
+  const cleaned = input.email.toLowerCase().trim();
+  if (!cleaned || !cleaned.includes("@")) {
+    return { email: input.email, ok: false, error: "invalid email" };
+  }
+
+  try {
+    const id = contactId(cleaned);
+    const existing = await eoFetch(`/lists/${LIST_ID}/contacts/${id}`);
+
+    if (existing.status === 404) {
+      // New contact - create as subscribed with fields + tags in one go.
+      const res = await eoFetch(`/lists/${LIST_ID}/contacts`, {
+        method: "POST",
+        body: JSON.stringify({
+          email_address: cleaned,
+          status: "subscribed",
+          tags: input.addTags || [],
+          fields: {
+            ...(input.firstName ? { FirstName: input.firstName } : {}),
+            ...(input.fields || {}),
+          },
+        }),
+      });
+      if (!res.ok) {
+        return {
+          email: cleaned,
+          ok: false,
+          error: `EO create failed (${res.status}): ${await res.text()}`,
+        };
+      }
+      return { email: cleaned, ok: true, created: true };
+    }
+
+    if (!existing.ok) {
+      return {
+        email: cleaned,
+        ok: false,
+        error: `EO lookup failed (${existing.status}): ${await existing.text()}`,
+      };
+    }
+
+    // Existing contact - update fields and tags. Status is never touched, so
+    // an unsubscribed contact stays unsubscribed (they just won't receive
+    // the automation email).
+    const tags: Record<string, boolean> = {};
+    for (const t of input.removeTags || []) tags[t] = false;
+    for (const t of input.addTags || []) tags[t] = true;
+
+    const body: Record<string, unknown> = {};
+    if (input.fields || input.firstName) {
+      body.fields = {
+        ...(input.firstName ? { FirstName: input.firstName } : {}),
+        ...(input.fields || {}),
+      };
+    }
+    if (Object.keys(tags).length > 0) body.tags = tags;
+    if (Object.keys(body).length === 0) return { email: cleaned, ok: true };
+
+    const res = await eoFetch(`/lists/${LIST_ID}/contacts/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      return {
+        email: cleaned,
+        ok: false,
+        error: `EO update failed (${res.status}): ${await res.text()}`,
+      };
+    }
+    return { email: cleaned, ok: true };
+  } catch (e) {
+    return { email: cleaned, ok: false, error: String(e) };
+  }
+}
