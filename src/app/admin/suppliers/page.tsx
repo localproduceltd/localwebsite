@@ -17,19 +17,7 @@ import { Plus, Pencil, Trash2, X, MapPin, UserPlus, Link2, ChevronDown, ChevronR
 import { type SupplierStatus } from "@/lib/data";
 import ImageUpload from "@/components/ImageUpload";
 import MapPicker from "@/components/MapPicker";
-
-const SUPPLIER_CATEGORIES = [
-  "Greengrocer",
-  "Farm Shop",
-  "Bakery",
-  "Cheesemonger",
-  "Butcher",
-  "Fishmonger",
-  "Deli",
-  "Brewery",
-  "Winery",
-  "Other",
-];
+import { SUPPLIER_CATEGORIES } from "@/lib/supplier-categories";
 
 const STATUS_CONFIG: Record<SupplierStatus, { label: string; color: string; bgColor: string }> = {
   launch_live: { label: "Live", color: "text-green-700", bgColor: "bg-green-100" },

@@ -7,6 +7,7 @@ import {
   type Supplier,
   type SupplierStatus,
 } from "@/lib/data";
+import { SUPPLIER_CATEGORIES, isSupplierCategory } from "@/lib/supplier-categories";
 
 /**
  * GET /api/admin/suppliers
@@ -54,6 +55,20 @@ export async function POST(request: NextRequest) {
           error: {
             code: "validation_error",
             message: `Missing required fields: ${missing.join(", ")}`,
+          },
+        },
+        { status: 400 },
+      );
+    }
+
+    // Category is a fixed list - this is the gate the onboarding skill and any
+    // bulk script must pass through, so a new value can't be invented by accident.
+    if (!isSupplierCategory(body.category)) {
+      return NextResponse.json(
+        {
+          error: {
+            code: "validation_error",
+            message: `Invalid category "${body.category}". Must be one of: ${SUPPLIER_CATEGORIES.join(", ")}`,
           },
         },
         { status: 400 },

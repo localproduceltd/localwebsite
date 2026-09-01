@@ -19,19 +19,7 @@ import { sortSupplierProducts } from "@/lib/shop-sort";
 import { Star } from "lucide-react";
 import MapPicker from "@/components/MapPicker";
 import ImageUpload from "@/components/ImageUpload";
-
-const SUPPLIER_CATEGORIES = [
-  "Greengrocer",
-  "Farm Shop",
-  "Bakery",
-  "Cheesemonger",
-  "Butcher",
-  "Fishmonger",
-  "Deli",
-  "Brewery",
-  "Winery",
-  "Other",
-];
+import { SUPPLIER_CATEGORIES } from "@/lib/supplier-categories";
 
 export default function YourPageView() {
   const { user, isLoaded } = useUser();

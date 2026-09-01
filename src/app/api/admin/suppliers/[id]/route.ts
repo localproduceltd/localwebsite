@@ -7,6 +7,7 @@ import {
   updateSupplier,
   type Supplier,
 } from "@/lib/data";
+import { SUPPLIER_CATEGORIES, isSupplierCategory } from "@/lib/supplier-categories";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -55,6 +56,21 @@ export async function PATCH(request: NextRequest, ctx: RouteContext) {
     }
 
     const patch = (await request.json()) as Partial<Supplier>;
+
+    // Only checked when the patch actually touches category, so existing rows
+    // can still be edited on other fields.
+    if (patch.category !== undefined && !isSupplierCategory(patch.category)) {
+      return NextResponse.json(
+        {
+          error: {
+            code: "validation_error",
+            message: `Invalid category "${patch.category}". Must be one of: ${SUPPLIER_CATEGORIES.join(", ")}`,
+          },
+        },
+        { status: 400 },
+      );
+    }
+
     const merged: Supplier = { ...existing, ...patch, id: existing.id };
 
     await updateSupplier(merged, supabaseAdmin);
