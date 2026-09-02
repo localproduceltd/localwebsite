@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { Trash2, Plus, Minus, ShoppingCart, CheckCircle, Calendar, Clock, Home, Package, MapPin, HelpCircle, X, Loader2, MessageCircle, Bookmark, LogIn } from "lucide-react";
 import { useUser } from "@clerk/nextjs";
 import { useCart } from "@/lib/cart-context";
-import { type CustomerProfile, type DeliveryDay, type DeliveryWindow, type DeliveryArea, type SupplierHolidayInfo, type DeliveryOption, getActiveDeliveryDays, getCustomerProfile, getDeliveryArea, submitExpansionRequest, getSuppliersHolidayInfo, isSupplierOnHoliday, saveBasket } from "@/lib/data";
+import { type CustomerProfile, type DeliveryDay, type DeliveryWindow, type DeliveryArea, type SupplierHolidayInfo, type DeliveryOption, type StockViolation, checkStockForItems, getActiveDeliveryDays, getCustomerProfile, getDeliveryArea, submitExpansionRequest, getSuppliersHolidayInfo, isSupplierOnHoliday, saveBasket } from "@/lib/data";
 import { lookupPostcode } from "@/lib/postcode";
 import { gaEvent } from "@/lib/ga";
 import { BOX_DEPOSIT, BOTTLE_DEPOSIT, MINIMUM_ORDER, DELIVERY_FEE } from "@/lib/constants";
@@ -79,6 +79,11 @@ export default function CartPage() {
   // Holiday suppliers state
   const [holidaySuppliers, setHolidaySuppliers] = useState<SupplierHolidayInfo[]>([]);
 
+  // Stock problems in the basket, keyed by product id. Filled by the same
+  // function the checkout route runs, so the button and the payment gate can
+  // never disagree about what's available.
+  const [stockViolations, setStockViolations] = useState<Record<string, StockViolation>>({});
+
   // Save basket state
   const [savingBasket, setSavingBasket] = useState(false);
   const [basketSaved, setBasketSaved] = useState(false);
@@ -98,6 +103,37 @@ export default function CartPage() {
       setHolidaySuppliers([]);
     }
   }, [items, getProduct]);
+
+  // Stock check: the same server function the checkout route calls, run
+  // against the day the customer has actually picked - so "only 2 left" here
+  // means the same thing it will mean at payment. The cart context's counts
+  // are for the first open day only, which is the wrong day once they've
+  // chosen a later one. Debounced so tapping +/- doesn't spam the database.
+  const stockCheckDay = topUpOrder?.deliveryDay || selectedDay || deliveryDays[0]?.deliveryDate || "";
+  useEffect(() => {
+    if (items.length === 0 || !stockCheckDay) {
+      setStockViolations({});
+      return;
+    }
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      checkStockForItems(
+        items.map((i) => ({ productId: i.productId, quantity: i.quantity })),
+        stockCheckDay
+      )
+        .then((violations) => {
+          if (cancelled) return;
+          setStockViolations(Object.fromEntries(violations.map((v) => [v.productId, v])));
+        })
+        // Never block the basket over a failed check - the checkout route is
+        // still the real gate.
+        .catch((e) => console.error("Failed to check stock:", e));
+    }, 300);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [items, stockCheckDay]);
 
   useEffect(() => {
     if (user) {
@@ -259,6 +295,17 @@ export default function CartPage() {
   // Check for on-holiday suppliers in cart
   const holidaySuppliersInCart = holidaySuppliers.filter((s) => isSupplierOnHoliday(s));
   const hasHolidayItems = holidaySuppliersInCart.length > 0;
+
+  // A stock problem only still applies at the quantity now in the basket, so
+  // "Reduce to 2" clears its own warning immediately instead of waiting for the
+  // next check. Nothing left (out of stock, or sold out this week) always applies.
+  const stockIssueFor = (productId: string, quantity: number): StockViolation | null => {
+    const violation = stockViolations[productId];
+    if (!violation) return null;
+    if (violation.remaining > 0 && quantity <= violation.remaining) return null;
+    return violation;
+  };
+  const hasStockIssues = items.some((item) => stockIssueFor(item.productId, item.quantity));
   
   // Derive willBeIn from deliveryOption for backwards compatibility
   const willBeIn = deliveryOption === "in";
@@ -271,6 +318,10 @@ export default function CartPage() {
       router.push("/sign-in?redirect_url=/cart");
       return;
     }
+
+    // Belt and braces - the button is disabled for these, and the checkout
+    // route refuses them anyway.
+    if (hasHolidayItems || hasStockIssues) return;
     
     // For top-up orders, we don't need delivery day/window/etc
     if (!topUpOrder) {
@@ -544,10 +595,14 @@ export default function CartPage() {
                   if (!product) return null;
                   const supplierHolidayInfo = holidaySuppliers.find((s) => s.id === product.supplierId);
                   const itemSupplierOnHoliday = supplierHolidayInfo && isSupplierOnHoliday(supplierHolidayInfo);
+                  const stockIssue = stockIssueFor(item.productId, item.quantity);
+                  // Some left, just fewer than they've asked for - reducing keeps
+                  // the item rather than losing the line entirely.
+                  const canReduce = stockIssue?.reason === "weekly_limit" && stockIssue.remaining > 0;
                   return (
                     <div
                       key={item.productId}
-                      className={`rounded-xl bg-surface p-4 shadow-sm ${itemSupplierOnHoliday ? "border-2 border-amber-300" : ""}`}
+                      className={`rounded-xl bg-surface p-4 shadow-sm ${itemSupplierOnHoliday || stockIssue ? "border-2 border-amber-300" : ""}`}
                     >
                       <div className="flex items-center gap-4">
                         <div className="h-16 w-16 flex-shrink-0 overflow-hidden rounded-lg bg-secondary/10 sm:h-20 sm:w-20">
@@ -575,6 +630,30 @@ export default function CartPage() {
                             className="text-xs font-semibold text-amber-700 hover:text-amber-900 transition"
                           >
                             Remove
+                          </button>
+                        </div>
+                      )}
+                      {/* Stock warning - the same check the checkout gate runs */}
+                      {stockIssue && !itemSupplierOnHoliday && (
+                        <div className="mt-3 flex items-center justify-between gap-3 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2">
+                          <p className="text-sm text-amber-800">
+                            {stockIssue.reason === "out_of_stock" ? (
+                              <><span className="font-semibold">Out of stock</span> — remove to checkout</>
+                            ) : canReduce ? (
+                              <>Only <span className="font-semibold">{stockIssue.remaining} left</span> for this delivery — reduce to checkout</>
+                            ) : (
+                              <><span className="font-semibold">Sold out this week</span> — remove to checkout</>
+                            )}
+                          </p>
+                          <button
+                            onClick={() =>
+                              canReduce
+                                ? updateQuantity(item.productId, stockIssue.remaining - item.quantity)
+                                : removeItem(item.productId)
+                            }
+                            className="flex-shrink-0 text-xs font-semibold text-amber-700 hover:text-amber-900 transition"
+                          >
+                            {canReduce ? `Reduce to ${stockIssue.remaining}` : "Remove"}
                           </button>
                         </div>
                       )}
@@ -1255,6 +1334,15 @@ export default function CartPage() {
           </div>
         )}
 
+        {/* Unavailable items warning */}
+        {hasStockIssues && (
+          <div className="mt-4 rounded-lg bg-amber-50 border border-amber-200 px-4 py-3">
+            <p className="text-sm font-medium text-amber-800">
+              Remove or reduce the unavailable items above to checkout
+            </p>
+          </div>
+        )}
+
         {/* Saved details but no phone: the input lives inside the collapsed
             address form, so point at the button that reveals it - otherwise
             "Enter Contact Number" asks for a field the customer can't see */}
@@ -1269,13 +1357,13 @@ export default function CartPage() {
         <button
           disabled={
             topUpOrder 
-              ? (belowMinimum || hasHolidayItems || !isSignedIn || placing)
-              : (belowMinimum || hasHolidayItems || !deliveryCheck?.inZone || !addressForm.addressLine1.trim() || !phone.trim() || !selectedDay || !deliveryWindow || !deliveryOption || (needsSafePlace && !safePlace.trim()) || (hasGlassBottles && hasOwnBottles === null) || !pinConfirmed || placing)
+              ? (belowMinimum || hasHolidayItems || hasStockIssues || !isSignedIn || placing)
+              : (belowMinimum || hasHolidayItems || hasStockIssues || !deliveryCheck?.inZone || !addressForm.addressLine1.trim() || !phone.trim() || !selectedDay || !deliveryWindow || !deliveryOption || (needsSafePlace && !safePlace.trim()) || (hasGlassBottles && hasOwnBottles === null) || !pinConfirmed || placing)
           }
           onClick={handlePlaceOrder}
           className="mt-6 w-full rounded-lg bg-accent py-3 text-center font-semibold text-primary transition hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {placing ? "Redirecting to Checkout..." : hasHolidayItems ? "Remove Holiday Items" : belowMinimum ? `Minimum order £${MINIMUM_ORDER}` : topUpOrder ? "Add to Order & Pay" : !isSignedIn ? "Sign In to Continue" : !deliveryCheck?.inZone ? "Check Postcode First" : !addressForm.addressLine1.trim() ? "Enter Address" : !phone.trim() ? "Enter Contact Number" : !pinConfirmed ? "Confirm Pin Location Above" : !selectedDay ? "Select Delivery Day" : !deliveryWindow ? "Select Delivery Window" : !deliveryOption ? "Select Delivery Option" : (needsSafePlace && !safePlace.trim()) ? "Enter Safe Place" : (hasGlassBottles && hasOwnBottles === null) ? "Select Bottle Deposit Option" : "Continue to Checkout"}
+          {placing ? "Redirecting to Checkout..." : hasHolidayItems ? "Remove Holiday Items" : hasStockIssues ? "Fix Basket Items" : belowMinimum ? `Minimum order £${MINIMUM_ORDER}` : topUpOrder ? "Add to Order & Pay" : !isSignedIn ? "Sign In to Continue" : !deliveryCheck?.inZone ? "Check Postcode First" : !addressForm.addressLine1.trim() ? "Enter Address" : !phone.trim() ? "Enter Contact Number" : !pinConfirmed ? "Confirm Pin Location Above" : !selectedDay ? "Select Delivery Day" : !deliveryWindow ? "Select Delivery Window" : !deliveryOption ? "Select Delivery Option" : (needsSafePlace && !safePlace.trim()) ? "Enter Safe Place" : (hasGlassBottles && hasOwnBottles === null) ? "Select Bottle Deposit Option" : "Continue to Checkout"}
         </button>
         
         {!isSignedIn && (

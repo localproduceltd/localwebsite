@@ -720,6 +720,9 @@ export interface StockViolation {
   productName: string;
   // Units still available for that delivery day (0 = sold out or out of stock)
   remaining: number;
+  // Which gate it failed: the supplier's manual Out of Stock toggle, or the
+  // weekly count for this delivery day. The basket words the two differently.
+  reason: "out_of_stock" | "weekly_limit";
 }
 
 // Server-side checkout gate. A line violates if the product is manually out of
@@ -743,14 +746,14 @@ export async function checkStockForItems(
     const p = data?.find((row) => row.id === item.productId);
     if (!p) continue;
     if (!p.in_stock) {
-      violations.push({ productId: p.id, productName: p.name, remaining: 0 });
+      violations.push({ productId: p.id, productName: p.name, remaining: 0, reason: "out_of_stock" });
       continue;
     }
     const tracking = (p.suppliers as unknown as { stock_tracking?: boolean } | null)?.stock_tracking ?? false;
     if (!tracking || p.weekly_stock == null) continue;
     const remaining = Math.max(0, p.weekly_stock - (ordered[p.id] ?? 0));
     if (item.quantity > remaining) {
-      violations.push({ productId: p.id, productName: p.name, remaining });
+      violations.push({ productId: p.id, productName: p.name, remaining, reason: "weekly_limit" });
     }
   }
   return violations;
