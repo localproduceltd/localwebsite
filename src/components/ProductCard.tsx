@@ -79,7 +79,7 @@ export default function ProductCard({ product }: { product: Product }) {
           <span className="text-xs font-medium text-secondary">{product.supplierName || product.category}</span>
           {unavailable ? (
             <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-600">
-              {soldOutWeekly ? "Sold Out This Week" : "Out of Stock"}
+              {soldOutWeekly ? (product.supplierStockMode === "overall" ? "Sold Out" : "Sold Out This Week") : "Out of Stock"}
             </span>
           ) : lowStock ? (
             <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
@@ -89,7 +89,7 @@ export default function ProductCard({ product }: { product: Product }) {
         </div>
         {unavailable ? (
           <div className="mt-3 flex w-full items-center justify-center rounded-lg border-2 border-muted/30 bg-muted/10 py-2 text-sm font-semibold text-muted">
-            {soldOutWeekly ? "Sold Out This Week" : "Out of Stock"}
+            {soldOutWeekly ? (product.supplierStockMode === "overall" ? "Sold Out" : "Sold Out This Week") : "Out of Stock"}
           </div>
         ) : cartItem && !justAdded ? (
           <div className="mt-3 flex items-center justify-between rounded-lg bg-primary/10 px-3 py-1.5">

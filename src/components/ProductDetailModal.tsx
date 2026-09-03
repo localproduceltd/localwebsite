@@ -131,7 +131,7 @@ export default function ProductDetailModal({ product, onClose }: ProductDetailMo
             </div>
             {unavailable ? (
               <span className="rounded-full bg-red-100 px-3 py-1 text-xs font-semibold text-red-600">
-                {soldOutWeekly ? "Sold Out This Week" : "Out of Stock"}
+                {soldOutWeekly ? (product.supplierStockMode === "overall" ? "Sold Out" : "Sold Out This Week") : "Out of Stock"}
               </span>
             ) : lowStock ? (
               <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-700">Only {remaining} left</span>

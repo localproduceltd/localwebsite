@@ -369,7 +369,7 @@ export default function ProductsPage() {
                     <p className="text-xs font-medium text-secondary">{product.supplierName}</p>
                     {unavailable ? (
                       <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-600">
-                        {soldOutWeekly ? "Sold Out This Week" : "Out of Stock"}
+                        {soldOutWeekly ? (product.supplierStockMode === "overall" ? "Sold Out" : "Sold Out This Week") : "Out of Stock"}
                       </span>
                     ) : lowStock ? (
                       <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
@@ -413,7 +413,7 @@ export default function ProductsPage() {
                     if (unavailable) {
                       return (
                         <div className="mt-2 flex w-full items-center justify-center rounded-lg border-2 border-muted/30 bg-muted/10 py-1.5 text-xs font-semibold text-muted sm:mt-3 sm:py-2 sm:text-sm">
-                          {soldOutWeekly ? "Sold Out This Week" : "Out of Stock"}
+                          {soldOutWeekly ? (product.supplierStockMode === "overall" ? "Sold Out" : "Sold Out This Week") : "Out of Stock"}
                         </div>
                       );
                     }
