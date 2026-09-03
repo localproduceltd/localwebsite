@@ -13,8 +13,9 @@ export default function ProductCard({ product }: { product: Product }) {
   const [justAdded, setJustAdded] = useState(false);
 
   const cartItem = items.find((i) => i.productId === product.id);
-  // Weekly stock: 0 left = sold out until next delivery day (distinct from the
-  // supplier's manual Out of Stock toggle)
+  // Tracked stock: 0 left = sold out (weekly: until the next delivery day;
+  // overall: until the supplier restocks). Distinct from the supplier's manual
+  // Out of Stock toggle.
   const remaining = remainingStock(product.id);
   const soldOutWeekly = product.inStock && remaining === 0;
   const unavailable = !product.inStock || soldOutWeekly;
@@ -102,7 +103,7 @@ export default function ProductCard({ product }: { product: Product }) {
             <button
               onClick={() => updateQuantity(product.id, 1)}
               disabled={atLimit}
-              title={atLimit ? `Only ${remaining} available this week` : undefined}
+              title={atLimit ? `Only ${remaining} available${product.supplierStockMode === "overall" ? "" : " this week"}` : undefined}
               className="flex h-8 w-8 items-center justify-center rounded-full bg-secondary/20 text-primary transition hover:bg-secondary/40 disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <Plus size={14} />

@@ -431,7 +431,7 @@ export default function ProductsPage() {
                           <button
                             onClick={() => updateQuantity(product.id, 1)}
                             disabled={atLimit}
-                            title={atLimit ? `Only ${remaining} available this week` : undefined}
+                            title={atLimit ? `Only ${remaining} available${product.supplierStockMode === "overall" ? "" : " this week"}` : undefined}
                             className="flex h-8 w-8 items-center justify-center rounded-full bg-secondary/20 text-primary transition hover:bg-secondary/40 disabled:opacity-40 disabled:cursor-not-allowed"
                           >
                             <Plus size={14} />

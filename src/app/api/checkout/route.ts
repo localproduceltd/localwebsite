@@ -63,7 +63,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Weekly stock gate: re-check availability at the moment of payment.
+    // Stock gate (weekly or overall): re-check availability at the moment of payment.
     // Baskets don't reserve stock, so this is the authoritative check.
     const stockViolations = await checkStockForItems(
       items.map((i) => ({ productId: i.productId, quantity: i.quantity })),
@@ -73,7 +73,7 @@ export async function POST(request: NextRequest) {
       const parts = stockViolations.map((v) =>
         v.remaining > 0
           ? `only ${v.remaining} of "${v.productName}" ${v.remaining === 1 ? "is" : "are"} left for this delivery`
-          : `"${v.productName}" is sold out for this delivery`
+          : v.reason === "stock_limit" ? `"${v.productName}" is sold out` : `"${v.productName}" is sold out for this delivery`
       );
       return NextResponse.json(
         { error: `Sorry - ${parts.join(", and ")}. Please adjust your basket and try again.`, stockViolations },

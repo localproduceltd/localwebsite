@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useState, useEffect, useCallback, useRef, type ReactNode } from "react";
 import { useUser } from "@clerk/nextjs";
-import { type Product, getApprovedProducts, saveBasket, getSavedBasketByEmail, getActiveDeliveryDays, getOrderedQuantities } from "@/lib/data";
+import { type Product, getApprovedProducts, saveBasket, getSavedBasketByEmail, getActiveDeliveryDays, getOrderedQuantities, getOrderedSinceCount, remainingStockFor } from "@/lib/data";
 import { gaEvent } from "@/lib/ga";
 
 const CART_STORAGE_KEY = "local-produce-cart";
@@ -66,6 +66,8 @@ export function CartProvider({ children }: { children: ReactNode }) {
   const [products, setProducts] = useState<Product[]>([]);
   // productId -> units already ordered for the next delivery day
   const [orderedQty, setOrderedQty] = useState<Record<string, number>>({});
+  // Overall-stock suppliers: ordered since each product's shelf count.
+  const [orderedSinceCount, setOrderedSinceCount] = useState<Record<string, number>>({});
   const [topUpOrder, setTopUpOrder] = useState<TopUpOrder | null>(null);
   const initialized = useRef(false);
   // Server-sync bookkeeping. For signed-in users, the server is the single source
@@ -135,14 +137,16 @@ export function CartProvider({ children }: { children: ReactNode }) {
     getApprovedProducts().then(setProducts).catch(console.error);
   }, []);
 
-  // Load what's already been ordered for the next delivery day, so tracked
-  // products can show "sold out this week" / "only N left". If no delivery day
-  // is open yet, nothing is ordered against the next one - counts stay empty
-  // and the full weekly_stock is available.
+  // Load what's already been ordered for the next delivery day (weekly stock)
+  // and since each product's shelf count (overall stock), so tracked products
+  // can show "sold out" / "only N left". If no delivery day is open yet,
+  // nothing is ordered against the next one - weekly counts stay empty and the
+  // full weekly_stock is available.
   useEffect(() => {
     (async () => {
       try {
-        const days = await getActiveDeliveryDays();
+        const [days, since] = await Promise.all([getActiveDeliveryDays(), getOrderedSinceCount()]);
+        setOrderedSinceCount(since);
         if (days.length > 0) {
           setOrderedQty(await getOrderedQuantities(days[0].deliveryDate));
         }
@@ -155,10 +159,10 @@ export function CartProvider({ children }: { children: ReactNode }) {
   const remainingStock = useCallback(
     (productId: string): number | null => {
       const p = products.find((x) => x.id === productId);
-      if (!p || !p.supplierStockTracking || p.weeklyStock == null) return null;
-      return Math.max(0, p.weeklyStock - (orderedQty[productId] ?? 0));
+      if (!p) return null;
+      return remainingStockFor(p.supplierStockMode, p.weeklyStock, orderedQty[productId], orderedSinceCount[productId]);
     },
-    [products, orderedQty]
+    [products, orderedQty, orderedSinceCount]
   );
 
   const clearTopUpOrder = useCallback(() => setTopUpOrder(null), []);

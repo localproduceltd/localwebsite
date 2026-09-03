@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
-import { type Product, type Supplier, type Locality, type ProductStatus, ALL_LOCALITIES, getProducts, getArchivedProducts, getSuppliers, createProduct, updateProduct, archiveProduct, restoreProduct, permanentlyDeleteProduct, updateProductStatus, getSupplierByProductId } from "@/lib/data";
+import { type Product, type Supplier, type Locality, type ProductStatus, ALL_LOCALITIES, getProducts, getArchivedProducts, getSuppliers, createProduct, updateProduct, archiveProduct, restoreProduct, permanentlyDeleteProduct, updateProductStatus, getSupplierByProductId, todayISO } from "@/lib/data";
 import { PRODUCT_CATEGORIES, ALLERGENS, PRODUCT_TAGS } from "@/lib/categories";
 import { Plus, Pencil, Trash2, X, Search, ChevronDown, ChevronRight, MapPin, RotateCcw, Archive, Star, Filter, XCircle, Check } from "lucide-react";
 import MapPicker from "@/components/MapPicker";
@@ -1230,6 +1230,7 @@ function ProductForm({
       category: "",
       inStock: true,
       weeklyStock: null,
+      stockCountedOn: null,
       refrigerated: false,
       locality: "Local" as Locality,
       lat: null,
@@ -1531,20 +1532,33 @@ function ProductForm({
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-primary mb-1">Weekly stock (optional)</label>
-            <input
-              type="number"
-              min={0}
-              placeholder="NA"
-              value={form.weeklyStock ?? ""}
-              onChange={(e) => setForm({ ...form, weeklyStock: e.target.value === "" ? null : Math.max(0, Math.floor(Number(e.target.value)) || 0) })}
-              className="w-full rounded-lg border border-primary/20 bg-surface px-3 py-2 text-sm outline-none focus:border-secondary"
-            />
-            <p className="mt-1 text-xs text-muted">
-              {(suppliers.find((s) => s.id === form.supplierId)?.stockTracking ?? false)
-                ? "Cap per delivery week - the item shows as sold out once this many are ordered, and resets each delivery day."
-                : "Only applies once stock tracking is switched on for this supplier (Suppliers tab). Kept but ignored until then."}
-            </p>
+            {(() => {
+              const mode = suppliers.find((s) => s.id === form.supplierId)?.stockMode ?? "off";
+              return (
+                <>
+                  <label className="block text-sm font-medium text-primary mb-1">{mode === "overall" ? "Stock on the shelf (optional)" : "Weekly stock (optional)"}</label>
+                  <input
+                    type="number"
+                    min={0}
+                    placeholder="NA"
+                    value={form.weeklyStock ?? ""}
+                    onChange={(e) => {
+                      const parsed = e.target.value === "" ? null : Math.max(0, Math.floor(Number(e.target.value)) || 0);
+                      // Overall mode: a new number is a fresh count taken today.
+                      setForm({ ...form, weeklyStock: parsed, stockCountedOn: mode === "overall" ? (parsed == null ? null : todayISO()) : form.stockCountedOn });
+                    }}
+                    className="w-full rounded-lg border border-primary/20 bg-surface px-3 py-2 text-sm outline-none focus:border-secondary"
+                  />
+                  <p className="mt-1 text-xs text-muted">
+                    {mode === "weekly"
+                      ? "Cap per delivery week - the item shows as sold out once this many are ordered, and resets each delivery day."
+                      : mode === "overall"
+                        ? `What's on the shelf at the warehouse${form.stockCountedOn ? ` (counted ${new Date(form.stockCountedOn + "T00:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short" })})` : ""}. Orders for deliveries from the count date on come off it; it doesn't reset each week.`
+                        : "Only applies once stock is switched on for this supplier (Suppliers tab). Kept but ignored until then."}
+                  </p>
+                </>
+              );
+            })()}
           </div>
 
           <div>

@@ -74,6 +74,7 @@ export async function POST(request: NextRequest) {
       category: body.category!,
       inStock: body.inStock ?? true,
       weeklyStock: body.weeklyStock ?? null,
+      stockCountedOn: body.stockCountedOn ?? null,
       refrigerated: body.refrigerated ?? false,
       locality: (body.locality as Locality) ?? "Local",
       lat: body.lat ?? null,

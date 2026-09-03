@@ -23,8 +23,12 @@ CREATE TABLE IF NOT EXISTS suppliers (
   status        text DEFAULT 'live',
   email         text,
   -- Admin-only toggle: weekly stock limits apply to this supplier's products
-  -- only when true (see migrations/20260717_weekly_stock.sql)
+  -- only when true (see migrations/20260717_weekly_stock.sql). Kept in sync
+  -- with stock_mode by the app; stock_mode is what the code reads now.
   stock_tracking boolean NOT NULL DEFAULT false,
+  -- 'off' | 'weekly' (cap per delivery day) | 'overall' (count on the shelf,
+  -- rolls over week to week) - see migrations/20260903_stock_mode.sql
+  stock_mode text NOT NULL DEFAULT 'off' CHECK (stock_mode IN ('off', 'weekly', 'overall')),
   created_at    timestamptz DEFAULT now()
 );
 
@@ -42,6 +46,9 @@ CREATE TABLE IF NOT EXISTS products (
   -- Per-delivery-week cap; NULL = not tracked. Only enforced when the
   -- supplier's stock_tracking is on (migrations/20260717_weekly_stock.sql)
   weekly_stock      integer CHECK (weekly_stock IS NULL OR weekly_stock >= 0),
+  -- Overall mode only: the day the supplier last typed in the shelf count.
+  -- Orders for delivery days on or after it come off weekly_stock.
+  stock_counted_on  date,
   locality          text DEFAULT 'Local',
   lat               double precision,
   lng               double precision,

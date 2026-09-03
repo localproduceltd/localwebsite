@@ -8,11 +8,15 @@ import {
   type SupplierUser,
   type Locality,
   type ProductStatus,
+  type StockMode,
   type DeleteProductResult,
   ALL_LOCALITIES,
   getSupplierUser,
   getSupplier,
   getProductsBySupplier,
+  getOrderedSinceCount,
+  remainingStockFor,
+  todayISO,
   createProduct,
   updateProduct,
   deleteProduct,
@@ -64,13 +68,19 @@ export default function SupplierProductsPage() {
         const s = await getSupplier(su.supplierId);
         setSupplier(s);
         if (s) await fetchProducts(s.id);
-        if (s?.stockTracking) {
+        if (s?.stockMode === "weekly") {
           try {
             const days = await getActiveDeliveryDays();
             if (days.length > 0) {
               setNextDeliveryDay(days[0].deliveryDate);
               setOrderedQty(await getOrderedQuantities(days[0].deliveryDate));
             }
+          } catch (e) {
+            console.error("Failed to load ordered quantities:", e);
+          }
+        } else if (s?.stockMode === "overall") {
+          try {
+            setOrderedQty(await getOrderedSinceCount());
           } catch (e) {
             console.error("Failed to load ordered quantities:", e);
           }
@@ -136,8 +146,11 @@ export default function SupplierProductsPage() {
     setProducts((prev) => prev.map((p) => (p.id === product.id ? updated : p)));
   };
 
-  // Save an inline weekly-stock edit (blank = not tracked). Doesn't touch
-  // approval status - stock edits go live straight away like the toggle above.
+  // Save an inline stock edit (blank = not tracked). Doesn't touch approval
+  // status - stock edits go live straight away like the toggle above. In
+  // overall mode the number is what's on the shelf right now, so saving it
+  // also records today as the count date: orders for deliveries from today
+  // on come off it, older ones don't.
   const handleSaveWeeklyStock = async (product: Product) => {
     const draft = stockDrafts[product.id];
     if (draft === undefined) return;
@@ -148,10 +161,14 @@ export default function SupplierProductsPage() {
       return next;
     });
     if (parsed === product.weeklyStock) return;
-    const updated = { ...product, weeklyStock: parsed };
+    const overall = supplier?.stockMode === "overall";
+    const updated = { ...product, weeklyStock: parsed, stockCountedOn: overall ? (parsed == null ? null : todayISO()) : product.stockCountedOn };
     try {
       await updateProduct(updated);
       setProducts((prev) => prev.map((p) => (p.id === product.id ? updated : p)));
+      // A fresh count starts from zero ordered-since; the next page load
+      // will pick up anything ordered for a delivery from today on.
+      if (overall) setOrderedQty((prev) => ({ ...prev, [product.id]: 0 }));
     } catch (e) {
       console.error("Failed to save weekly stock:", e);
       alert("Failed to save weekly stock. Please try again.");
@@ -159,7 +176,15 @@ export default function SupplierProductsPage() {
   };
 
   const weeklyRemaining = (product: Product): number | null =>
-    product.weeklyStock == null ? null : Math.max(0, product.weeklyStock - (orderedQty[product.id] ?? 0));
+    remainingStockFor(supplier?.stockMode, product.weeklyStock, orderedQty[product.id], orderedQty[product.id]);
+
+  const stockMode = supplier?.stockMode ?? "off";
+  const stockLabel = stockMode === "overall" ? "Stock" : "Weekly stock";
+  const soldOutLabel = stockMode === "overall" ? "Sold out" : "Sold out this week";
+  const countedOnLabel = (product: Product): string =>
+    stockMode === "overall" && product.stockCountedOn
+      ? ` · counted ${new Date(product.stockCountedOn + "T00:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short" })}`
+      : "";
 
   const featuredCount = products.filter((p) => p.featuredAt != null).length;
 
@@ -226,11 +251,18 @@ export default function SupplierProductsPage() {
             <Star size={11} className="mb-0.5 mr-0.5 inline fill-accent text-accent" />
             Feature up to {MAX_FEATURED_PER_SUPPLIER} products ({featuredCount} of {MAX_FEATURED_PER_SUPPLIER} used) - they pin to the top of your page and get a boost in the shop.
           </p>
-          {supplier.stockTracking && (
+          {supplier.stockMode === "weekly" && (
             <p className="mt-1 text-xs text-secondary">
               Weekly stock is on: give any product a weekly amount and it&apos;ll show as sold out once that many are ordered
               {nextDeliveryDay ? ` for ${new Date(nextDeliveryDay + "T00:00:00").toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })}` : ""}.
               Leave it at NA for no limit.
+            </p>
+          )}
+          {supplier.stockMode === "overall" && (
+            <p className="mt-1 text-xs text-secondary">
+              Stock is on: type in how many of each product are on the shelf at the warehouse. Everything ordered from then on
+              comes off that number (including orders already in for a delivery that hasn&apos;t gone out yet) and it shows as sold out at zero.
+              When you drop more off, just type in the new total. Leave it at NA for no limit.
             </p>
           )}
         </div>
@@ -265,7 +297,7 @@ export default function SupplierProductsPage() {
           supplierName={supplier.name}
           supplierLat={supplier.lat}
           supplierLng={supplier.lng}
-          stockTracking={supplier.stockTracking}
+          stockMode={supplier.stockMode}
           onSave={handleSave}
           onCancel={() => { setEditing(null); setShowForm(false); }}
         />
@@ -327,7 +359,7 @@ export default function SupplierProductsPage() {
             )}
             {supplier.stockTracking && (
               <div className="mt-2 flex items-center gap-2">
-                <span className="text-[10px] font-semibold uppercase tracking-wide text-muted">Weekly stock</span>
+                <span className="text-[10px] font-semibold uppercase tracking-wide text-muted">{stockLabel}</span>
                 <input
                   type="number"
                   min={0}
@@ -340,7 +372,7 @@ export default function SupplierProductsPage() {
                 />
                 {product.weeklyStock != null && stockDrafts[product.id] === undefined && (
                   <span className={`text-[10px] ${weeklyRemaining(product) === 0 ? "font-semibold text-red-600" : "text-muted"}`}>
-                    {weeklyRemaining(product) === 0 ? "Sold out this week" : `${weeklyRemaining(product)} of ${product.weeklyStock} left`}
+                    {weeklyRemaining(product) === 0 ? soldOutLabel : `${weeklyRemaining(product)} of ${product.weeklyStock} left`}{countedOnLabel(product)}
                   </span>
                 )}
               </div>
@@ -400,7 +432,7 @@ export default function SupplierProductsPage() {
               <th className="px-3 py-3 font-semibold text-primary">Locality</th>
               <th className="px-3 py-3 font-semibold text-primary text-right">Price</th>
               {supplier.stockTracking && (
-                <th className="px-3 py-3 font-semibold text-primary text-center">Weekly Stock</th>
+                <th className="px-3 py-3 font-semibold text-primary text-center">{stockLabel}</th>
               )}
               <th className="px-3 py-3 font-semibold text-primary text-center">
                 <select
@@ -489,7 +521,7 @@ export default function SupplierProductsPage() {
                     />
                     {product.weeklyStock != null && stockDrafts[product.id] === undefined && (
                       <p className={`mt-1 text-[10px] ${weeklyRemaining(product) === 0 ? "font-semibold text-red-600" : "text-muted"}`}>
-                        {weeklyRemaining(product) === 0 ? "Sold out this week" : `${weeklyRemaining(product)} of ${product.weeklyStock} left`}
+                        {weeklyRemaining(product) === 0 ? soldOutLabel : `${weeklyRemaining(product)} of ${product.weeklyStock} left`}{countedOnLabel(product)}
                       </p>
                     )}
                   </td>
@@ -571,7 +603,7 @@ export default function SupplierProductsPage() {
       </div>
 
       <p className="mt-4 text-xs text-muted">
-        New products, and changes to a product&apos;s name or price, require admin approval before they go live. Other edits - stock{supplier.stockTracking ? ", weekly stock" : ""}, description, allergens, ingredients, photo and tags - update straight away.
+        New products, and changes to a product&apos;s name or price, require admin approval before they go live. Other edits - stock{supplier.stockMode === "weekly" ? ", weekly stock" : supplier.stockMode === "overall" ? ", stock numbers" : ""}, description, allergens, ingredients, photo and tags - update straight away.
       </p>
 
       {/* Reviews Modal */}
@@ -629,7 +661,7 @@ function SupplierProductForm({
   supplierName,
   supplierLat,
   supplierLng,
-  stockTracking,
+  stockMode,
   onSave,
   onCancel,
 }: {
@@ -638,7 +670,7 @@ function SupplierProductForm({
   supplierName: string;
   supplierLat: number | null;
   supplierLng: number | null;
-  stockTracking: boolean;
+  stockMode: StockMode;
   onSave: (p: Product) => void;
   onCancel: () => void;
 }) {
@@ -655,6 +687,7 @@ function SupplierProductForm({
       category: "",
       inStock: true,
       weeklyStock: null,
+      stockCountedOn: null,
       refrigerated: false,
       locality: "Local" as Locality,
       lat: null,
@@ -847,18 +880,24 @@ function SupplierProductForm({
               </button>
             </div>
           </div>
-          {stockTracking && (
+          {stockMode !== "off" && (
             <div>
-              <label className="block text-sm font-medium text-primary mb-1">Weekly stock (optional)</label>
+              <label className="block text-sm font-medium text-primary mb-1">{stockMode === "overall" ? "Stock on the shelf (optional)" : "Weekly stock (optional)"}</label>
               <p className="text-xs text-muted mb-2">
-                How many you can supply each delivery week. Once that many are ordered the item shows as sold out until the next delivery day, then the same amount is available again. Leave it at NA for no limit.
+                {stockMode === "overall"
+                  ? "How many are at the warehouse right now. Everything ordered from today on comes off it, and the item shows as sold out at zero until you drop more off and type in the new total. Leave it at NA for no limit."
+                  : "How many you can supply each delivery week. Once that many are ordered the item shows as sold out until the next delivery day, then the same amount is available again. Leave it at NA for no limit."}
               </p>
               <input
                 type="number"
                 min={0}
                 placeholder="NA"
                 value={form.weeklyStock ?? ""}
-                onChange={(e) => setForm({ ...form, weeklyStock: e.target.value === "" ? null : Math.max(0, Math.floor(Number(e.target.value)) || 0) })}
+                onChange={(e) => {
+                  const parsed = e.target.value === "" ? null : Math.max(0, Math.floor(Number(e.target.value)) || 0);
+                  // Overall mode: a new number is a fresh count taken today.
+                  setForm({ ...form, weeklyStock: parsed, stockCountedOn: stockMode === "overall" ? (parsed == null ? null : todayISO()) : form.stockCountedOn });
+                }}
                 className="w-full rounded-lg border border-primary/20 bg-surface px-3 py-2 text-sm outline-none focus:border-secondary"
               />
             </div>

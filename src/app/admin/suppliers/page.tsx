@@ -12,6 +12,10 @@ import {
   createSupplierUser,
   deleteSupplierUser,
   isOnHoliday,
+  stampStockCountedOn,
+  todayISO,
+  type StockMode,
+  STOCK_MODE_LABELS,
 } from "@/lib/data";
 import { Plus, Pencil, Trash2, X, MapPin, UserPlus, Link2, ChevronDown, ChevronRight, Star, Palmtree, Boxes } from "lucide-react";
 import { type SupplierStatus } from "@/lib/data";
@@ -128,11 +132,16 @@ export default function AdminSuppliersPage() {
     setSupplierList((prev) => prev.map((s) => (s.id === supplier.id ? updated : s)));
   };
 
-  // Weekly stock tracking: off by default, switched on per supplier here only.
-  // While off, any weekly_stock numbers on their products are kept but ignored.
-  const handleToggleStockTracking = async (supplier: Supplier) => {
-    const updated = { ...supplier, stockTracking: !supplier.stockTracking };
+  // Stock mode: off by default, set per supplier here only. Weekly = cap per
+  // delivery day; Overall = count on the shelf that rolls over week to week.
+  // While off, any stock numbers on their products are kept but ignored.
+  // Switching to Overall stamps today as the count date on any product that
+  // already has a number, so what the supplier has typed in carries over.
+  const handleStockModeChange = async (supplier: Supplier, stockMode: StockMode) => {
+    if (stockMode === supplier.stockMode) return;
+    const updated = { ...supplier, stockMode, stockTracking: stockMode !== "off" };
     await updateSupplier(updated);
+    if (stockMode === "overall") await stampStockCountedOn(supplier.id, todayISO());
     setSupplierList((prev) => prev.map((s) => (s.id === supplier.id ? updated : s)));
   };
 
@@ -283,7 +292,7 @@ export default function AdminSuppliersPage() {
                   onLinkUser={() => { setLinkingSupplierId(supplier.id); setLinkClerkId(""); }}
                   onUnlinkUser={handleUnlinkUser}
                   onToggleFeatured={() => handleToggleFeatured(supplier)}
-                  onToggleStockTracking={() => handleToggleStockTracking(supplier)}
+                  onStockModeChange={(mode) => handleStockModeChange(supplier, mode)}
                 />
               ))
             )}
@@ -325,7 +334,7 @@ export default function AdminSuppliersPage() {
                   onLinkUser={() => { setLinkingSupplierId(supplier.id); setLinkClerkId(""); }}
                   onUnlinkUser={handleUnlinkUser}
                   onToggleFeatured={() => handleToggleFeatured(supplier)}
-                  onToggleStockTracking={() => handleToggleStockTracking(supplier)}
+                  onStockModeChange={(mode) => handleStockModeChange(supplier, mode)}
                 />
               ))
             )}
@@ -363,7 +372,7 @@ export default function AdminSuppliersPage() {
                   onLinkUser={() => { setLinkingSupplierId(supplier.id); setLinkClerkId(""); }}
                   onUnlinkUser={handleUnlinkUser}
                   onToggleFeatured={() => handleToggleFeatured(supplier)}
-                  onToggleStockTracking={() => handleToggleStockTracking(supplier)}
+                  onStockModeChange={(mode) => handleStockModeChange(supplier, mode)}
                 />
               ))
             )}
@@ -400,7 +409,7 @@ export default function AdminSuppliersPage() {
                   onLinkUser={() => { setLinkingSupplierId(supplier.id); setLinkClerkId(""); }}
                   onUnlinkUser={handleUnlinkUser}
                   onToggleFeatured={() => handleToggleFeatured(supplier)}
-                  onToggleStockTracking={() => handleToggleStockTracking(supplier)}
+                  onStockModeChange={(mode) => handleStockModeChange(supplier, mode)}
                 />
               ))
             )}
@@ -470,6 +479,7 @@ function SupplierForm({
       onHoliday: false,
       holidayUntil: null,
       holidayMessage: null,
+      stockMode: "off" as StockMode,
       stockTracking: false,
     }
   );
@@ -642,7 +652,7 @@ function SupplierCard({
   onLinkUser,
   onUnlinkUser,
   onToggleFeatured,
-  onToggleStockTracking,
+  onStockModeChange,
 }: {
   supplier: Supplier;
   supplierUsers: (SupplierUser & { supplierName: string })[];
@@ -652,7 +662,7 @@ function SupplierCard({
   onLinkUser: () => void;
   onUnlinkUser: (id: string) => void;
   onToggleFeatured: () => void;
-  onToggleStockTracking: () => void;
+  onStockModeChange: (mode: StockMode) => void;
 }) {
   const linked = supplierUsers.find((su) => su.supplierId === supplier.id);
   const statusConfig = STATUS_CONFIG[supplier.status];
@@ -728,20 +738,23 @@ function SupplierCard({
           </select>
         </div>
 
-        {/* Weekly stock tracking toggle: shows the weekly-stock controls in this
-            supplier's portal and enforces their per-item limits in the shop */}
-        <div className="mt-3 flex items-center justify-between rounded-lg bg-primary/5 px-2.5 py-1.5">
+        {/* Stock mode: shows the stock controls in this supplier's portal and
+            enforces their per-item limits in the shop. Weekly = cap per
+            delivery day; Overall = shelf count that rolls over week to week. */}
+        <div className="mt-3 flex items-center justify-between gap-2 rounded-lg bg-primary/5 px-2.5 py-1.5">
           <span className="inline-flex items-center gap-1.5 text-xs font-medium text-primary">
-            <Boxes size={12} className="text-secondary" /> Stock tracking
+            <Boxes size={12} className="text-secondary" /> Stock
           </span>
-          <button
-            type="button"
-            onClick={onToggleStockTracking}
-            title={supplier.stockTracking ? "Switch off weekly stock limits for this supplier" : "Switch on weekly stock limits for this supplier"}
-            className={`relative h-6 w-11 rounded-full transition ${supplier.stockTracking ? "bg-secondary" : "bg-gray-300"}`}
+          <select
+            value={supplier.stockMode}
+            onChange={(e) => onStockModeChange(e.target.value as StockMode)}
+            title="Off: no limits. Weekly: a cap per delivery day that resets each week. Overall: what's on the shelf at the warehouse, counting down until they restock."
+            className="min-h-[32px] rounded-lg border border-primary/20 bg-white px-2 py-1 text-xs font-medium outline-none focus:border-secondary"
           >
-            <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition ${supplier.stockTracking ? "left-5" : "left-0.5"}`} />
-          </button>
+            {(Object.keys(STOCK_MODE_LABELS) as StockMode[]).map((m) => (
+              <option key={m} value={m}>{STOCK_MODE_LABELS[m]}</option>
+            ))}
+          </select>
         </div>
 
         {/* Linked user info */}

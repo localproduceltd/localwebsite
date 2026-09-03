@@ -22,9 +22,34 @@ export interface Supplier {
   onHoliday: boolean;
   holidayUntil: string | null;
   holidayMessage: string | null;
-  // Admin-only toggle: weekly stock limits only apply to this supplier's
-  // products when true. Off by default - untracked suppliers behave as before.
+  // Admin-only setting. 'off' = no stock limits (default). 'weekly' = each
+  // product's weeklyStock is a cap per delivery day. 'overall' = weeklyStock
+  // is the count on the shelf at the warehouse when the supplier last counted
+  // it (stockCountedOn), and it rolls over week to week instead of resetting.
+  stockMode: StockMode;
+  // Derived: stockMode !== "off". Still written to the DB so anything that
+  // reads the old column keeps working.
   stockTracking: boolean;
+}
+
+export type StockMode = "off" | "weekly" | "overall";
+
+export const STOCK_MODE_LABELS: Record<StockMode, string> = {
+  off: "Off",
+  weekly: "Weekly",
+  overall: "Overall",
+};
+
+function readStockMode(row: { stock_mode?: string | null; stock_tracking?: boolean | null }): StockMode {
+  const m = row.stock_mode;
+  if (m === "weekly" || m === "overall") return m;
+  if (m == null && row.stock_tracking) return "weekly";
+  return "off";
+}
+
+// Today's date as YYYY-MM-DD in UK time - the day a shelf count was taken.
+export function todayISO(): string {
+  return new Date().toLocaleDateString("en-CA", { timeZone: "Europe/London" });
 }
 
 export function isOnHoliday(supplier: Supplier): boolean {
@@ -109,11 +134,14 @@ export interface Product {
   image: string;
   category: string;
   inStock: boolean;
-  // Cap for one delivery week; null = not tracked. Only enforced when the
-  // supplier's stockTracking toggle is on.
+  // Weekly mode: cap for one delivery day. Overall mode: count on the shelf
+  // when last counted. null = not tracked. Only enforced when the supplier's
+  // stock mode isn't off.
   weeklyStock: number | null;
+  // Overall mode: the day (YYYY-MM-DD) the supplier last typed the shelf count.
+  stockCountedOn: string | null;
   // Populated where the supplier row is joined (shop + supplier queries).
-  supplierStockTracking?: boolean;
+  supplierStockMode?: StockMode;
   refrigerated: boolean;
   locality: Locality;
   lat: number | null;
@@ -243,7 +271,8 @@ export async function getSuppliers(client: SupabaseClient = supabase): Promise<S
     onHoliday: s.on_holiday ?? false,
     holidayUntil: s.holiday_until ?? null,
     holidayMessage: s.holiday_message ?? null,
-    stockTracking: s.stock_tracking ?? false,
+    stockMode: readStockMode(s),
+    stockTracking: readStockMode(s) !== "off",
   }));
 }
 
@@ -271,7 +300,8 @@ export async function getLiveSuppliers(): Promise<Supplier[]> {
     onHoliday: s.on_holiday ?? false,
     holidayUntil: s.holiday_until ?? null,
     holidayMessage: s.holiday_message ?? null,
-    stockTracking: s.stock_tracking ?? false,
+    stockMode: readStockMode(s),
+    stockTracking: readStockMode(s) !== "off",
   }));
 }
 
@@ -301,7 +331,8 @@ export async function getActiveSuppliers(): Promise<Supplier[]> {
     onHoliday: s.on_holiday ?? false,
     holidayUntil: s.holiday_until ?? null,
     holidayMessage: s.holiday_message ?? null,
-    stockTracking: s.stock_tracking ?? false,
+    stockMode: readStockMode(s),
+    stockTracking: readStockMode(s) !== "off",
   }));
 }
 
@@ -328,7 +359,8 @@ export async function getSupplier(id: string, client: SupabaseClient = supabase)
     onHoliday: data.on_holiday ?? false,
     holidayUntil: data.holiday_until ?? null,
     holidayMessage: data.holiday_message ?? null,
-    stockTracking: data.stock_tracking ?? false,
+    stockMode: readStockMode(data),
+    stockTracking: readStockMode(data) !== "off",
   };
 }
 
@@ -394,6 +426,7 @@ export async function getProducts(client: SupabaseClient = supabase): Promise<Pr
     category: p.category,
     inStock: p.in_stock,
     weeklyStock: p.weekly_stock ?? null,
+    stockCountedOn: p.stock_counted_on ?? null,
     refrigerated: p.refrigerated ?? false,
     locality: (p.locality as Locality) ?? "Local",
     lat: p.lat ?? null,
@@ -414,7 +447,7 @@ export async function getApprovedProducts(): Promise<Product[]> {
   const data = await fetchAllRows((from, to) =>
     supabase
       .from("products_with_stats")
-      .select("*, suppliers!inner(name, status, stock_tracking)")
+      .select("*, suppliers!inner(name, status, stock_mode)")
       .eq("status", "approved")
       .eq("suppliers.status", "launch_live")
       .is("archived_at", null)
@@ -434,7 +467,8 @@ export async function getApprovedProducts(): Promise<Product[]> {
     category: p.category,
     inStock: p.in_stock,
     weeklyStock: p.weekly_stock ?? null,
-    supplierStockTracking: (p.suppliers as { stock_tracking?: boolean })?.stock_tracking ?? false,
+    stockCountedOn: p.stock_counted_on ?? null,
+    supplierStockMode: readStockMode((p.suppliers as { stock_mode?: string | null }) ?? {}),
     refrigerated: p.refrigerated ?? false,
     locality: (p.locality as Locality) ?? "Local",
     lat: p.lat ?? null,
@@ -457,7 +491,7 @@ export async function getApprovedProducts(): Promise<Product[]> {
 export async function getProductsBySupplier(supplierId: string, client: SupabaseClient = supabase): Promise<Product[]> {
   const { data, error } = await client
     .from("products_with_stats")
-    .select("*, suppliers(name, stock_tracking)")
+    .select("*, suppliers(name, stock_mode)")
     .eq("supplier_id", supplierId)
     .is("archived_at", null)
     .order("name");
@@ -474,6 +508,7 @@ export async function getProductsBySupplier(supplierId: string, client: Supabase
     category: p.category,
     inStock: p.in_stock,
     weeklyStock: p.weekly_stock ?? null,
+    stockCountedOn: p.stock_counted_on ?? null,
     refrigerated: p.refrigerated ?? false,
     locality: (p.locality as Locality) ?? "Local",
     lat: p.lat ?? null,
@@ -485,7 +520,7 @@ export async function getProductsBySupplier(supplierId: string, client: Supabase
     allergens: p.allergens ?? [],
     tags: p.tags ?? [],
     ingredients: p.ingredients ?? null,
-    supplierStockTracking: (p.suppliers as { stock_tracking?: boolean })?.stock_tracking ?? false,
+    supplierStockMode: readStockMode((p.suppliers as { stock_mode?: string | null }) ?? {}),
     avgRating: Number(p.avg_rating) || 0,
     ratingCount: p.rating_count ?? 0,
     orderCount: p.order_count ?? 0,
@@ -516,6 +551,7 @@ export async function getProduct(id: string, client: SupabaseClient = supabase):
     category: data.category,
     inStock: data.in_stock,
     weeklyStock: data.weekly_stock ?? null,
+    stockCountedOn: data.stock_counted_on ?? null,
     refrigerated: data.refrigerated ?? false,
     locality: (data.locality as Locality) ?? "Local",
     lat: data.lat ?? null,
@@ -552,6 +588,7 @@ export async function getArchivedProducts(client: SupabaseClient = supabase): Pr
     category: p.category,
     inStock: p.in_stock,
     weeklyStock: p.weekly_stock ?? null,
+    stockCountedOn: p.stock_counted_on ?? null,
     refrigerated: p.refrigerated ?? false,
     locality: (p.locality as Locality) ?? "Local",
     lat: p.lat ?? null,
@@ -691,11 +728,13 @@ export async function getActiveDeliveryDays(): Promise<DeliveryDay[]> {
     });
 }
 
-// ─── Weekly stock ────────────────────────────────────────────────────────────
-// Remaining stock is never stored: it's weekly_stock minus what's already been
-// ordered for a delivery day (cancelled lines excluded), read live from the
-// product_ordered_quantities view. Baskets reserve nothing - only paid orders
-// count - so the checkout API re-checks at payment time.
+// ─── Stock ───────────────────────────────────────────────────────────────────
+// Remaining stock is never stored. Weekly mode: weekly_stock minus what's
+// already been ordered for a delivery day (product_ordered_quantities view).
+// Overall mode: the shelf count minus everything ordered for delivery days on
+// or after the count date (product_ordered_since_count view). Cancelled lines
+// are excluded from both. Baskets reserve nothing - only paid orders count -
+// so the checkout API re-checks at payment time.
 
 // Units already ordered per product for one delivery day, keyed by product id.
 export async function getOrderedQuantities(
@@ -715,19 +754,49 @@ export async function getOrderedQuantities(
   return result;
 }
 
+// Units ordered per product for delivery days on or after each product's
+// stock_counted_on (overall mode), keyed by product id.
+export async function getOrderedSinceCount(
+  productIds?: string[],
+  client: SupabaseClient = supabase
+): Promise<Record<string, number>> {
+  let query = client.from("product_ordered_since_count").select("product_id, quantity_ordered");
+  if (productIds && productIds.length > 0) query = query.in("product_id", productIds);
+  const { data, error } = await query;
+  if (error) throw error;
+  const result: Record<string, number> = {};
+  for (const row of data ?? []) result[row.product_id] = row.quantity_ordered;
+  return result;
+}
+
+// Units still available for one product, or null if it isn't tracked.
+// orderedForDay = ordered for the delivery day in question (weekly mode);
+// orderedSinceCount = ordered since the shelf count (overall mode).
+export function remainingStockFor(
+  mode: StockMode | undefined,
+  stock: number | null,
+  orderedForDay: number | undefined,
+  orderedSinceCount: number | undefined
+): number | null {
+  if (!mode || mode === "off" || stock == null) return null;
+  const ordered = mode === "weekly" ? orderedForDay : orderedSinceCount;
+  return Math.max(0, stock - (ordered ?? 0));
+}
+
 export interface StockViolation {
   productId: string;
   productName: string;
   // Units still available for that delivery day (0 = sold out or out of stock)
   remaining: number;
-  // Which gate it failed: the supplier's manual Out of Stock toggle, or the
-  // weekly count for this delivery day. The basket words the two differently.
-  reason: "out_of_stock" | "weekly_limit";
+  // Which gate it failed: the supplier's manual Out of Stock toggle, the
+  // weekly count for this delivery day, or the overall shelf count. The
+  // basket words them differently.
+  reason: "out_of_stock" | "weekly_limit" | "stock_limit";
 }
 
 // Server-side checkout gate. A line violates if the product is manually out of
-// stock, or (supplier stock_tracking on + weekly_stock set) the requested
-// quantity exceeds what's left for that delivery day.
+// stock, or (supplier stock mode on + stock number set) the requested quantity
+// exceeds what's left - for that delivery day (weekly) or on the shelf (overall).
 export async function checkStockForItems(
   items: Array<{ productId: string; quantity: number }>,
   deliveryDay: string,
@@ -737,10 +806,13 @@ export async function checkStockForItems(
   if (productIds.length === 0) return [];
   const { data, error } = await client
     .from("products")
-    .select("id, name, in_stock, weekly_stock, suppliers(stock_tracking)")
+    .select("id, name, in_stock, weekly_stock, stock_counted_on, suppliers(stock_mode)")
     .in("id", productIds);
   if (error) throw error;
-  const ordered = await getOrderedQuantities(deliveryDay, productIds, client);
+  const [ordered, orderedSince] = await Promise.all([
+    getOrderedQuantities(deliveryDay, productIds, client),
+    getOrderedSinceCount(productIds, client),
+  ]);
   const violations: StockViolation[] = [];
   for (const item of items) {
     const p = data?.find((row) => row.id === item.productId);
@@ -749,11 +821,11 @@ export async function checkStockForItems(
       violations.push({ productId: p.id, productName: p.name, remaining: 0, reason: "out_of_stock" });
       continue;
     }
-    const tracking = (p.suppliers as unknown as { stock_tracking?: boolean } | null)?.stock_tracking ?? false;
-    if (!tracking || p.weekly_stock == null) continue;
-    const remaining = Math.max(0, p.weekly_stock - (ordered[p.id] ?? 0));
+    const mode = readStockMode((p.suppliers as unknown as { stock_mode?: string | null } | null) ?? {});
+    const remaining = remainingStockFor(mode, p.weekly_stock, ordered[p.id], orderedSince[p.id]);
+    if (remaining == null) continue;
     if (item.quantity > remaining) {
-      violations.push({ productId: p.id, productName: p.name, remaining, reason: "weekly_limit" });
+      violations.push({ productId: p.id, productName: p.name, remaining, reason: mode === "overall" ? "stock_limit" : "weekly_limit" });
     }
   }
   return violations;
@@ -772,6 +844,7 @@ export async function createProduct(rawProduct: Omit<Product, "id" | "supplierNa
     category: product.category,
     in_stock: product.inStock,
     weekly_stock: product.weeklyStock ?? null,
+    stock_counted_on: product.stockCountedOn ?? null,
     refrigerated: product.refrigerated ?? false,
     supplier_id: product.supplierId,
     locality: product.locality,
@@ -796,6 +869,7 @@ export async function createProduct(rawProduct: Omit<Product, "id" | "supplierNa
     category: data.category,
     inStock: data.in_stock,
     weeklyStock: data.weekly_stock ?? null,
+    stockCountedOn: data.stock_counted_on ?? null,
     refrigerated: data.refrigerated ?? false,
     locality: (data.locality as Locality) ?? "Local",
     lat: data.lat ?? null,
@@ -821,6 +895,7 @@ export async function updateProduct(rawProduct: Product, client: SupabaseClient 
     category: product.category,
     in_stock: product.inStock,
     weekly_stock: product.weeklyStock ?? null,
+    stock_counted_on: product.stockCountedOn ?? null,
     refrigerated: product.refrigerated ?? false,
     supplier_id: product.supplierId,
     locality: product.locality,
@@ -832,6 +907,19 @@ export async function updateProduct(rawProduct: Product, client: SupabaseClient 
     tags: product.tags ?? [],
     ingredients: product.ingredients ?? null,
   }).eq("id", product.id);
+  if (error) throw error;
+}
+
+// When a supplier is switched to overall stock, give every product that already
+// has a stock number but no count date today's date - so the numbers they've
+// typed in carry over as "counted today". Products with a date already keep it.
+export async function stampStockCountedOn(supplierId: string, date: string, client: SupabaseClient = supabase): Promise<void> {
+  const { error } = await client
+    .from("products")
+    .update({ stock_counted_on: date })
+    .eq("supplier_id", supplierId)
+    .not("weekly_stock", "is", null)
+    .is("stock_counted_on", null);
   if (error) throw error;
 }
 
@@ -942,9 +1030,11 @@ export async function createSupplier(supplier: Omit<Supplier, "id">, client: Sup
     status: supplier.status,
     email: supplier.email,
     instagram: supplier.instagram,
+    stock_mode: supplier.stockMode ?? "off",
+    stock_tracking: (supplier.stockMode ?? "off") !== "off",
   }).select().single();
   if (error) throw error;
-  return { id: data.id, name: data.name, description: data.description, image: data.image, location: data.location, category: data.category, lat: data.lat ?? null, lng: data.lng ?? null, status: data.status ?? "launch_live", email: data.email ?? null, instagram: data.instagram ?? null, featured: data.featured ?? false, onHoliday: data.on_holiday ?? false, holidayUntil: data.holiday_until ?? null, holidayMessage: data.holiday_message ?? null, stockTracking: data.stock_tracking ?? false };
+  return { id: data.id, name: data.name, description: data.description, image: data.image, location: data.location, category: data.category, lat: data.lat ?? null, lng: data.lng ?? null, status: data.status ?? "launch_live", email: data.email ?? null, instagram: data.instagram ?? null, featured: data.featured ?? false, onHoliday: data.on_holiday ?? false, holidayUntil: data.holiday_until ?? null, holidayMessage: data.holiday_message ?? null, stockMode: readStockMode(data), stockTracking: readStockMode(data) !== "off" };
 }
 
 export async function updateSupplier(supplier: Supplier, client: SupabaseClient = supabase): Promise<void> {
@@ -963,7 +1053,8 @@ export async function updateSupplier(supplier: Supplier, client: SupabaseClient 
     on_holiday: supplier.onHoliday,
     holiday_until: supplier.holidayUntil,
     holiday_message: supplier.holidayMessage,
-    stock_tracking: supplier.stockTracking,
+    stock_mode: supplier.stockMode,
+    stock_tracking: supplier.stockMode !== "off",
   }).eq("id", supplier.id);
   if (error) throw error;
 }
@@ -975,7 +1066,7 @@ export async function getSupplierByProductId(productId: string): Promise<Supplie
     .eq("id", productId)
     .single();
   if (error || !data?.suppliers) return null;
-  const s = data.suppliers as unknown as { id: string; name: string; description: string; image: string; location: string; category: string; lat: number | null; lng: number | null; status: string; email: string | null; instagram: string | null; on_holiday: boolean; holiday_until: string | null; holiday_message: string | null; stock_tracking: boolean | null };
+  const s = data.suppliers as unknown as { id: string; name: string; description: string; image: string; location: string; category: string; lat: number | null; lng: number | null; status: string; email: string | null; instagram: string | null; on_holiday: boolean; holiday_until: string | null; holiday_message: string | null; stock_tracking: boolean | null; stock_mode: string | null };
   return {
     id: s.id,
     name: s.name,
@@ -992,7 +1083,8 @@ export async function getSupplierByProductId(productId: string): Promise<Supplie
     onHoliday: s.on_holiday ?? false,
     holidayUntil: s.holiday_until ?? null,
     holidayMessage: s.holiday_message ?? null,
-    stockTracking: s.stock_tracking ?? false,
+    stockMode: readStockMode(s),
+    stockTracking: readStockMode(s) !== "off",
   };
 }
 

@@ -298,7 +298,7 @@ export default function CartPage() {
 
   // A stock problem only still applies at the quantity now in the basket, so
   // "Reduce to 2" clears its own warning immediately instead of waiting for the
-  // next check. Nothing left (out of stock, or sold out this week) always applies.
+  // next check. Nothing left (out of stock, or sold out) always applies.
   const stockIssueFor = (productId: string, quantity: number): StockViolation | null => {
     const violation = stockViolations[productId];
     if (!violation) return null;
@@ -598,7 +598,7 @@ export default function CartPage() {
                   const stockIssue = stockIssueFor(item.productId, item.quantity);
                   // Some left, just fewer than they've asked for - reducing keeps
                   // the item rather than losing the line entirely.
-                  const canReduce = stockIssue?.reason === "weekly_limit" && stockIssue.remaining > 0;
+                  const canReduce = (stockIssue?.reason === "weekly_limit" || stockIssue?.reason === "stock_limit") && stockIssue.remaining > 0;
                   return (
                     <div
                       key={item.productId}
@@ -641,6 +641,8 @@ export default function CartPage() {
                               <><span className="font-semibold">Out of stock</span> — remove to checkout</>
                             ) : canReduce ? (
                               <>Only <span className="font-semibold">{stockIssue.remaining} left</span> for this delivery — reduce to checkout</>
+                            ) : stockIssue.reason === "stock_limit" ? (
+                              <><span className="font-semibold">Sold out</span> — remove to checkout</>
                             ) : (
                               <><span className="font-semibold">Sold out this week</span> — remove to checkout</>
                             )}

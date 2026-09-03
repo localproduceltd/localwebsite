@@ -33,8 +33,9 @@ export default function ProductDetailModal({ product, onClose }: ProductDetailMo
   const cartItem = items.find((i) => i.productId === product.id);
   const colors = LOCALITY_COLORS[product.locality] ?? LOCALITY_COLORS["Local"];
   const avgRating = (product.ratingCount ?? 0) > 0 ? { avg: product.avgRating ?? 0, count: product.ratingCount ?? 0 } : null;
-  // Weekly stock: 0 left = sold out until next delivery day (distinct from the
-  // supplier's manual Out of Stock toggle)
+  // Tracked stock: 0 left = sold out (weekly: until the next delivery day;
+  // overall: until the supplier restocks). Distinct from the supplier's manual
+  // Out of Stock toggle.
   const remaining = remainingStock(product.id);
   const soldOutWeekly = product.inStock && remaining === 0;
   const unavailable = !product.inStock || soldOutWeekly;
@@ -141,7 +142,7 @@ export default function ProductDetailModal({ product, onClose }: ProductDetailMo
           <div className="mt-6">
             {unavailable ? (
               <button disabled className="w-full rounded-lg py-3 text-sm font-semibold text-white bg-primary opacity-50 cursor-not-allowed">
-                {soldOutWeekly ? "Sold out - back next week" : "Unavailable"}
+                {soldOutWeekly ? (product.supplierStockMode === "overall" ? "Sold out" : "Sold out - back next week") : "Unavailable"}
               </button>
             ) : cartItem ? (
               <div className="flex items-center justify-between rounded-lg bg-primary/10 px-4 py-3">
@@ -155,7 +156,7 @@ export default function ProductDetailModal({ product, onClose }: ProductDetailMo
                 <button
                   onClick={() => updateQuantity(product.id, 1)}
                   disabled={atLimit}
-                  title={atLimit ? `Only ${remaining} available this week` : undefined}
+                  title={atLimit ? `Only ${remaining} available${product.supplierStockMode === "overall" ? "" : " this week"}` : undefined}
                   className="flex h-10 w-10 items-center justify-center rounded-full bg-secondary/20 text-primary transition hover:bg-secondary/40 disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   <Plus size={16} />

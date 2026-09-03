@@ -56,7 +56,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Weekly stock gate: top-up items count against the same delivery day as
+    // Stock gate: top-up items count against the same delivery day as
     // the original order (its existing lines are already in the ordered totals).
     const order = await getOrder(orderId);
     if (order?.deliveryDay) {
@@ -68,7 +68,7 @@ export async function POST(request: NextRequest) {
         const parts = stockViolations.map((v) =>
           v.remaining > 0
             ? `only ${v.remaining} of "${v.productName}" ${v.remaining === 1 ? "is" : "are"} left for this delivery`
-            : `"${v.productName}" is sold out for this delivery`
+            : v.reason === "stock_limit" ? `"${v.productName}" is sold out` : `"${v.productName}" is sold out for this delivery`
         );
         return NextResponse.json(
           { error: `Sorry - ${parts.join(", and ")}. Please adjust your basket and try again.`, stockViolations },
